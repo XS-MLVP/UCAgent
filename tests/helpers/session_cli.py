@@ -106,10 +106,28 @@ async def main():
 
                 if "StartSuper" in names:
                     agents = await call("ListAgents")
-                    if not agents["agents"]:
+                    if "--sequence-fixture" in options:
+                        assert all(agent["status"] == "succeeded" for agent in agents["agents"]), agents
+                        schedule = [("DUT", "multi-evidence:verify"), ("DUT", "multi-evidence:review"), ("ALU", "multi-evidence:verify")]
+                        index = len(agents["agents"])
+                        if index < len(schedule):
+                            dut, workflow = schedule[index]
+                            sources = await call("ListDUTs", query=dut)
+                            source = next(row for row in sources["duts"] if row["dut_name"] == dut)
+                            result = await call("StartSuper", workflow_ref=workflow, dut_name=dut,
+                                source_workspace=source["source_workspace"], instruction="Complete sequential verification")
+                            assert result["accepted"], result
+                    elif "--pause-fixture" in options and any(a["status"] != "succeeded" for a in agents["agents"]):
+                        emit("item.completed", item={"type": "agent_message", "text": "Task needs operator action; inspect its recovery state."})
+                        emit("turn.completed", usage={"input_tokens": 10, "output_tokens": 4})
+                        return
+                    elif not agents["agents"]:
                         workflows = await call("ListWorkflows")
+                        duts = await call("ListDUTs", query="DUT")
+                        assert len(duts["duts"]) == 1, duts
                         await call("StartSuper", workflow_ref=workflows["workflows"][0]["workflow_ref"],
-                                   dut_name="DUT", instruction="Complete the requested evidence workflow")
+                                   dut_name="DUT", source_workspace=duts["duts"][0]["source_workspace"],
+                                   instruction="Complete the requested evidence workflow")
                     else:
                         assert all(agent["status"] == "succeeded" for agent in agents["agents"]), agents
                     emit("item.completed", item={"type": "agent_message", "text": "Verified results received."})
@@ -136,11 +154,18 @@ async def main():
                 if "SubAgentTool" in names:
                     assert not names & {"EditTextFile", "Complete", "SubmitTaskResult"}
                     if tips["stage"] is not None:
-                        await call("SubAgentTool", plan_id=f"cli-{tips['stage_index']}",
+                        await call("SubAgentTool", plan_id=f"cli-{tips['stage_index']}-{uuid4().hex[:8]}",
                                    planning_token=tips["planning_token"],
                                    tasks=[{"id": "work", "instruction": "Complete the authorized stage"}])
                 else:
                     assert "SubmitTaskResult" in names and "SubAgentTool" not in names
+                    if "--pause-fixture" in options and not Path("operator-ready.txt").is_file():
+                        await call("SubmitTaskResult", status="needs_attention", summary="Waiting for required input",
+                                   issue={"kind": "environment", "summary": "operator-ready.txt is missing",
+                                          "next_action": "Provide the input and recheck",
+                                          "conditions": [{"kind": "file_exists", "value": "operator-ready.txt"}]})
+                        emit("turn.completed", usage={"input_tokens": 10, "output_tokens": 4})
+                        return
                     if "Check" not in names:
                         for path in tips["task"]["inputs"]:
                             assert "evidence" in await call("ReadTextFile", path=path)

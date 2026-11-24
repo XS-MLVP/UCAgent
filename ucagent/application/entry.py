@@ -39,6 +39,12 @@ def run() -> None:
     if sys.argv[1:2] == ["attach"]:
         from ucagent.interfaces.cli.attach import attach
         return attach(sys.argv[2:])
+    if sys.argv[1:2] == ["prepare-workspace"]:
+        from ucagent.interfaces.cli.workspace_preparation import parse_preparation_options
+        from ucagent.application.prepare_workspace import prepare_workflow_workspace
+        target = prepare_workflow_workspace(**parse_preparation_options(sys.argv[2:]))
+        info(f"Prepared workspace: {target}")
+        return
     args = get_args()
 
     if run_management_commands(args):

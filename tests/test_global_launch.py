@@ -24,14 +24,15 @@ def test_global_initial_prompt_is_one_turn(tmp_path):
 @pytest.mark.parametrize("external", [True, False])
 def test_documented_policy_loads_unittest_catalog(backend, external):
     """The documented policy resolves a bundled workflow for each supported tool mode."""
-    from ucagent.core.workflow.contracts import WorkflowCatalog
+    from ucagent.core.multi_agent.global_agent.catalog import GlobalWorkflowCatalog
+    from ucagent.util.config import Config
     document = (ROOT / "docs/content/02_usage/13_global_agent.md").read_text()
     policy = yaml.safe_load(document.split("```yaml\n", 1)[1].split("```", 1)[0])["global_agent"]
     policy["plugin_selectors"] = [str(ROOT / "ucagent/plugins/UnitTest")]
     policy["launch_profiles"]["standard"].update(backend=backend, no_embed_tools=external)
     settings = GlobalSettings.model_validate(policy)
-    catalog = WorkflowCatalog(settings)
-    assert set(catalog.entries) == {"unittest:unittest"}
+    catalog = GlobalWorkflowCatalog(Config({"global_agent": settings.model_dump()}))
+    assert {"unittest:unittest", "formal:formal"} <= set(catalog.entries)
     workflow = catalog.entries["unittest:unittest"].workflow
     assert workflow.config_file.is_file() and workflow.purpose
     assert settings.launch_profiles["standard"].backend == backend
@@ -48,11 +49,12 @@ def test_make_entry_contract(target, prompt, interface, tmp_path):
                             cwd=ROOT, capture_output=True, text=True, check=True)
     launch = result.stdout.strip().splitlines()[-1]
     assert "--agent-mode multi" in launch
-    assert "unittest:unittest" in launch
+    assert ("unittest:unittest" in launch) is prompt
     assert ("--loop-msg" in launch) is prompt
     assert interface in launch
     assert "--exit-on-completion" not in launch
     assert "--loop " not in launch
+    assert "global_agent.allowed_workflows" not in launch
 
 
 def test_make_accepts_codex_and_headless_request(tmp_path):

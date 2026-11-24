@@ -159,10 +159,11 @@ def test_repeated_invalid_plans_stop_at_existing_model_budget(tmp_path, monkeypa
     try:
         value.one_loop()
         assert len(model.contexts) == 2
-        assert value.multi_agent.workflow_state == "failed"
+        assert value.multi_agent.workflow_state == "waiting_human"
+        assert value.multi_agent.issue["kind"] == "budget"
         assert value.multi_agent.records == {}
         assert value.get_tool_by_name("SubAgentTool").call_count == 0
-        assert any("budget exhausted" in event.get("error", "") for event in value.multi_agent.status()["events"])
+        assert any("budget exhausted" in event.get("error", "") or "budget exhausted" in event.get("issue", {}).get("summary", "") for event in value.multi_agent.status()["events"])
     finally:
         value._startup_cleanup.close()
 

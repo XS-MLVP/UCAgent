@@ -4,8 +4,8 @@
 UCAgent 插件用于独立交付领域能力。一个插件可以按需提供 Tool、Checker、Skill、
 Guide_Doc 和工作流中的任意一种或多种能力；这些贡献都是一级可选项，互不依赖，也不
 要求插件提供完整工作流。插件是普通 Python 发行包：安装后通过标准 entry point 自动
-发现；源码开发时也可以通过显式配置的搜索路径发现。插件必须由用户选择后才会导入和
-激活，UCAgent 不会扫描或执行任意 workspace Python 文件。
+发现；源码开发时也可以通过显式配置的搜索路径发现。单 Agent 执行只导入并激活选中的插件；Global 会导入发现的插件声明建立目录，
+各 Super 只激活选中的插件。UCAgent 不会扫描或执行任意 workspace Python 文件。
 
 `ucagent/plugins/RTL2Spec/` 提供文档生成插件；`ucagent/plugins/DesignWithPPA/` 展示自定义
 Tool、Checker、模板、Skill 与工作流的组合。
@@ -695,3 +695,11 @@ LLM 看到的实现可能指向不同函数，真实实现也可能被旧占位�
 插件根目录内列举的输出、构建和缓存目录，并拒绝通过可覆盖的 workspace 或 output 参数
 扩大范围；已跟踪源文件和用户对源文件的修改必须保持不变。发布前应在临时目录验证“目标
 缓存被删除、无关文件保留、插件根外路径不会被触碰”这三个边界。
+
+## 工作流工作区准备
+
+`PluginWorkflow.prepare_workspace` 可选声明一个接收 `WorkspacePreparation` 的准备函数。`preparation_schema` 必须继承 `PreparationOptions`（严格 Pydantic 校验）；Global 通过 `ListWorkflows` 暴露该参数结构。未声明钩子时，运行时安全复制指定源工作区。
+
+上下文提供 `source`、全新 `workspace`、`dut_name`、校验后的 `options`、`progress(text)`、`check_cancelled()` 和 `run_command(argv, cwd=...)`。使用 `copy(source, destination)` 进行可取消复制；只写目标目录、保留原始来源，在循环中检查取消，子命令统一通过提供的 runner 执行。失败直接抛出异常；准备函数不能创建 Agent 或标记验证阶段完成。准备成功只允许启动 Super，验证仍由原有 Check/Complete 把关。
+
+Global 在 Super profile 的超时和资源配额下异步执行准备；Make 准备入口复用同一钩子。UnitTest、Formal 各自的 `preparation.py` 是实现示例，框架不按插件名称分支。测试需覆盖成功、非法参数、来源边界、失败、取消和重试。运行行为见 [Global 指南](../02_usage/13_global_agent.md)。

@@ -35,55 +35,33 @@ class TaskConfiguration:
     template_context: dict
     runtime_config_keys: tuple[str, ...]
     initial_workflow: str | None = None
+    project_root: str | None = None
+    global_catalog: object | None = None
 
 
 def resolve_task_configuration(workspace, dut_name, output=None, config_file=None, cfg_override=None,
         *, plugin_selectors=(), plugins=None, workflow_config_file=None, plugin_workflow=None,
         plugin_guide_doc_paths=(), plugin_skill_paths=(), template_dir=None, template_target=None,
-        template_context_factory=None, plugin_runtime_config_keys=(), seed=None):
+        template_context_factory=None, plugin_runtime_config_keys=(), seed=None, configuration_workspace=None):
     """Select a workflow once, then resolve configuration and the resource manifest."""
     workspace = os.path.abspath(workspace)
-    discovery = get_config(config_file, discovery_overrides(cfg_override), workspace)
+    configuration_workspace = configuration_workspace or workspace
+    discovery = get_config(config_file, discovery_overrides(cfg_override), configuration_workspace)
     discovery.update_template({"WORKSPACE": workspace, "DUT": dut_name, "OUT": output or ""})
     from ucagent.core.multi_agent.mode import agent_role
     initial_workflow = None
+    global_catalog = None
     if agent_role(discovery) == "global":
-        # Discover task candidates without activating their stages or resources on Global.
-        catalog = {item.plugin.name: item for item in plugins or ()}
-        requested = list(dict.fromkeys([
-            *plugin_selectors, *discovery.get_value("global_agent.plugin_selectors", [])]))
-        for item in load_plugins(requested, search_paths=configured_plugin_search_paths(discovery)):
-            previous = catalog.get(item.plugin.name)
-            if previous and previous.plugin.root != item.plugin.root:
-                raise ValueError("Conflicting plugin sources in multi workflow catalog")
-            catalog[item.plugin.name] = item
-        if not catalog:
-            candidates = []
-            pointer = discovery.get_value("workflow", None)
-            if pointer:
-                load_pointer_workflow_plugin(
-                    resolve_workflow_pointer_path(pointer, discovery.get_value("lang", "zh")), candidates)
-            if not candidates:
-                bundled = Path(__file__).resolve().parents[2] / "plugins" / "UnitTest"
-                candidates = load_plugins([str(bundled) if bundled.is_dir() else "unittest"])
-            catalog = {item.plugin.name: item for item in candidates}
+        from ucagent.core.multi_agent.global_agent.catalog import GlobalWorkflowCatalog
+        global_catalog = GlobalWorkflowCatalog(discovery, selectors=plugin_selectors, plugins=plugins or ())
         if plugin_workflow:
-            owner, selected = resolve_plugin_workflow(list(catalog.values()), plugin_workflow)
-            initial_workflow = f"{owner.plugin.name}:{selected.name}"
-        available = [f"{item.plugin.name}:{wf.name}" for item in catalog.values() for wf in item.plugin.workflows]
-        allowed = discovery.get_value("global_agent.allowed_workflows", [])
-        if not isinstance(allowed, list):
-            raise ValueError("global_agent.allowed_workflows must be a list")
-        allowed = allowed or available
-        if initial_workflow and initial_workflow not in allowed:
-            raise ValueError(f"Requested workflow {initial_workflow!r} is outside global_agent.allowed_workflows")
+            initial_workflow = global_catalog.resolve(plugin_workflow).ref
         normalized = [str(Path(item.selector).resolve()) if Path(item.selector).exists() else item.selector
-                      for item in catalog.values()]
+                      for item in global_catalog.plugins.values()]
         workflow_config_file = str(Path(__file__).resolve().parents[1] / "multi_agent" / "global_agent" / "workflow.yaml")
         cfg_override = list(cfg_override or []) if isinstance(cfg_override, list) else [cfg_override or {}]
         cfg_override.append({
             "global_agent.plugin_selectors": normalized,
-            "global_agent.allowed_workflows": list(allowed),
             "workflow": workflow_config_file,
             "stage": [], "manager_tools": [], "template": None,
             "output": "mission", "write_dirs": ["mission"],
@@ -125,7 +103,7 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     docs, skills = collect_plugin_resources(loaded, selected)
     docs = tuple(dict.fromkeys(os.path.realpath(p) for p in [*docs, *(plugin_guide_doc_paths or ())]))
     skills = tuple(dict.fromkeys((name, os.path.realpath(p)) for name, p in [*skills, *(plugin_skill_paths or ())]))
-    cfg = get_config(config_file, cfg_override, workspace, workflow_config_file=workflow_config_file)
+    cfg = get_config(config_file, cfg_override, configuration_workspace, workflow_config_file=workflow_config_file)
     output = output if output is not None else cfg.get_value("output") or "output"
     values = {"OUT": output, "DUT": dut_name, "Version": __version__, "WORKSPACE": workspace}
     cfg.update_template(values)
@@ -147,5 +125,6 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     resolve_plugin_guide_doc_copy_policy(cfg)
     return TaskConfiguration(cfg, workspace, dut_name, output, tuple(loaded), workflow_config_file,
         plugin_workflow, docs, skills, template_dir, template_target, template_context_factory,
-        context, tuple(dict.fromkeys(keys)), initial_workflow)
+        context, tuple(dict.fromkeys(keys)), initial_workflow,
+        cfg.get_value("global_agent.project_root") if agent_role(cfg) == "global" else None, global_catalog)
 

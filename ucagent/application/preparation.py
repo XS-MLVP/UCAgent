@@ -4,7 +4,10 @@ from ucagent.core.agent.configuration import resolve_task_configuration
 from ucagent.application.plan import LaunchRequest, build_launch_plan
 from ucagent.application.workspace import prepare_workspace
 from ucagent.util.log import init_log_logger, init_msg_logger
-from ucagent.util.config import resolve_user_config_file
+from ucagent.util.config import resolve_user_config_file, get_config, discovery_overrides
+from ucagent.core.multi_agent.mode import agent_role
+from pathlib import Path
+from uuid import uuid4
 import os
 
 
@@ -16,6 +19,20 @@ def prepare_launch(request: LaunchRequest, *, cleanup=None):
         temporary_prefix=request.temporary_prefix, create_workspace=request.create_workspace,
         create_dut=request.create_dut, cleanup=cleanup,
     )
+    configuration_workspace = options["workspace"]
+    discovery = get_config(options.get("config_file"), discovery_overrides(options.get("cfg_override")), configuration_workspace)
+    if agent_role(discovery) == "global":
+        project = Path(configuration_workspace).resolve()
+        base = Path(discovery.get_value("global_agent.root") or project / ".ucagent/global")
+        if not base.is_absolute():
+            base = project / base
+        session = base.resolve() / "sessions" / uuid4().hex
+        global_workspace = session / "global"
+        global_workspace.mkdir(parents=True, exist_ok=False)
+        overrides = options.get("cfg_override")
+        overrides = list(overrides) if isinstance(overrides, list) else [overrides or {}]
+        overrides.append({"global_agent.project_root": str(project), "global_agent.root": str(base.resolve())})
+        options.update(workspace=str(global_workspace), cfg_override=overrides)
     # Resolve the workspace before opening log files inside it.
     if request.log_file or request.msg_file or request.log:
         if request.log_file:
@@ -32,14 +49,13 @@ def prepare_launch(request: LaunchRequest, *, cleanup=None):
     prepared = resolve_task_configuration(
         options["workspace"], options["dut_name"], options.get("output"),
         options.get("config_file"), options.get("cfg_override"),
-        plugin_selectors=request.plugin_selectors,
+        plugin_selectors=request.plugin_selectors, configuration_workspace=configuration_workspace,
         **{key: options[key] for key in (
             "plugins", "workflow_config_file", "plugin_workflow", "plugin_guide_doc_paths",
             "plugin_skill_paths", "template_dir", "template_target", "template_context_factory",
             "plugin_runtime_config_keys", "seed",
         ) if key in options},
     )
-    from ucagent.core.multi_agent.mode import agent_role
     if agent_role(prepared.cfg) == "global":
         options["config_file"] = resolve_user_config_file(
             options.get("config_file"), os.path.expanduser("~"), prepared.cfg.get_value("lang", "zh"))

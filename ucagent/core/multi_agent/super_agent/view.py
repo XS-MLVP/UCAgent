@@ -102,9 +102,13 @@ class WorkerDisplay:
             tools = [{"name": tool.name, "call_count": tool.call_count,
                       "is_hot": False if self.ended_at else tool.is_hot()} for tool in worker.test_tools]
             duration = max(0, (self.ended_at or now) - (worker.record.started or now))
+            budget = worker.record.budget
             stats = {"Run Time": f"{duration:.1f}s", "LLM": "—", "Token Speed": "—", "Idle": "—",
                      "Tool Calls": sum(row["call_count"] for row in tools),
-                     "Backend Turns": worker.record.budget.backend_turns - self.initial_turns}
+                     "Backend Turns": budget.backend_turns - self.initial_turns,
+                     "Tool Failures": budget.failure_counts.get("tool_failure", 0),
+                     "Backend Failures": budget.failure_counts.get("backend_failure", 0),
+                     "Repeated Checker Failures": budget.failure_counts.get("checker_repeat", 0)}
             backend = worker.backend
             if backend is not None:
                 model = backend.model_name()

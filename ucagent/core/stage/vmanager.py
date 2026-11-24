@@ -1227,6 +1227,20 @@ class StageManager(object):
         return None
 
     @coordinated_stage_mutation("human", manager=True)
+    def invalidate_from(self, index):
+        """Revalidate a reached suffix after accepted task inputs or artifacts change."""
+        if not 0 <= index < len(self.stages) or not self.stages[index].is_reached():
+            raise ValueError("Only reached stages can be reopened for validation")
+        for stage in self.stages[index:]:
+            stage.invalidate_acceptance()
+        self.stage_index = index
+        self._refresh_all_completed()
+        self.last_check_info = OrderedDict()
+        self.validation_revision += 1
+        self.stages[index].on_init()
+        self.save_stage_info()
+
+    @coordinated_stage_mutation("human", manager=True)
     def go_to_stage(self, index):
         """
         Go to a specific stage by index.
@@ -1290,7 +1304,11 @@ class StageManager(object):
         else:
             count = 1
         state[stage_index] = (signature, count)
-        if count < self.REPEAT_FAILURE_ESCALATION_THRESHOLD:
+        threshold = self.cfg.get_value(
+            "multi_agent.limits.checker_repeat_failures",
+            self.REPEAT_FAILURE_ESCALATION_THRESHOLD,
+        )
+        if count < threshold:
             return failure_summary
         escalation = (
             f"ESCALATION: this exact failure (same error_code and location) has "

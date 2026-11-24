@@ -10,21 +10,31 @@ import asyncio
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ucagent.core.tools.uctool import UCTool, EmptyArgs
 from ucagent.util.config import Config
 from ucagent.util.functions import get_tools_from_cfg
 from .contracts import StrictModel
+from .recovery import IssueReport, ISSUE_POLICIES, ExecutionCircuitOpen
 
 
 class SubmitArgs(StrictModel):
     """Submit a substantive result without claiming that the stage has passed."""
 
-    status: Literal["ready", "blocked"] = "ready"
+    status: Literal["ready", "needs_attention"] = "ready"
+    issue: IssueReport | None = None
     stage_args: dict | str | None = None
     timeout: int = Field(default=0, ge=0, description="Final Checker timeout in seconds")
     summary: str = Field(min_length=1, max_length=16000, description="Actual work and remaining issues")
+
+
+    @model_validator(mode="after")
+    def issue_required(self):
+        """Unfinished work requires a structured reason; completed work carries no issue."""
+        if (self.status == "needs_attention") != (self.issue is not None):
+            raise ValueError("needs_attention requires issue; ready must not include issue")
+        return self
 
 
 class SubstageArgs(StrictModel):
@@ -90,9 +100,35 @@ class BoundTool(UCTool):
         with self.worker.record.lock:
             self.worker.record.activity = "tool:" + self.name
             try:
-                return self.worker.invoke(self.action, self.delegate, kwargs)
+                result = self.worker.invoke(self.action, self.delegate, kwargs)
+                if self.delegate is not None:
+                    failed = (isinstance(result, dict) and (result.get("error") or result.get("success") is False))
+                    failed = failed or (isinstance(result, str) and result.startswith("[ERROR]"))
+                    self._record_evidence("error" if failed else "returned")
+                    if failed:
+                        if self.worker.service.observe_worker_failure(
+                                self.worker.record, "tool_failure", subject=f"Tool {self.name}"):
+                            raise ExecutionCircuitOpen("tool_failure", self.worker.record.key)
+                    else:
+                        self.worker.service.observe_worker_success(self.worker.record, "tool_failure")
+                return result
+            except Exception as error:
+                if self.delegate is not None and not isinstance(error, ExecutionCircuitOpen):
+                    self._record_evidence("error")
+                    if self.worker.service.observe_worker_failure(
+                            self.worker.record, "tool_failure", subject=f"Tool {self.name}", error=error):
+                        raise ExecutionCircuitOpen("tool_failure", self.worker.record.key) from error
+                raise
             finally:
                 self.worker.record.activity = None
+
+    def _record_evidence(self, outcome):
+        """Record actual invocation identity without copying sensitive tool arguments or output."""
+        record = self.worker.record
+        entry = {"id": uuid4().hex, "tool": self.name, "outcome": outcome, "attempt": record.attempt}
+        record.tool_evidence.append(entry)
+        record.tool_evidence[:] = record.tool_evidence[-100:]
+        self.worker.service.emit("tool_evidence", task_id=record.key, evidence=entry)
 
     async def ainvoke(self, input, config=None, **kwargs):
         """Preserve capability errors across MCP and retain synchronous task locking."""
@@ -184,8 +220,17 @@ class WorkerSession:
         self.service.driver.validate(r.lease)
 
     def timeout(self):
-        """Signal cancellation; the service retains the slot until run returns."""
-        self.record.error = "Task absolute runtime budget exhausted"
+        """Signal an explicitly configured deadline; the service retains the slot until return."""
+        limit = self.service.worker_limit(self.record, "worker_timeout_seconds")
+        if limit > 0:
+            self.record.budget_error = self.service.interrupt_budget(
+                "worker_timeout_seconds", limit, limit, self.record.key)
+            self.record.error = str(self.record.budget_error)
+        else:
+            self.record.execution_issue = {"kind": "execution", "category": "worker_timeout",
+                "summary": "The worker was interrupted while its task was active.",
+                "next_action": "Inspect the Sub status and resume after confirming the task can continue."}
+            self.record.error = self.record.execution_issue["summary"]
         self.record.cancel.set()
         self.service.emit("task_timeout", task_id=self.record.key)
 
@@ -218,6 +263,10 @@ class WorkerSession:
         return {**self.service.driver.tips(self.record.lease),
                 "handoff_inputs": self.service.handoff.run["input_manifest"] if self.service.handoff else [],
                 "file_access": self.file_access_policy(),
+                "available_tools": list(self.record.available_tools),
+                "available_capabilities": dict(self.record.capabilities),
+                "requirement_checks": list(self.service.requirement_checks.checks),
+                "recent_tool_evidence": list(self.record.tool_evidence[-10:]),
                 "task": {"id": self.record.key, "role": self.record.spec.role,
                          "inputs": list(self.record.spec.inputs), "outputs": list(self.record.spec.outputs)},
                 "budget": self.record.budget_status(self.service.settings.limits)}
@@ -293,6 +342,11 @@ class WorkerSession:
                 actions.append(("CompleteSubStage", "Validate and complete only the authorized current descendant. Use the latest step_token.", SubstageArgs, "substage"))
         self.test_tools += [BoundTool(name=n, description=d, args_schema=a, worker=self, action=k)
                             for n, d, a, k in actions]
+        r.available_tools = [tool.name for tool in self.test_tools]
+        r.capabilities = {}
+        for tool in self.test_tools:
+            for capability in getattr(tool.delegate, "capabilities", ()):
+                r.capabilities.setdefault(capability, []).append(tool.name)
         return self.test_tools
 
     def invoke(self, action, tool, arguments):
@@ -301,9 +355,10 @@ class WorkerSession:
         with r.lock:
             self.ensure_active()
             r.calls += 1
-            if r.calls > self.service.settings.limits.worker_tool_calls:
+            call_limit = self.service.worker_limit(r, "worker_tool_calls")
+            if call_limit > 0 and r.calls > call_limit:
                 r.cancel.set()
-                raise RuntimeError("Logical task tool-call budget exhausted")
+                raise self.service.interrupt_budget("worker_tool_calls", r.calls, call_limit, r.key)
             driver = self.service.driver
             if action == "tips":
                 return self.get_current_tips()
@@ -336,9 +391,23 @@ class WorkerSession:
                     return {"submitted": False, "error_code": "SUBSTAGES_REMAIN",
                             "error": "Authorized substages remain unfinished",
                             "action": "Continue the current step with CompleteSubStage; submit only after scope_done. "
-                                      "Use status=blocked only for an actual blocker.",
+                                      "Use status=needs_attention with a structured issue for unfinished work.",
                             **self.get_current_tips()}
-                r.result = {"summary": arguments["summary"], "status": status,
+                if status == "needs_attention":
+                    report = IssueReport.model_validate(arguments.get("issue"))
+                    evidence_ids = {entry["id"] for entry in r.tool_evidence if entry["attempt"] == r.attempt}
+                    if set(report.evidence_ids) - evidence_ids:
+                        return {"submitted": False, "error_code": "UNKNOWN_EVIDENCE", "next_action": "Use evidence IDs returned by CurrentTips; do not invent tool evidence."}
+                    checks = self.service.requirement_checks.evaluate(self.service, r, [c.model_dump() for c in report.conditions])
+                    failures = [e for e in r.tool_evidence if e["id"] in report.evidence_ids and e["outcome"] == "error"]
+                    if (ISSUE_POLICIES[report.kind]["handling"] == "check_prerequisites"
+                            and checks and all(row["satisfied"] is True for row in checks) and not failures):
+                        return {"submitted": False, "error_code": "REQUIREMENTS_SATISFIED", "checks": checks,
+                                "available_capabilities": r.capabilities,
+                                "next_action": "The reported prerequisites are available. Continue with the authorized tools, or report the actual unmet condition and invocation evidence."}
+                    arguments["issue"] = {**report.model_dump(), "source": "sub_report",
+                                          "evidence": [e for e in r.tool_evidence if e["id"] in report.evidence_ids], "checks": checks}
+                r.result = {"summary": arguments["summary"], "status": status, "issue": arguments.get("issue"),
                             "stage_args": arguments.get("stage_args"), "timeout": arguments.get("timeout", 0)}
                 r.state = "submitted"
                 self.service.emit("task_submitted", task_id=r.key)
@@ -348,14 +417,19 @@ class WorkerSession:
                                   message="Result submitted; final stage validation runs after this worker stops.")
                 return result
             if getattr(self.parent, "_need_human", False):
-                raise PermissionError("Human review is pending; submit status=blocked")
+                raise PermissionError("Human review is pending; submit status=needs_attention with issue.kind=review")
             if action == "check":
-                return driver.check(r.lease, arguments.get("timeout") or self.cfg.get_value("call_time_out", 300),
-                                    arguments.get("stage_args"), actor=self.message_sender)
+                result = driver.check(r.lease, arguments.get("timeout") or self.cfg.get_value("call_time_out", 300),
+                                     arguments.get("stage_args"), actor=self.message_sender)
+                if self.service.observe_checker_result(r, result):
+                    raise ExecutionCircuitOpen("checker_repeat", r.key)
+                return result
             if action == "substage":
                 result = driver.complete_substage(r.lease, arguments["step_token"],
                     arguments.get("timeout") or self.cfg.get_value("call_time_out", 300), arguments.get("stage_args"),
                     actor=self.message_sender)
+                if self.service.observe_checker_result(r, result):
+                    raise ExecutionCircuitOpen("checker_repeat", r.key)
                 return {**result, "budget": r.budget_status(self.service.settings.limits)}
             if r.lease.steps and self.stage_manager.get_current_stage() not in r.lease.steps:
                 raise PermissionError("Subtree finished; only SubmitTaskResult is available")
@@ -388,13 +462,24 @@ class WorkerSession:
         else:
             self.run_backend()
 
+    def observe_backend_failure(self, error, *, phase="model"):
+        """Feed provider and managed-CLI failures into the shared Sub circuit."""
+        opened = self.service.observe_worker_failure(self.record, "backend_failure",
+            subject=f"Sub backend {phase}", error=error)
+        return opened
+
+    def observe_backend_success(self):
+        """Clear a consecutive backend-error streak after a completed request."""
+        self.service.observe_worker_success(self.record, "backend_failure")
+
     def before_backend_turn(self):
-        """Bound continuation turns across retries of the same logical task."""
+        """Count backend turns and enforce only an explicitly enabled fuse."""
         self.ensure_active()
         self.record.budget.backend_turns += 1
-        if self.record.budget.backend_turns > self.service.settings.limits.worker_backend_turns:
+        limit = self.service.worker_limit(self.record, "worker_backend_turns")
+        if limit > 0 and self.record.budget.backend_turns > limit:
             self.record.cancel.set()
-            raise RuntimeError("Logical task backend-turn budget exhausted")
+            raise self.service.interrupt_budget("worker_backend_turns", self.record.budget.backend_turns, limit, self.record.key)
 
     def before_model(self):
         """Charge real model calls only for backends exposing a model boundary."""
@@ -402,9 +487,10 @@ class WorkerSession:
             return {"jump_to": "end"}
         self.ensure_active()
         self.record.rounds += 1
-        if self.record.rounds > self.service.settings.limits.worker_model_rounds:
+        limit = self.service.worker_limit(self.record, "worker_model_rounds")
+        if limit > 0 and self.record.rounds > limit:
             self.record.cancel.set()
-            raise RuntimeError("Logical task model-round budget exhausted")
+            raise self.service.interrupt_budget("worker_model_rounds", self.record.rounds, limit, self.record.key)
         return None
 
     def run_backend(self):

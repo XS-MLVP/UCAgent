@@ -104,6 +104,8 @@ class PluginWorkflow:
         Callable[[Any, Mapping[str, Any]], Mapping[str, Any]] | None
     ) = None
     runtime_config_keys: tuple[str, ...] = ()
+    prepare_workspace: Callable | None = None
+    preparation_schema: type | None = None
     purpose: str = ""
     inputs: Mapping[str, str] = field(default_factory=dict)
     outputs: Mapping[str, str] = field(default_factory=dict)
@@ -114,6 +116,12 @@ class PluginWorkflow:
             value = getattr(self, name)
             if not isinstance(value, Mapping) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
                 raise PluginError(f"Workflow {name} must map file paths to descriptions")
+        from ucagent.core.workspace.preparation import PreparationOptions
+        if self.prepare_workspace is not None and not callable(self.prepare_workspace):
+            raise PluginError("Workflow prepare_workspace must be callable")
+        if self.preparation_schema is not None and (not isinstance(self.preparation_schema, type) or
+                not issubclass(self.preparation_schema, PreparationOptions) or self.prepare_workspace is None):
+            raise PluginError("Workflow preparation_schema requires a hook and a PreparationOptions subclass")
         if not isinstance(self.purpose, str):
             raise PluginError("Workflow purpose must be a string")
 
@@ -790,6 +798,7 @@ def validate_plugin(plugin: Plugin, *, check_dependencies: bool = True) -> Plugi
                 template_context_factory=workflow.template_context_factory,
                 runtime_config_keys=workflow_runtime_config_keys,
                 purpose=workflow.purpose, inputs=dict(workflow.inputs), outputs=dict(workflow.outputs),
+                prepare_workspace=workflow.prepare_workspace, preparation_schema=workflow.preparation_schema,
             )
         )
     assets = tuple(

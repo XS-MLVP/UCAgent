@@ -578,6 +578,27 @@ class VerifyStage(object):
             self.vmanager.agent.backend.on_stage_complete(self)
         self._run_on_complete_callbacks()
 
+    @coordinated_stage_mutation("human")
+    def invalidate_acceptance(self):
+        """Clear acceptance evidence while preserving files and historical attempts."""
+        self.is_complete = False
+        self.time_end = None
+        self.check_pass = False
+        self.check_info = [None] * self.check_size
+        self._cached_stage_outcome = None
+        self._hum_check_passed = None
+        self._hum_check_msg = ""
+        self.meta_data.pop("skill_usage", None)
+        self.meta_data.pop("journal", None)
+        self.meta_data.pop("llm_pass_suggestion", None)
+        self.meta_data.pop("llm_fail_suggestion", None)
+        self.last_do_check_info_fail = self.last_do_check_info_pass = None
+        self.reference_files = dict.fromkeys(self.reference_files, False)
+        self.skill_list = self._init_skill_list(list(self.skill_list))
+        if self.parent is not None:
+            self.parent.is_complete = False
+            self.parent.time_end = None
+
     def is_completed(self):
         return self.is_complete
 

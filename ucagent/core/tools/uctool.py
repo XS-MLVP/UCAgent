@@ -135,6 +135,7 @@ class UCTool(BaseTool):
         default=0,
         description="Maximum blocking-wait log interval in seconds; 0 is unlimited."
     )
+    capabilities: tuple[str, ...] = Field(default=(), exclude=True, description="Declared task capabilities; available only when this tool is authorized.")
     call_lock_arguments: tuple[str, ...] = Field(
         default=(),
         description="Tool input paths used to serialize conflicting calls."

@@ -130,10 +130,11 @@ def test_supervisor_nonprogress_is_bounded(tmp_path, monkeypatch, kind):
     value.multi_agent.runner_factory = run
     try:
         value.one_loop()
-        assert value.multi_agent.workflow_state == "failed", value.multi_agent.status()
+        assert value.multi_agent.workflow_state == "waiting_human", value.multi_agent.status()
+        assert value.multi_agent.issue["kind"] == "budget"
         assert len(planner.contexts) <= 2
         assert not value.stage_manager.stages[0].is_completed()
-        errors = [e.get("error", "") for e in value.multi_agent.status()["events"]]
+        errors = [e.get("error", "") or e.get("issue", {}).get("summary", "") for e in value.multi_agent.status()["events"]]
         assert any("without SubAgentTool" in e or "budget" in e or "revisions exhausted" in e for e in errors)
     finally:
         value._startup_cleanup.close()
@@ -189,7 +190,8 @@ def test_inflight_planner_retains_ownership_and_cannot_submit_late(tmp_path, mon
         assert value.multi_agent.has_active()
         release.set()
         value.multi_agent.workflow_thread.join(4)
-        assert value.multi_agent.workflow_state in {"paused", "failed"}
+        assert value.multi_agent.workflow_state == "waiting_human"
+        assert value.multi_agent.issue["kind"] == ("operator" if action == "pause" else "budget")
         assert not value.multi_agent.records
     finally:
         release.set()
@@ -299,7 +301,8 @@ def test_cancelled_task_does_not_get_automatically_replanned(tmp_path, monkeypat
         assert value.multi_agent.status()["running"] == 1
         release.set()
         value.multi_agent.workflow_thread.join(4)
-        assert value.multi_agent.workflow_state == "paused"
+        assert value.multi_agent.workflow_state == "waiting_human"
+        assert value.multi_agent.issue["kind"] == "operator"
         assert len(planner.contexts) == 1
         assert value.is_break()
     finally:
@@ -398,7 +401,8 @@ def test_background_super_owns_model_slot_and_cancel_can_resume(tmp_path, monkey
         value.multi_agent.cancel("plan-1")
         release.set()
         value.multi_agent.workflow_thread.join(4)
-        assert value.multi_agent.workflow_state == "paused"
+        assert value.multi_agent.workflow_state == "waiting_human"
+        assert value.multi_agent.issue["kind"] == "operator"
         operation = host.registry.execute("continue", session).data
         outcome = host.operations.wait(operation["id"], 5)
         assert outcome["state"] == "succeeded", outcome
@@ -429,7 +433,9 @@ def test_final_child_without_task_submission_cannot_complete_workflow(tmp_path, 
     try:
         value.one_loop()
         assert value.stage_manager.get_current_stage() is None
-        assert value.multi_agent.workflow_state == "failed"
+        assert value.multi_agent.workflow_state == "waiting_human"
+        assert value.multi_agent.issue["kind"] == "execution"
+        assert value.multi_agent.issue["category"] == "worker_timeout"
         assert len(planner.contexts) == 1
         assert not next(iter(value.multi_agent.plans.values()))["validation"]["complete"]
     finally:

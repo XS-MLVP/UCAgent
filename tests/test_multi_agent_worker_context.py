@@ -359,8 +359,8 @@ def test_recoverable_submission_errors_still_exhaust_model_budget(tmp_path, monk
     try:
         value.multi_agent.submit({"plan_id": "bounded", "tasks": [{"id": "t", "instruction": "Work"}]})
         result = finish(value.multi_agent, "bounded")
-        assert result["tasks"][0]["state"] == "cancelled"
-        assert "model-round budget" in result["tasks"][0]["error"]
+        assert result["tasks"][0]["state"] == "needs_attention"
+        assert "worker_model_rounds budget" in result["tasks"][0]["error"]
         assert result["metrics"]["worker_starts"] == 1
         assert value.stage_manager.stage_index == 0 and len(models[0].seen) == 2
     finally:

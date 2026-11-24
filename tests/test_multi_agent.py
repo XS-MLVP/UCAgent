@@ -305,7 +305,7 @@ def test_budget_and_constructor_failure_release_capacity(agent, monkeypatch):
     service.submit({"plan_id": "budget", "tasks": [{"id": "t", "instruction": "loop"}]})
     result = finish(service, "budget")
     assert result["tasks"][0]["attempt"] == 1
-    assert result["tasks"][0]["state"] == "cancelled"
+    assert result["tasks"][0]["state"] == "needs_attention"
     assert service.status()["running"] == 0
     def broken(*args):
         """Fail before any runner cleanup object exists."""
@@ -316,6 +316,83 @@ def test_budget_and_constructor_failure_release_capacity(agent, monkeypatch):
     assert result["tasks"][0]["attempt"] == 2
     assert "construction failed" in result["tasks"][0]["error"]
     assert service.status()["running"] == 0
+
+
+def test_default_work_volume_fuses_are_disabled_and_long_worker_finishes(tmp_path):
+    """Healthy tool use beyond the former count/deadline defaults reaches the Checker."""
+    from ucagent.core.multi_agent.super_agent.contracts import Limits
+    defaults = Limits()
+    assert defaults.worker_tool_calls == 0
+    assert defaults.worker_model_rounds == 0
+    assert defaults.worker_backend_turns == 0
+    assert defaults.worker_timeout_seconds == 0
+    assert defaults.supervisor_timeout_seconds == 0
+    assert defaults.planning_revisions == 0
+
+    value = make_agent(tmp_path)
+    service = value.multi_agent
+    def run(worker):
+        """Use more than the former 200-call allowance, then submit valid work."""
+        for _ in range(205):
+            tool(worker, "CurrentTips")
+        tool(worker, "EditTextFile", path="out/result.md", content="Healthy long-running work")
+        tool(worker, "SubmitTaskResult", summary="Completed after 205 successful tool calls")
+    service.runner_factory = run
+    try:
+        service.submit({"plan_id": "long-healthy", "tasks": [{"id": "work", "instruction": "complete the output"}]})
+        result = finish(service, "long-healthy")
+        assert result["plans"]["long-healthy"]["state"] == "completed", result
+        record = next(iter(service.records.values()))
+        assert record.calls > 200
+        assert record.deadline is None
+        assert record.budget_status(service.settings.limits)["tool_calls_limit"] is None
+    finally:
+        value._startup_cleanup.close()
+
+
+def test_consecutive_tool_errors_open_recoverable_circuit_after_success_resets_streak(tmp_path):
+    """A healthy call resets the error streak; only repeated failures stop the Sub."""
+    from ucagent.core.multi_agent.super_agent.recovery import ExecutionCircuitOpen
+    from ucagent.core.multi_agent.super_agent.worker import BoundTool
+    from ucagent.core.tools.uctool import EmptyArgs
+
+    value = make_agent(tmp_path, limits={"tool_error_streak": 2})
+    service = value.multi_agent
+    class Delegate:
+        name = "FlakyTool"
+        failing = True
+        def invoke(self, arguments):
+            if self.failing:
+                raise RuntimeError("temporary tool failure")
+            return {"ok": True}
+    delegate = Delegate()
+    def run(worker):
+        """Drive real BoundTool accounting and leave the circuit to stop the attempt."""
+        bound = BoundTool(name="FlakyTool", description="Test tool", args_schema=EmptyArgs,
+                          worker=worker, delegate=delegate, action="tool")
+        with pytest.raises(RuntimeError, match="temporary tool failure"):
+            bound._run()
+        delegate.failing = False
+        assert bound._run() == {"ok": True}
+        assert worker.record.budget.failure_streaks["tool_failure"] == 0
+        delegate.failing = True
+        with pytest.raises(RuntimeError, match="temporary tool failure"):
+            bound._run()
+        with pytest.raises(ExecutionCircuitOpen):
+            bound._run()
+    service.runner_factory = run
+    try:
+        service.submit({"plan_id": "circuit", "tasks": [{"id": "t", "instruction": "exercise circuit"}]})
+        result = finish(service, "circuit")
+        record = next(iter(service.records.values()))
+        assert result["tasks"][0]["state"] == "needs_attention"
+        assert record.budget.failure_counts["tool_failure"] == 3
+        assert record.execution_issue["category"] == "tool_failure"
+        assert service._handle_plan_interruption("circuit")
+        assert service.issue["kind"] == "execution"
+        assert service.issue["category"] == "tool_failure"
+    finally:
+        value._startup_cleanup.close()
 
 
 def test_model_budget_and_submission_stop(agent):
@@ -331,7 +408,7 @@ def test_model_budget_and_submission_stop(agent):
     middleware = ExecutionBudget(session=worker)
     service.settings.limits.worker_model_rounds = 1
     assert middleware.before_model({}, None) is None
-    with pytest.raises(RuntimeError, match="model-round"):
+    with pytest.raises(RuntimeError, match="worker_model_rounds"):
         middleware.before_model({}, None)
     record.result = {"summary": "done"}
     assert middleware.before_model({}, None) == {"jump_to": "end"}
@@ -494,7 +571,7 @@ def test_new_plan_id_cannot_refresh_exhausted_logical_budget(agent):
     for name in ["first", "renamed"]:
         service.submit({"plan_id": name, "tasks": [{"id": name, "instruction": "same target"}]})
         result = finish(service, name)
-        assert result["tasks"][0]["state"] == "cancelled"
+        assert result["tasks"][0]["state"] == "needs_attention"
     first, second = service.records.values()
     assert first.budget is second.budget
     assert first.deadline == second.deadline
@@ -605,7 +682,7 @@ def test_managed_supervisor_stops_graph_after_plan_submission(tmp_path, monkeypa
         tool(worker, "SubmitTaskResult", summary="delegated")
     value.multi_agent.runner_factory = run
     try:
-        value.custom_chat("Delegate the current stage")
+        value.one_loop("Delegate the current stage")
         assert planner.i == 0  # One planning turn, then one final result summary.
         assert value.multi_agent.workflow_state == "completed"
         assert finish(value.multi_agent, "planned")["plans"]["planned"]["state"] == "completed"

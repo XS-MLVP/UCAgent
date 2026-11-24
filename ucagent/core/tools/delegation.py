@@ -1,7 +1,7 @@
 """Thin local/MCP supervisor tools over the core multi-agent service."""
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 from pydantic import Field
 
 from ucagent.core.multi_agent.super_agent.contracts import StrictModel, TaskPlan
@@ -41,6 +41,8 @@ class PauseArgs(StrictModel):
 
     reason: str = Field(min_length=1, max_length=8000)
     planning_token: str | None = None
+    kind: Literal["input", "environment", "capability"] = "input"
+    next_action: str = Field(default="Reply with the missing information or decision.", min_length=1, max_length=2000)
 
 
 class SupervisorTool(UCTool):
@@ -56,8 +58,21 @@ class SupervisorTool(UCTool):
         return control_result(self.action, content)
 
     def _run(self, **kwargs):
-        """Dispatch validated arguments without granting business-write capabilities."""
+        """Dispatch actions and count consecutive Super tool exceptions."""
         self.service.charge_planning_tool(self.action)
+        try:
+            result = self._dispatch(kwargs)
+        except Exception as error:
+            if self.service.observe_supervisor_failure(
+                    "supervisor_tool", error=error, phase=self.action):
+                from ucagent.core.multi_agent.super_agent.recovery import ExecutionCircuitOpen
+                raise ExecutionCircuitOpen("supervisor_tool") from error
+            raise
+        self.service.observe_supervisor_success("supervisor_tool")
+        return result
+
+    def _dispatch(self, kwargs):
+        """Keep the per-tool action routing clear of circuit bookkeeping."""
         if self.delegate is not None:
             return self.delegate.invoke(kwargs)
         if self.action == "submit":
@@ -75,7 +90,8 @@ class SupervisorTool(UCTool):
                            "allowed_tools": sorted(set(role.allowed_tools) & self.service.agent.multi_agent_business_names),
                            "budgets": {"model_rounds": get_backend_class(
                                role_backend_config(self.service.agent.cfg, role)).capabilities.model_rounds,
-                                       "mcp_tool_calls": True, "absolute_timeout": True},
+                                       "mcp_tool_calls": True,
+                                       "absolute_timeout": self.service.settings.limits.worker_timeout_seconds > 0},
                            "parallel_scope": "managed file tasks"}
                     for name, role in self.service.settings.roles.items()}
         if self.action == "tips":

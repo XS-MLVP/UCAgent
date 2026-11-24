@@ -11,7 +11,7 @@ from ucagent.interfaces.terminal.presentation import format_result, format_opera
 from ucagent.runtime.session import RuntimeSession
 from ucagent.runtime.agent_events import GlobalInbox, atomic_json
 from test_runtime_host import make_host
-from test_global_agent import runtime, start
+from test_global_agent import runtime, start, prepare
 
 @pytest.fixture
 def global_session(runtime, tmp_path):
@@ -87,7 +87,7 @@ async def test_global_is_idle_and_accepts_natural_language(global_session):
         field = app.query_one("#global-input", Input)
         field.value = "Use the producer workflow"
         await pilot.press("enter")
-        runtime.tick()
+        prepare(runtime)
         await pilot.pause(.15)
         assert seen == ["Use the producer workflow"]
         assert panel_text(app.query_one("#global-conversation", MessagesPanel)).count("Use the producer workflow") == 1
@@ -100,7 +100,7 @@ async def test_global_is_idle_and_accepts_natural_language(global_session):
 async def test_independent_super_sub_pages_and_draft(global_session):
     frontend, runtime, _ = global_session
     a = start(runtime, "a"); b = start(runtime, "b")
-    runtime.tick()
+    prepare(runtime)
     child = saved_output(runtime, a); saved_output(runtime, b)
     runtime.events.append("global", "message", text="GLOBAL CHAT\n")
     runtime.events.append(a, "message", text="CHILD NOISE\n")
@@ -139,7 +139,7 @@ async def test_independent_super_sub_pages_and_draft(global_session):
 @pytest.mark.asyncio
 async def test_attach_only_opens_an_existing_view(global_session):
     _, runtime, _ = global_session
-    agent_id = start(runtime); runtime.tick(); saved_output(runtime, agent_id)
+    agent_id = start(runtime); prepare(runtime); saved_output(runtime, agent_id)
     app = AttachApp(SuperAgentView(runtime.agent_status, agent_id))
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause(.3)
@@ -153,7 +153,7 @@ async def test_attach_only_opens_an_existing_view(global_session):
 async def test_interrupt_targets_the_visible_agent(global_session):
     """Ctrl-C from a Super page never interrupts Global's separate conversation."""
     frontend, runtime, _ = global_session
-    agent_id = start(runtime); runtime.tick(); saved_output(runtime, agent_id)
+    agent_id = start(runtime); prepare(runtime); saved_output(runtime, agent_id)
     calls = []
     class View(SuperAgentView):
         def cancel_operation(self):
@@ -217,7 +217,7 @@ async def test_execution_layout_splitters_and_global_remain_independent(global_s
     """Both execution pages retain the established layout, with page-local resizing."""
     from ucagent.interfaces.terminal.tui.widgets import TaskPanel, ConsoleWidget, StatusBar
     frontend, runtime, _ = global_session
-    agent_id = start(runtime); runtime.tick(); child = saved_output(runtime, agent_id)
+    agent_id = start(runtime); prepare(runtime); child = saved_output(runtime, agent_id)
     app = GlobalApp(frontend)
     async with app.run_test(size=(160, 48)) as pilot:
         await pilot.pause(.3)
@@ -271,7 +271,7 @@ async def test_execution_history_completion_and_console_are_page_local(global_se
     """Commands target Super, Sub instructions route through it, and Global stays separate."""
     from ucagent.interfaces.terminal.tui.widgets import ConsoleWidget
     frontend, runtime, _ = global_session
-    agent_id = start(runtime); runtime.tick(); child = saved_output(runtime, agent_id)
+    agent_id = start(runtime); prepare(runtime); child = saved_output(runtime, agent_id)
     calls = []
     class View(SuperAgentView):
         def snapshot(self):
@@ -284,9 +284,10 @@ async def test_execution_history_completion_and_console_are_page_local(global_se
     async with app.run_test(size=(160, 48)) as pilot:
         await pilot.pause(.3)
         app.open_view(View(runtime.agent_status, agent_id))
-        await pilot.pause(.3)
+        await wait_for_agent_messages(pilot, agent_id, "SUPER DETAILS")
         parent = app.screen
         field = parent.query_one("#console-input", Input)
+        assert "status" in parent.command_names() and app.focused is field
         field.value = "stat"
         await pilot.press("tab")
         assert field.value == "status"
@@ -324,7 +325,7 @@ async def test_execution_help_and_theme_preserve_the_page_and_draft(global_sessi
     """The old help/theme controls remain usable on an attached Agent screen."""
     from ucagent.interfaces.terminal.tui.screens import ThemePickerScreen
     _, runtime, _ = global_session
-    agent_id = start(runtime); runtime.tick(); saved_output(runtime, agent_id)
+    agent_id = start(runtime); prepare(runtime); saved_output(runtime, agent_id)
     app = AttachApp(SuperAgentView(runtime.agent_status, agent_id))
     async with app.run_test(size=(160, 48)) as pilot:
         await pilot.pause(.3)
@@ -353,7 +354,7 @@ async def test_super_and_sub_missions_console_and_details_are_scoped(global_sess
     from ucagent.interfaces.terminal.tui.widgets import ConsoleWidget
     frontend, runtime, _ = global_session
     agent_id = start(runtime)
-    runtime.tick()
+    prepare(runtime)
     child = saved_output(runtime, agent_id)
     app = GlobalApp(frontend)
     def rendered(page, selector):
@@ -407,3 +408,19 @@ def test_sub_retry_changes_stream_and_filters_previous_attempt():
     assert first["stream_id"] != second["stream_id"]
     assert second["statistics"]["Tool Calls"] == 0
     assert view.events_since()["events"] == [events[1]]
+
+
+@pytest.mark.asyncio
+async def test_global_shows_preparation_without_changing_execution_layout(global_session):
+    """Display DUT/workflow/progress before a Super process exists."""
+    frontend, runtime, _ = global_session
+    agent_id = start(runtime)
+    runtime.runs[agent_id].update(status="preparing", preparation_progress="Exporting simulator interface")
+    runtime.events.append(agent_id, "preparation", text="Exporting simulator interface")
+    app = GlobalApp(frontend)
+    async with app.run_test(size=(120, 38)) as pilot:
+        await pilot.pause(.25)
+        node = app.query_one("#agent-tree", Tree).root.children[0]
+        assert "preparing" in node.label.plain and "dut / produce" in node.label.plain
+        assert node.children[0].label.plain == "Exporting simulator interface"
+        assert "Exporting simulator interface" in panel_text(app.query_one("#global-conversation", MessagesPanel))

@@ -127,12 +127,12 @@ def test_command_exit_timeout_and_cancel_are_terminal(tmp_path, mode):
                 threading.Event().wait(0.01)
             agent.multi_agent.cancel("process")
         result = finish(agent.multi_agent, "process", 10)
-        assert result["plans"]["process"]["state"] == "failed", result
+        assert result["plans"]["process"]["state"] == ("needs_attention" if mode == "timeout" else "failed"), result
         assert result["running"] == 0
         if mode == "missing_result":
             assert "resume_args" in result["tasks"][0]["error"]
         else:
-            assert result["tasks"][0]["state"] == "cancelled"
+            assert result["tasks"][0]["state"] == ("needs_attention" if mode == "timeout" else "cancelled")
     finally:
         agent._startup_cleanup.close()
 

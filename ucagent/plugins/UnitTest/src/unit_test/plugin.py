@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ucagent.core.plugins import Plugin, PluginContext, PluginWorkflow
 from ucagent.util.config import Config
+from .preparation import prepare_unittest, UnitTestPreparationOptions
 from .operations.waveform_replay import waveform_commands
 from unit_test.report_store import TestProtocolRuntimeHook
 from unit_test.test_runner import RunTestCasesManagerTool
@@ -146,6 +147,8 @@ def get_plugin() -> Plugin:
         workflows=(
             PluginWorkflow(
                 name="unittest",
+                prepare_workspace=prepare_unittest,
+                preparation_schema=UnitTestPreparationOptions,
                 config_file=root / "workflows" / "unittest.yaml",
                 purpose="Generate and execute unit tests, then produce verified coverage and bug analysis.",
                 template_dir=root / "templates" / "unit_test",

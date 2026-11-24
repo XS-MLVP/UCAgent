@@ -68,6 +68,8 @@ def parse_launch_options(args) -> dict:
     if internal_super and not all(discovery.get_value("agent_run." + key, None) for key in ("id", "result_path")):
         raise ValueError("Internal Super launches require agent_run.id and agent_run.result_path")
     agent_mode = discovery.get_value("runtime_options.agent_mode", "single")
+    if role == "global" and args.workspace is None and temporary_prefix is None:
+        args.workspace = os.getcwd()
     if args.dut is None and role == "global":
         if args.plugin_workflow:
             raise ValueError("A startup --plugin-workflow requires a DUT name")

@@ -459,6 +459,9 @@ def create_registry(controller: Controller, *, executors=None) -> CommandRegistr
                     arguments=(Argument("force", "force", False, choices=("force",)),), handler=c.render_template),
         CommandSpec("config_detail", "Read resolved configuration.", arguments=(Argument("key", default=None),),
                     handler=c.config_detail, completion="config"),
+        CommandSpec("workflow_recovery", "Read the pause reason, budgets and available recovery actions.", handler=c.workflow_recovery),
+        CommandSpec("workflow_recover", "Recover the displayed interruption using its issue_id.",
+                    arguments=(Argument("request", "json", rest=True),), handler=c.workflow_recover),
         CommandSpec("show_web_session", "Read web session launch metadata.", handler=c.show_web_session),
         CommandSpec("logo_and_version", "Read product identity and version.", handler=c.logo_and_version),
     )
@@ -475,7 +478,7 @@ DEFERRED_COMMANDS = (
     CommandSpec("next_round", "Run exactly one model round.", "operations", aliases=("nr",), model=True),
     CommandSpec("next_round_with_message", "Run one round with a message.", "operations",
                 (Argument("message", "text", rest=True),), aliases=("nrm",), model=True),
-    CommandSpec("chat", "Run a custom chat turn.", "operations", (Argument("message", "text", rest=True),), model=True),
+    CommandSpec("chat", "Discuss task state; Super chat does not advance workflow execution.", "operations", (Argument("message", "text", rest=True),), model=True),
     CommandSpec("loop", "Run verification with progress-aware retry.", "operations", (Argument("message", "text", "", rest=True),), model=True),
     CommandSpec("short_prompt", "Chat using a configured named prompt.", "operations",
                 (Argument("name"), Argument("message", "text", "", rest=True)), completion="prompts", model=True),

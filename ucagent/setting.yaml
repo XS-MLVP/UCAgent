@@ -558,24 +558,36 @@ global_agent:
   resources: {}
   workspace_roots: []
   root: null
+  project_root: null  # resolved launch directory; independent of task workspaces
   launch_profiles:
     standard:
       backend: null  # inherit the resolved Global backend
       max_subagents: 2
       max_attempts: 2
+      preparation_timeout: 900
       no_embed_tools: false
       resources: []
 
 global_agent_prompts:
   system: |
     You are the persistent Global Agent for UCAgent. Respond to user instructions.
-    Use ListWorkflows to select the requested workflow, then StartSuper with a concrete instruction.
+    Use ListWorkflows and ListDUTs to resolve the requested workflow and DUT source.
+    Call StartSuper with workflow_ref, dut_name, source_workspace and a concrete instruction.
+    When DUT names match multiple sources, ask the user to choose the exact source.
+    Preparation options are declared by ListWorkflows; omit them to use workflow defaults.
+    For "the same DUT", reuse the identified task's dut_name and source_workspace from its
+    result or AgentStatus. Choose a new workflow for each task; do not reuse a task workspace
+    as the source unless requested. Use accepted inputs only when the target declares them.
     Start independent workflows together when requested. Each Super owns its workflow stages and Subs.
-    StartSuper returns immediately; accepted completion or failure arrives in a later message.
+    StartSuper prepares the workspace asynchronously and then launches its Super; accepted completion or failure arrives in a later message.
     After launching, briefly acknowledge and finish this reply. Do not poll, sleep, or wait in tools.
     When results arrive, inspect their accepted artifacts, decide any requested next work, and report
     verified outcomes and limitations. Keep serving subsequent user requests. Never declare a running
     task complete. You do not edit DUT files, execute stages, or dispatch Subs directly.
+    For pauses, inspect AgentStatus.recovery, explain the category and next action, and wait for
+    the user. MessageSuper only queues guidance. Use RecoverSuper to deliver an explicit user reply
+    or resume request. Budget additions and human reviews use the operator controls in the Super view.
+    Do not automatically restart a paused task or treat an agent report as a verified environment failure.
 
 agent_run:
   role: null  # internal child launch only
@@ -588,16 +600,21 @@ multi_agent:
   default_role: worker
   delegation_scope: auto
   limits:
-    supervisor_backend_turns: 8
-    worker_backend_turns: 80
-    supervisor_model_rounds: 8
-    supervisor_tool_calls: 40
-    supervisor_timeout_seconds: 300
-    planning_revisions: 3
-    worker_model_rounds: 80
-    worker_tool_calls: 200
-    worker_timeout_seconds: 1800
+    # Zero disables a cumulative work-volume fuse; execution counters remain visible.
+    supervisor_backend_turns: 0
+    worker_backend_turns: 0
+    supervisor_model_rounds: 0
+    supervisor_tool_calls: 0
+    supervisor_timeout_seconds: 0
+    planning_revisions: 0
+    worker_model_rounds: 0
+    worker_tool_calls: 0
+    worker_timeout_seconds: 0
     task_max_attempts: 2
+    # Consecutive errors still open a recoverable circuit.
+    tool_error_streak: 8
+    backend_error_streak: 3
+    checker_repeat_failures: 8
   roles:
     worker:
       description: "Execute the delegated workflow stage."
@@ -624,7 +641,10 @@ multi_agent_prompts:
     Use exclusive auto/stage scope for shared test state, test/waveform tools and sequential substages.
     MCP submissions must include the current planning_token. Stop immediately after submitting;
     do not poll or submit another plan. The next turn carries the verified result automatically.
-    Repair failed plans within the available budget. Use PauseWorkflow when user input is required.
+    Repair failed plans within the available budget. Use PauseWorkflow with a concrete kind, reason
+    and next_action when user input or environment repair is required. Distinguish a reported problem
+    from verified tool evidence. Check declared capabilities and actual invocation failures before
+    escalating a tool problem; a missing preferred tool does not prove missing task capability.
     When workflow_complete=true and phase is not handoff, summarize verified results without submitting more work.
     During phase=handoff, follow the handoff instructions and make an explicit tool decision.
     StartWorkflow is the user's entry to this loop; do not call it from a planning turn.
@@ -635,5 +655,13 @@ multi_agent_prompts:
     the latest step_token. Continue authorized descendants in this same session.
     At scope_done, submit the aggregate result; do not enter the next stage.
     For a single stage, set its journal and submit after implementation and Check.
-    SubmitTaskResult freezes this attempt. Report human review or inability to
-    continue with status=blocked. Never claim success based on text or exit status.
+    SubmitTaskResult freezes this attempt. Use status=needs_attention with an issue containing
+    kind, summary and next_action for unfinished work. Use kind=repairable for work the Super can
+    reassign, input for a user decision, review for pending review, environment for missing inputs
+    or prerequisites, and capability for an unavailable task capability. Describe concrete
+    prerequisites in issue.conditions using the CurrentTips.requirement_checks names and values.
+    Inspect CurrentTips.available_capabilities and available_tools before reporting missing abilities.
+    Use an authorized alternative when available. Reference only actual CurrentTips.recent_tool_evidence
+    IDs. Reports without verifiable checks remain unverified; do not claim an environment or permission
+    failure based only on an assumption. Retry or repair failures before requesting operator input.
+    Never claim success based on text or exit status.

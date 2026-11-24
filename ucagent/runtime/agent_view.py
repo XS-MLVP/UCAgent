@@ -16,6 +16,7 @@ class LocalAgentView:
         self.inputs = []
         self._details_at = 0.0
         self._details = {}
+        self._attention_id = None
         self.lock = threading.RLock()
         self.stop = threading.Event()
         self.session = CommandSession(Path(host.agent.workspace))
@@ -73,6 +74,7 @@ class LocalAgentView:
                 "parent_id": "global", "workflow_ref": getattr(agent, "plugin_workflow", ""),
                 "status": state["task_outcome"] or state["execution"], "execution": state["execution"],
                 "instance": state["instance"], **stages, **details, "children": children, "inputs": inputs,
+                "recovery": multi.recovery_status() if multi else {},
                 "instructions": copy.deepcopy(multi.operator_instructions[-100:]) if multi else [],
                 "operations": [{k: r[k] for k in ("id", "command", "state", "model")} for r in host.operations.list()[-100:]]}
 
@@ -84,12 +86,28 @@ class LocalAgentView:
         if self.host.snapshot()["instance"] != "ready" or self.host.agent.is_exit():
             raise ValueError("Agent has finished; start or retry a task")
         multi = getattr(self.host.agent, "multi_agent", None)
-        if not command and multi and multi._workflow_lock.locked():
+        if not command and multi:
             return multi.queue_instruction(text)
         with self.lock:
             item = {"id": uuid4().hex, "text": text, "command": command, "state": "queued"}
             self.inputs.append(item)
             return copy.deepcopy(item)
+
+    def recover(self, request):
+        """Use the runtime controller for the same recovery contract as Console."""
+        if self.host.snapshot()["instance"] != "ready":
+            raise ValueError("Agent process has ended; use retry instead")
+        return self.host.controller.workflow_recover(request)
+
+    def review(self, issue_id, index, expected_revision, message):
+        """Approve the displayed stage version before requesting ordinary recovery."""
+        service = getattr(self.host.agent, "multi_agent", None)
+        if service is None or not service.issue or service.issue["id"] != issue_id or service.issue["kind"] != "review":
+            raise ValueError("Review changed; refresh the task before approving")
+        self.host.controller.review_stage(index, expected_revision, True, message)
+        if "grant" in service.recovery_status()["actions"]:
+            return {"reviewed": True, "next_action": "Add execution budget to continue"}
+        return self.recover({"issue_id": issue_id, "action": "resume", "message": message})
 
     def cancel_operation(self):
         operation = self.host.operations._model_id
@@ -101,7 +119,13 @@ class LocalAgentView:
         while not self.stop.wait(.1):
             try:
                 self.pump()
-                atomic_json(self.root / "view_snapshot.json", self.snapshot())
+                snapshot = self.snapshot()
+                issue = snapshot.get("recovery", {}).get("issue")
+                identity = issue["id"] if issue else None
+                if identity != self._attention_id:
+                    self.events.append(self.agent_id, "attention", text=(issue["summary"] + "\n" + issue["next_action"]) if issue else "Workflow resumed.")
+                    self._attention_id = identity
+                atomic_json(self.root / "view_snapshot.json", snapshot)
             except Exception as error:
                 self.events.append(self.agent_id, "view_error", error=str(error)[:1000])
 

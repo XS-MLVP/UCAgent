@@ -295,6 +295,8 @@ class RuntimeHost:
                 if not record["model"] or record["state"] not in TERMINAL_STATES or record["id"] in self._seen_operations:
                     continue
                 self._seen_operations.add(record["id"])
+                if getattr(self.agent, "multi_agent", None) is not None and record["command"] in {"chat", "short_prompt"}:
+                    continue
                 reason = (record["result"] or {}).get("reason") if isinstance(record["result"], dict) else None
                 with self._lock:
                     if self.task_outcome != "completed":
@@ -302,7 +304,11 @@ class RuntimeHost:
                                                 "paused" if record["state"] == "cancelled" else
                                                 {"round_complete": "idle", "completed": "completed"}.get(reason, reason or "idle"))
                         if self.execution_state == "failed":
-                            self.task_outcome = "failed"
+                            multi = getattr(self.agent, "multi_agent", None)
+                            if multi is not None and multi.issue:
+                                self.execution_state = "waiting_human"
+                            else:
+                                self.task_outcome = "failed"
             service = getattr(self.agent, "multi_agent", None)
             if service is not None and not any(row["model"] and row["state"] not in TERMINAL_STATES for row in records):
                 with self._lock:

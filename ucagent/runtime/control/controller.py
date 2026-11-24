@@ -76,6 +76,24 @@ class Controller:
         finally:
             COMMAND_ORIGIN.reset(token)
 
+    def workflow_recovery(self):
+        """Read actionable pause state for the current multi-agent workflow."""
+        service = getattr(self.agent, "multi_agent", None)
+        if service is None:
+            raise ControlError("unsupported_mode", "Workflow recovery requires a Super agent")
+        return service.recovery_status()
+
+    def workflow_recover(self, request):
+        """Serialize explicit operator recovery with model and stage-control ownership."""
+        owner = self._operation_owner()
+        with owner._lock:
+            if owner._model_id is not None or (owner.stages and owner.stages._active is not None):
+                raise ControlError("busy", "Wait for the current operation or review to finish")
+            service = getattr(self.agent, "multi_agent", None)
+            if service is None:
+                raise ControlError("unsupported_mode", "Workflow recovery requires a Super agent")
+            return service.recover(request)
+
     def operation_status(self, operation_id):
         """Read a detached long-operation snapshot without waiting for its worker."""
         return self._operation_owner().get(operation_id)

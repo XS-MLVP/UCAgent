@@ -428,6 +428,7 @@ class ArgSearchText(StrictToolArgs):
 class SearchText(UCTool, BaseReadWrite):
     """Search for text in files within the workspace directory with advanced pattern matching."""
     name: str = "SearchText"
+    capabilities: tuple[str, ...] = ('search_content',)
     description: str = (
         "Search for text in files within the workspace directory with support for plain text, wildcards, and regex patterns. "
         "Each matching file is returned once with a fenced code block containing line-numbered matching lines and optional "
@@ -676,6 +677,7 @@ class ArgFindFiles(StrictToolArgs):
 class FindFiles(UCTool, BaseReadWrite):
     """Find files in a workspace directory matching a specific pattern."""
     name: str = "FindFiles"
+    capabilities: tuple[str, ...] = ('find_files',)
     description: str = (
         "Find files in a workspace directory matching a specific pattern. "
         "Returns a list of matching file paths."
@@ -757,6 +759,7 @@ class ArgPathList(StrictToolArgs):
 class PathList(UCTool, BaseReadWrite):
     """List all files and directories in a workspace directory, recursively."""
     name: str = "PathList"
+    capabilities: tuple[str, ...] = ('list_files',)
     description: str = (
         "List all files and directories in a workspace directory, including subdirectories. "
         "Returns a list with: Index    Name    (Type, Size, Bytes)."
@@ -855,6 +858,7 @@ class ArgReadBinFile(StrictToolArgs):
 class ReadBinFile(UCTool, BaseReadWrite):
     """Read binary content of a file in the workspace."""
     name: str = "ReadBinFile"
+    capabilities: tuple[str, ...] = ('read_file',)
     description: str = (
         "Read binary content of a file in the workspace. Supports partial reads via bytes postion start/end. "
         "If file is text type, suggests to use tool 'ReadTextFile'. "
@@ -928,6 +932,7 @@ class ArgReadTextFile(StrictToolArgs):
 class ReadTextFile(UCTool, BaseReadWrite):
     """Read lines from a text file in the workspace. (line index starts from 1)"""
     name: str = "ReadTextFile"
+    capabilities: tuple[str, ...] = ('read_file',)
     description: str = (
         "Read lines from a text file in the workspace. Supports start line and line count; "
         "count=0 validates the file and records a successful read without returning content. "
@@ -1132,6 +1137,7 @@ class ArgEditTextFile(StrictToolArgs):
 class EditTextFile(UCTool, BaseReadWrite):
     """Create, overwrite, or append to one text file in the workspace."""
     name: str = "EditTextFile"
+    capabilities: tuple[str, ...] = ('edit_file',)
     description: str = (
         "Create or overwrite one UTF-8 text file using the required path and content "
         "arguments. Set append=true only when adding content to the end. The same call "
@@ -1271,6 +1277,7 @@ class ArgCopyFile(StrictToolArgs):
 class CopyFile(UCTool, BaseReadWrite):
     """Copy a file from source to destination within the workspace."""
     name: str = "CopyFile"
+    capabilities: tuple[str, ...] = ('copy_file',)
     description: str = (
         "Copy a file from source to destination within the workspace. "
         "Creates destination directory if it doesn't exist. Optionally overwrites existing files."
@@ -1355,6 +1362,7 @@ class ArgMoveFile(StrictToolArgs):
 class MoveFile(UCTool, BaseReadWrite):
     """Move/rename a file from source to destination within the workspace."""
     name: str = "MoveFile"
+    capabilities: tuple[str, ...] = ('move_file',)
     description: str = (
         "Move or rename a file from source to destination within the workspace. "
         "Creates destination directory if it doesn't exist. Optionally overwrites existing files."
@@ -1446,6 +1454,7 @@ class ArgDeleteFile(StrictToolArgs):
 class DeleteFile(UCTool, BaseReadWrite):
     """Delete a file or directory in the workspace with optional recursive deletion."""
     name: str = "DeleteFile"
+    capabilities: tuple[str, ...] = ('delete_file',)
     description: str = (
         "Delete a file or directory in the workspace. "
         "Supports recursive deletion for directories with all their contents. "
@@ -1542,6 +1551,7 @@ class ArgCreateDirectory(StrictToolArgs):
 class CreateDirectory(UCTool, BaseReadWrite):
     """Create a directory in the workspace with optional parent directory creation."""
     name: str = "CreateDirectory"
+    capabilities: tuple[str, ...] = ('create_directory',)
     description: str = (
         "Create a directory in the workspace. "
         "Optionally creates parent directories and handles existing directories gracefully."
@@ -1651,6 +1661,7 @@ class DeleteTextLines(UCTool, BaseReadWrite):
     """Delete many complete physical lines from an existing UTF-8 text file."""
 
     name: str = "DeleteTextLines"
+    capabilities: tuple[str, ...] = ('edit_file',)
     description: str = (
         "Delete multiple complete, one-based physical lines or inclusive line blocks from "
         "one existing UTF-8 text file. Use this tool only for large text modifications "
@@ -1871,6 +1882,7 @@ class ArgReplaceStringInFile(StrictToolArgs):
 class ReplaceStringInFile(UCTool, BaseReadWrite):
     """Replace exact string content in a text file with precise string matching."""
     name: str = "ReplaceStringInFile"
+    capabilities: tuple[str, ...] = ('edit_file',)
     description: str = (
         "Replace one unique occurrence of non-empty old_string in an existing UTF-8 "
         "text file. Both old_string and new_string must match the intended whitespace "
@@ -2081,6 +2093,7 @@ class ArgGetFileInfo(StrictToolArgs):
 class GetFileInfo(UCTool, BaseReadWrite):
     """Get detailed information about a file or directory in the workspace."""
     name: str = "GetFileInfo"
+    capabilities: tuple[str, ...] = ('inspect_file',)
     description: str = (
         "Get detailed information about a file or directory including size, type, "
         "modification time, permissions, and other metadata."

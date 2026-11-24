@@ -157,7 +157,7 @@ def test_cli_response_replay_returns_same_transition_before_turn_drains(tmp_path
         agent.one_loop()
         transition = chain.current["transition"]
         agent.multi_agent.planning = {"token": transition["token"], "handoff": True, "submitted": transition["transition_id"],
-            "blocked": None, "stage_index": agent.stage_manager.stage_index, "deadline": time.monotonic() + 10}
+            "paused": None, "stage_index": agent.stage_manager.stage_index, "deadline": time.monotonic() + 10}
         monkeypatch.setattr(agent.backend, "requires_mcp", True)
         arguments = {**transition["request"], "transition_token": transition["token"]}
         result = agent.multi_agent.request_next_workflow(**arguments)

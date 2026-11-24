@@ -7,7 +7,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Static, Tree, HelpPanel
+from textual.widgets import Static, Tree, HelpPanel, Button
+from ucagent.interfaces.terminal.tui.widgets.recovery import RecoveryPanel, RecoveryDialog
 
 from ucagent.interfaces.terminal.presentation import format_mission, format_status, format_data
 from ucagent.interfaces.terminal.tui.agent_view import SubAgentView
@@ -121,6 +122,9 @@ class AgentScreen(Screen):
 
     CSS_PATH = "styles/default.tcss"
     CSS = "#sub-tree { height: auto; max-height: 12; } #task-detail { height: auto; }"
+    # Recovery controls must not take the initial command input focus.
+    AUTO_FOCUS = "#console-input"
+
     BINDINGS = [Binding("escape", "back", "Back", priority=True),
                 Binding("ctrl+c", "interrupt", "Cancel operation", priority=True),
                 Binding("ctrl+q", "back", "Back", priority=True),
@@ -151,6 +155,7 @@ class AgentScreen(Screen):
                 yield AgentTaskPanel(id="task-panel")
                 yield VerticalSplitter("task_width", owner=self, id="split-task", classes="splitter vertical")
                 with Vertical(id="right-container"):
+                    yield RecoveryPanel(id="recovery-panel")
                     yield MessagesPanel(id="messages-panel")
             yield HorizontalSplitter("console_height", invert=True, owner=self,
                                      id="split-console", classes="splitter horizontal")
@@ -165,6 +170,7 @@ class AgentScreen(Screen):
         self.task_panel = self.query_one(AgentTaskPanel)
         self.input_panel = self.query_one(ConsoleInput)
         self.status_bar = self.query_one(AgentStatusBar)
+        self.task_width = min(self.task_width, max(26, self.app.size.width - 60))
         self.console_height = self.app.size.height // 2
         self.title_panel.update(Text(self.title_text))
         self.input_panel.focus_input()
@@ -190,8 +196,9 @@ class AgentScreen(Screen):
             role = snapshot.get("role", "super").capitalize()
             self.title_panel.update(Text(f"{role} · {self.title_text}"))
             self.task_panel.update_snapshot(snapshot)
+            self.query_one(RecoveryPanel).update_snapshot(snapshot)
             self.status_bar.update_snapshot(snapshot)
-            self.input_panel.prompt = "(Sub → Super) " if role == "Sub" else "(UnityChip) "
+            self.input_panel.prompt = "(To Super) " if role == "Sub" else "(Guidance · /chat) "
             if snapshot.get("readonly"): self.input_panel.prompt = "(Read-only; Esc back) "
             self.input_panel.refresh_prompt()
             running = [r["command"] for r in snapshot.get("operations", []) if r["state"] not in {"succeeded", "failed", "cancelled"}] if role != "Sub" else []
@@ -199,7 +206,7 @@ class AgentScreen(Screen):
             self.input_panel.update_running_commands(running)
             if page.get("gap"): self.console_panel.append_output("Earlier output is in the session event archive.\n", sync_to_console=False)
             for event in page["events"]:
-                if event["kind"] == "message" or (role == "Sub" and event["kind"] == "tool_detail"):
+                if event["kind"] in {"message", "attention"} or (role == "Sub" and event["kind"] == "tool_detail"):
                     self.messages_panel.append_message(event["payload"].get("text", ""))
                 elif event["kind"] == "console" and event["agent_id"] == self.view.agent_id:
                     self.console_panel.append_output(event["payload"].get("text", ""), sync_to_console=False)
@@ -207,6 +214,11 @@ class AgentScreen(Screen):
             if self.title_panel.is_attached: self.title_panel.update(Text(f"{self.title_text} | disconnected: {error}"))
         finally:
             self.refreshing = False
+
+    def on_resize(self, event):
+        """Keep the state card and messages usable on narrow terminals."""
+        if self.is_mounted:
+            self.task_width = min(self.task_width, max(26, event.size.width - 60))
 
     def on_unmount(self):
         self.view_timer.stop()
@@ -239,11 +251,52 @@ class AgentScreen(Screen):
             self.console_panel.append_output("Enter a registered command or supplemental instruction. Sub guidance goes to its Super.\nEsc/back: return · Ctrl-C: interrupt · Ctrl-arrows: resize · F1: shortcuts\n" + ", ".join(sorted(self.command_names())) + "\n", sync_to_console=False)
             return
         try:
+            if snapshot := self.snapshot_data.get("recovery", {}).get("issue"):
+                verb, _, message = command.partition(" ")
+                if text.startswith("/") and verb in {"resume", "reply", "budget"}:
+                    if verb == "budget":
+                        await self.on_button_pressed(Button.Pressed(self.query_one("#recovery-grant", Button)))
+                        return
+                    result = await asyncio.to_thread(self.view.recover, {"issue_id": snapshot["id"],
+                        "action": "reply" if verb == "reply" else "resume", "message": message})
+                    self.console_panel.append_output("Action accepted.\n", sync_to_console=False)
+                    return
             result = await asyncio.to_thread(self.view.submit_input, command if text.startswith("/") else text,
                                              command=text.startswith("/") or text.split()[0] in self.command_names())
             if self.console_panel.is_attached: self.console_panel.append_output(format_data(result) + "\n", sync_to_console=False)
         except Exception as error:
             if self.console_panel.is_attached: self.console_panel.append_output(str(error) + "\n", sync_to_console=False)
+
+    async def on_button_pressed(self, event: Button.Pressed):
+        """Open the action-specific form without changing the task on selection."""
+        if not (event.button.id or "").startswith("recovery-"):
+            return
+        event.stop()
+        action = event.button.id.removeprefix("recovery-")
+        if action == "parent":
+            self.app.open_view(self.view.parent)
+            return
+        snapshot = self.snapshot_data
+        recovery = snapshot.get("recovery") or snapshot.get("parent_recovery") or {}
+        if not recovery.get("issue") and snapshot.get("issue"):
+            recovery = {"issue": snapshot["issue"]}
+        if not recovery.get("issue"):
+            return
+        async def apply(request):
+            """Submit the reviewed action off the UI thread and refresh its result."""
+            if not request:
+                return
+            try:
+                if request["action"] == "review":
+                    result = await asyncio.to_thread(self.view.review, request["issue_id"],
+                        snapshot["stage_index"], snapshot["control_revision"], request["message"])
+                else:
+                    result = await asyncio.to_thread(self.view.recover, request)
+                self.console_panel.append_output("Action accepted.\n", sync_to_console=False)
+                await self.refresh_view()
+            except Exception as error:
+                self.console_panel.append_output(str(error) + "\n", sync_to_console=False)
+        self.app.push_screen(RecoveryDialog(recovery, action), apply)
 
     def on_tree_node_selected(self, event: Tree.NodeSelected):
         if event.control.id == "sub-tree" and event.node.data:

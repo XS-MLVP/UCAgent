@@ -45,6 +45,18 @@ class SuperAgentView:
         if view is None: raise ValueError("Super is queued; wait for it to start")
         return view.submit_input(text, command=command)
 
+    def review(self, issue_id, index, expected_revision, message):
+        """Pass the displayed review identity to the existing session."""
+        view = self._view()
+        if view is None: raise ValueError("Super is not ready")
+        return view.review(issue_id, index, expected_revision, message)
+
+    def recover(self, request):
+        """Recover only through a live session; saved history remains read-only."""
+        view = self._view()
+        if view is None: raise ValueError("Super is not ready")
+        return view.recover(request)
+
     def cancel_operation(self):
         view = self._view()
         if view is None: raise ValueError("Super is not running")
@@ -61,6 +73,7 @@ class SubAgentView:
         return {**child, "role": "sub", "agent_id": self.agent_id, "children": [],
                 "parent_id": self.parent.agent_id, "workflow_ref": parent.get("workflow_ref", ""),
                 "readonly": parent["readonly"], "connected": parent.get("connected", False),
+                "parent_recovery": parent.get("recovery", {}),
                 "stream_id": f"{parent['stream_id']}/worker-attempt-{self.worker_attempt}"}
     def events_since(self, cursor=0):
         page = self.parent.events_since(cursor)

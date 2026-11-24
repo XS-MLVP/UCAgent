@@ -13,18 +13,23 @@ class StrictModel(BaseModel):
 
 
 class Limits(StrictModel):
-    """Finite per-attempt and logical-task budgets enforced by the service."""
+    """Optional work-volume fuses and mandatory consecutive-failure circuits."""
 
-    supervisor_backend_turns: int = Field(default=8, gt=0, strict=True)
-    worker_backend_turns: int = Field(default=80, gt=0, strict=True)
-    supervisor_model_rounds: int = Field(default=8, gt=0, le=100, strict=True)
-    supervisor_tool_calls: int = Field(default=40, gt=0, le=1000, strict=True)
-    supervisor_timeout_seconds: float = Field(default=300, gt=0, allow_inf_nan=False)
-    worker_model_rounds: int = Field(default=80, gt=0, strict=True)
-    worker_tool_calls: int = Field(default=200, gt=0, strict=True)
-    worker_timeout_seconds: float = Field(default=1800, gt=0, allow_inf_nan=False)
+    # A zero work-volume limit disables that fuse. These values are metrics unless
+    # an operator explicitly configures a positive cap.
+    supervisor_backend_turns: int = Field(default=0, ge=0, strict=True)
+    worker_backend_turns: int = Field(default=0, ge=0, strict=True)
+    supervisor_model_rounds: int = Field(default=0, ge=0, le=100, strict=True)
+    supervisor_tool_calls: int = Field(default=0, ge=0, le=1000, strict=True)
+    supervisor_timeout_seconds: float = Field(default=0, ge=0, allow_inf_nan=False)
+    worker_model_rounds: int = Field(default=0, ge=0, strict=True)
+    worker_tool_calls: int = Field(default=0, ge=0, strict=True)
+    worker_timeout_seconds: float = Field(default=0, ge=0, allow_inf_nan=False)
     task_max_attempts: int = Field(default=2, gt=0, le=10, strict=True)
-    planning_revisions: int = Field(default=3, gt=0, le=20, strict=True)
+    planning_revisions: int = Field(default=0, ge=0, le=20, strict=True)
+    tool_error_streak: int = Field(default=8, gt=0, le=100, strict=True)
+    backend_error_streak: int = Field(default=3, gt=0, le=100, strict=True)
+    checker_repeat_failures: int = Field(default=8, gt=0, le=100, strict=True)
 
 
 class Role(StrictModel):

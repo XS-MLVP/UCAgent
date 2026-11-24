@@ -9,8 +9,7 @@ FORMAL_DOC   := ucagent/lang/zh/doc/Formal_Doc
 FORMAL_CMD = $(CMD) $(FORMAL_CWD)/ $* --config $(FORMAL_CFG) -s -hm --tui
 
 formal_init_%: ## Prepare a formal verification workspace
-	mkdir -p $(FORMAL_CWD)
-	cp -r $(FORMAL_DIR)/$* $(FORMAL_CWD)/
+	$(PYTHON) -m ucagent prepare-workspace --plugin ucagent/plugins/Formal --workflow formal --source "$(FORMAL_DIR)/$*" --workspace "$(FORMAL_CWD)" --dut "$*"
 
 formal_%: formal_init_% ## Start formal verification
 	$(FORMAL_CMD) --guid-doc-path $(FORMAL_DOC)/ --output formal_test $(ARGS)

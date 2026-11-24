@@ -88,11 +88,51 @@ class ModelRequests:
             if self.owner.is_break():
                 raise ModelRequestCancelled("Model request cancelled")
             if "error" in call:
-                raise call["error"]
+                error = call["error"]
+                if not isinstance(error, ModelRequestCancelled):
+                    self._observe_backend_failure(error, phase)
+                raise error
+            self._observe_backend_success()
             return call["result"]
         finally:
             with self._lock:
                 self._active = None
+
+    def _observe_backend_failure(self, error, phase):
+        """Notify the managed owner without coupling backend code to a frontend."""
+        owner = self.owner
+        observer = getattr(owner, "observe_backend_failure", None)
+        if callable(observer):
+            try:
+                observer(error, phase=phase)
+            except Exception:
+                pass
+            return
+        service = getattr(owner, "multi_agent", None)
+        observer = getattr(service, "observe_supervisor_failure", None)
+        if callable(observer):
+            try:
+                observer("supervisor_backend", error=error, phase=phase)
+            except Exception:
+                pass
+
+    def _observe_backend_success(self):
+        """Reset the managed backend streak only after a real provider response."""
+        owner = self.owner
+        observer = getattr(owner, "observe_backend_success", None)
+        if callable(observer):
+            try:
+                observer()
+            except Exception:
+                pass
+            return
+        service = getattr(owner, "multi_agent", None)
+        observer = getattr(service, "observe_supervisor_success", None)
+        if callable(observer):
+            try:
+                observer("supervisor_backend")
+            except Exception:
+                pass
 
     def cancel(self):
         """Post cancellation once; never treat a live synchronous fallback as stopped."""

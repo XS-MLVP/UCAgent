@@ -7,26 +7,26 @@
 
 ```bash
 # 只启动 Global，进入窗口后输入任务
-ucagent ./workspace --agent-mode multi --backend codex --config ./config.yaml
+ucagent --agent-mode multi --backend codex --config ./config.yaml
 
 # 命令行指定模块和工作流，启动 Global 后自动创建 Super
-ucagent ./output/workspace_Adder Adder --agent-mode multi --backend codex \
+ucagent ./examples/Adder Adder --agent-mode multi --backend codex \
   --plugin-workflow unittest:unittest --max-subagents 2 --config ./config.yaml
 
 # 准备 Adder 工作区并执行同一条三层链路
 make test_multi_Adder BACKEND=langchain MAX_SUBAGENTS=2
 make mcp_multi_Adder BACKEND=codex MAX_SUBAGENTS=2
 
-# 通用交互入口；不准备 DUT 或调用 picker
-make multi MULTI_WORKSPACE=output/workspace_Adder MULTI_BACKEND=codex
-make multi_unit MULTI_WORKSPACE=output/workspace_Adder MULTI_DUT=Adder MULTI_BACKEND=codex
+# 通用交互入口；DUT 工作区按任务准备
+make multi MULTI_BACKEND=codex
+make multi_unit MULTI_WORKSPACE=examples/Adder MULTI_DUT=Adder MULTI_BACKEND=codex
 ```
 
 无初始任务时只有 Global，默认进入 TUI，不调用模型、不创建 Super/Sub。`--human` 选择 Console。`--loop-msg "任务"` 提供一次初始自然语言输入；没有指定工作流的 `--loop` 提交一次验证当前 DUT 的请求。
 
 同时给出 DUT 和 `--plugin-workflow` 时，Global 自动按指定工作流创建任务，不再等待输入，也不让模型重新选择工作流。此时 `--loop-msg` 是该任务的补充要求。任务结束后默认继续接收指令；加 `--exit-on-completion` 则在子任务完成、结果验收及 Global 最终回复后退出，失败返回非零退出码。
 
-`--plugin` 扩展 Global 的工作流目录，不在 Global 上激活业务工具、模板或阶段。未指定插件时，从配置的默认工作流加载所属插件，无法确定时使用内置 UnitTest。`global_agent.allowed_workflows` 可进一步限制目录；显式任务不得超出限制。
+`--plugin` 扩展 Global 的工作流目录，不在 Global 上激活业务工具、模板或阶段。启动时自动发现已安装插件、仓库插件和配置搜索路径内的插件；每个 Super 只加载所选工作流所属插件。`global_agent.allowed_workflows` 可进一步限制目录；显式任务不得超出限制。
 
 `--agent-mode single|multi` 覆盖 `runtime_options.agent_mode`，也可仅在 YAML 或工作区配置中设置模式。`agent_run.role` 是内部子进程身份，不是另一个公开模式。运行中不能切换模式。
 
@@ -34,14 +34,16 @@ make multi_unit MULTI_WORKSPACE=output/workspace_Adder MULTI_DUT=Adder MULTI_BAC
 
 CLI 后端的 Global MCP 服务自动启用，默认分配本机端口；Super/Sub 使用各自的会话端点。单 Agent 的 CLI 后端仍需显式启用 MCP。执行前须准备所选后端的模型连接或 CLI 登录配置。
 
-`test_multi_*` 默认 `BACKEND=langchain`，`mcp_multi_*` 默认 `BACKEND=codex`，两者均直接提交指定工作流，支持 `CFG / SIM / CWD / ARGS / MULTI_WORKFLOW`。通用 `make multi` 及工作流专用目标使用 `MULTI_*` 变量，详见 `make multi_help`。工作流目录、profile、界面导航和产物管理见 [Global Agent](13_global_agent.md)。
+`test_multi_*` 默认 `BACKEND=langchain`，`mcp_multi_*` 默认 `BACKEND=codex`，两者均直接提交指定工作流，支持 `CFG / SIM / CWD / ARGS / MULTI_WORKFLOW`。通用 `make multi` 及工作流专用目标使用 `MULTI_*` 变量，详见 `make multi_help`。`multi_unit` 等目标只指定首个任务，后续仍可切换工作流；只有显式设置 `MULTI_WORKFLOW` 或 `allowed_workflows` 才限制目录。工作流目录、profile、界面导航和产物管理见 [Global Agent](13_global_agent.md)。
 
 ## 架构与职责
 
 ```mermaid
 flowchart TB
     U[用户 · TUI / Console / CLI 任务] --> A[Global：自然语言与工作流编排]
-    A -->|StartSuper| S[Super AgentSession]
+    A -->|ListDUTs / ListWorkflows| D[DUT 来源与工作流目录]
+    A -->|StartSuper| P[异步准备独立工作区]
+    P --> S[Super AgentSession]
     S -->|经校验的工作流结果| A
     S -->|SubAgentTool：规划与选角色| Q[MultiAgentService：队列 · 依赖 · 并发 · 预算]
     Q --> W[Sub AgentSession × N]
@@ -81,16 +83,21 @@ multi_agent:
   delegation_scope: auto
   stage_roles: {review: reviewer}   # 实际阶段 name
   limits:
-    supervisor_backend_turns: 8    # 同一规划授权内的执行/恢复轮次
-    worker_backend_turns: 80       # 同一逻辑任务，跨重试累计
-    supervisor_model_rounds: 8     # 仅具备真实模型调用计量的 backend
-    worker_model_rounds: 80
-    supervisor_tool_calls: 40
-    worker_tool_calls: 200
-    supervisor_timeout_seconds: 300
-    worker_timeout_seconds: 1800
-    task_max_attempts: 2
-    planning_revisions: 3
+    # 以下累计工作量保险丝默认关闭；设为正数才会限制执行。
+    supervisor_backend_turns: 0
+    worker_backend_turns: 0
+    supervisor_model_rounds: 0
+    worker_model_rounds: 0
+    supervisor_tool_calls: 0
+    worker_tool_calls: 0
+    supervisor_timeout_seconds: 0
+    worker_timeout_seconds: 0
+    planning_revisions: 0
+    # 只对连续异常熔断；成功操作会清零对应的连续失败计数。
+    tool_error_streak: 8
+    backend_error_streak: 3
+    checker_repeat_failures: 8
+    task_max_attempts: 2        # 仅限制失败任务的重试次数
   roles:
     analyst:
       system: "根据授权任务生成产物并提交结果。"
@@ -102,6 +109,8 @@ multi_agent:
 
 角色不再默认覆盖为 LangChain；托管模式继承顶层 backend，旧角色字段与顶层冲突时报错。`system/system_file` 二选一，相对路径以业务工作区为基准。角色选择顺序：任务 `role` → `stage_roles` → `default_role`。LangChain 角色可用 `model_overrides` 修改模型连接/上下文设置；外部 CLI 使用自身配置，不套用 UCAgent 的 OpenAI 参数。
 
+累计工具调用、模型轮次、后端轮次、规划次数和 Super/Sub 总时长都是可选保险丝，`0` 表示关闭；默认不因健康执行持续时间或成功调用数量而暂停。连续工具错误、后端错误及相同 Checker 诊断达到阈值后会暂停并显示异常类别与计数；对应操作成功后清零连续失败计数。`task_max_attempts` 只限制失败任务的重试次数。单次工具调用自身的超时仍按工具配置生效。
+
 工具权限取角色白名单与工作流工具交集，生命周期工具由框架绑定身份。Super 仅有规划/状态和有限只读工具；Sub 不能再委派或全局跳阶段。每个 Sub 都有独立工具对象、backend、会话及取消状态。
 
 外部 backend 尚未适配内部 embedding 与阶段 LLM 辅助审核。外部执行自动选择不使用内部 embedding 的工具路径；启用不兼容的 `vmanager.llm_suggestion.*.enable` 会明确报错，不静默跳过审核或启动 LangChain。要保留这些审核，应使用支持它们的后端。
@@ -110,7 +119,7 @@ multi_agent:
 
 ## 规划、连续执行与验收
 
-Super 必须真实调用模型，通过 `SubAgentTool` 提交计划。框架不会自行分析生成替代计划。提交后收拢当前执行，等待任务验收事件再唤醒 Super；等待期间不轮询模型。普通文字回复会在同一会话与原预算内续跑，不能当作业务完成。`PauseWorkflow` 用于实际阻塞，用户可用 `continue <补充信息>` 或 `StartWorkflow(instruction=...)` 恢复。
+Super 必须真实调用模型，通过 `SubAgentTool` 提交计划。框架不会自行分析生成替代计划。提交后收拢当前执行，等待任务验收事件再唤醒 Super；等待期间不轮询模型。普通文字回复会在同一会话与原预算内续跑，不能当作业务完成。`PauseWorkflow` 按问题类别暂停；恢复动作与预算规则见下文。普通聊天不会重新进入规划循环。
 
 ```json
 {"plan_id":"stage-one","scope":"auto","tasks":[{"id":"work","instruction":"完成当前授权阶段","role":"analyst"}]}
@@ -188,3 +197,52 @@ LangChain Super/Sub 的 Langfuse callback 独立、共享同一个 run/session �
 Sub 队列重启恢复、嵌套 Sub 和 multi 与 Master 联用尚不支持。
 
 跨工作流串联由 Global 在上游验收后创建后续 Super，见[工作流接力](12_workflow_handoff.md)。
+
+
+## 分类处理、暂停与恢复
+
+处理策略按问题类别定义，不匹配具体工具名或错误字符串：
+
+| 类别 | 统一措施 | 恢复条件 |
+| --- | --- | --- |
+| `repairable` 可修复失败 | 失败及 Checker 反馈返回 Super，在原预算内重新规划 | 新执行通过验收 |
+| `capability` 能力不匹配 | 核对实际授权工具声明的能力；条件已满足时要求继续使用可用能力 | 缺失条件重新检查通过 |
+| `environment` 环境或输入缺失 | 展示未满足条件和具体处理动作 | 可验证条件检查通过；未验证项仍明确标注 |
+| `input` 用户决定 | 保留现场并提出具体问题 | 收到回复 |
+| `review` 人工审核 | 使用原有审核入口和版本校验 | 审核通过，普通回复不能替代审核 |
+| `budget` 执行额度耗尽 | 暂停，展示累计消耗和追加建议 | 操作员明确追加对应额度 |
+| `operator` 主动暂停 | 收拢执行，保留文件与进度 | 操作员继续 |
+
+Sub 使用 `SubmitTaskResult(status="needs_attention", summary=..., issue=...)` 报告未完成工作。
+`issue` 包含 `kind`、`summary`、`next_action`，以及可选的 `conditions`、`evidence_ids`。实际调用证据由运行时生成；无法验证的判断标为 Agent 报告，不将模型文字当作权限或环境故障的证明。`ready` 仍需阶段 Checker 验收。
+
+```json
+{
+  "status": "needs_attention",
+  "summary": "必需输入尚未提供，其他已完成工作保留",
+  "issue": {
+    "kind": "environment",
+    "summary": "缺少 inputs/requirements.md",
+    "next_action": "提供该输入，然后重新检查并继续",
+    "conditions": [{"kind": "file_exists", "value": "inputs/requirements.md"}],
+    "evidence_ids": []
+  }
+}
+```
+
+内置条件检查包括 `file_exists`、`file_writable`（工作区写策略）、`tool_available`、`capability_available`。条件的 `value` 分别为工作区相对文件路径、工具名或能力名。工具可声明 `capabilities`；Sub 的 `CurrentTips` 返回实际可用的能力与工具。可信扩展可通过 `service.requirement_checks.register(name, check)` 注册只读条件检查，回调接收 `(service, record, value)` 并返回布尔值；未知检查显示“尚未核实”，不执行任意检查命令。
+
+Super 的输入语义分开：
+
+- 普通文本或 `MessageSuper`：补充指导，在下一次规划边界送达，不自动恢复暂停任务。
+- `chat "问题"`：只读讨论；不提交计划、不改变暂停原因、不消耗阶段规划次数。单次模型调用仍受执行时间和调用次数限制。
+- TUI 状态卡的 `Resume`（继续）、`Reply`（回复）、`Add budget`（追加额度）、`Review`（审核）：提交对应操作；也可使用 `/resume`、`/reply 回复内容`、`/budget`。
+- Console 的 `workflow_recovery`：读取当前问题、额度与可用操作；`workflow_recover` 接收结构化恢复请求。例如：
+
+```text
+workflow_recover {"issue_id":"从当前状态读取的ID","action":"grant","grant":{"planning_revisions":3,"worker_tool_calls":100},"message":"按补充要求继续"}
+```
+
+追加额度作用于当前阶段或具体逻辑任务；消耗不清零，历史追加保留。重新命名计划不能刷新预算。人工等待不消耗 Sub 的执行时限，工具自身超时仍有效。重复提交同一个恢复请求只启动一次；旧问题 ID 不能恢复新问题。恢复前必须等待旧执行退出，不能同时写入同一任务。
+
+暂停后保留工作区和已验收进度。若已验收阶段声明的输入或产物在暂停期间变化，恢复时从最早受影响阶段重新验收，并清除该阶段及后续阶段的旧审核、读取和 Skill 完成证据。暂停恢复针对存活的会话；进程已经退出时使用 Global 的重试入口，创建新尝试。

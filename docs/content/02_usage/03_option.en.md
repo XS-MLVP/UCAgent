@@ -28,8 +28,8 @@ ucagent <workspace> <dut_name> [options]
 
 | Parameter | Required | Description | Example |
 | :-------- | :--: | :----------------------------------------------------------- | :------- |
-| workspace | Required for normal tasks | Working directory; can also be a local `.tar.gz` or HTTP(S) archive URL | ./output |
-| dut | Required for normal tasks | DUT name (subdirectory name under the working directory); not required for entry points like information queries | Adder |
+| workspace | Required for normal tasks; optional for multi | Working directory or local `.tar.gz` / HTTP(S) archive URL; multi defaults to the current project directory | ./output |
+| dut | Required for normal tasks; optional for interactive multi | DUT name; required when multi starts an explicit initial workflow | Adder |
 
 | Option | Short | Value/Type | Default | Description |
 | --- | --- | --- | --- | --- |

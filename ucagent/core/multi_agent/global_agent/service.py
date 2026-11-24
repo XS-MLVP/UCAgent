@@ -1,7 +1,7 @@
 """Core policy facade; the application injects the session runtime."""
 from contextvars import ContextVar
 import json
-from ucagent.core.workflow.contracts import WorkflowCatalog
+from ucagent.core.multi_agent.global_agent.catalog import GlobalWorkflowCatalog
 
 CURRENT_REQUEST = ContextVar("global_request", default=None)
 
@@ -9,14 +9,20 @@ class GlobalAgentService:
     def __init__(self, agent, settings, *, catalog=None):
         self.agent = agent
         self.settings = settings
-        self.catalog = catalog or WorkflowCatalog(settings, getattr(agent, "plugins", ()))
+        self.catalog = catalog or GlobalWorkflowCatalog(agent.cfg, plugins=getattr(agent, "plugins", ()))
         self.runtime = None
 
     def attach_runtime(self, runtime):
         self.runtime = runtime
 
     def list_workflows(self):
-        return {"workflows": [entry.describe() for entry in self.catalog.entries.values()],
+        from ucagent.core.workspace.preparation import PreparationOptions
+        workflows = []
+        for entry in self.catalog.entries.values():
+            schema = getattr(entry.workflow, "preparation_schema", None) or PreparationOptions
+            workflows.append({**entry.describe(), "preparation": schema.model_json_schema()})
+        return {"workflows": workflows,
+                "unavailable_plugins": getattr(self.catalog, "errors", []),
                 "launch_profiles": self.list_launch_profiles()}
 
     def list_launch_profiles(self):

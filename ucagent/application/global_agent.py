@@ -30,9 +30,11 @@ def configure_agent_sessions(agent, prepared):
         host.add_cleanup(server.close)
     service = getattr(agent, "global_service", None)
     if service is None: return None
-    launcher = SubprocessSuperLauncher(service.settings, agent.workspace, agent.workspace,
-                    config_file=getattr(agent, "config_file", None), dut_name=getattr(agent, "dut_name", None))
-    runtime = AgentSessions(service, agent.workspace, launcher=launcher, host=host)
+    project = prepared.project_root or agent.workspace
+    session_dir = Path(agent.workspace).parent if prepared.project_root else None
+    launcher = SubprocessSuperLauncher(service.settings, session_dir or agent.workspace, project,
+                    config_file=getattr(agent, "config_file", None))
+    runtime = AgentSessions(service, project, launcher=launcher, host=host, session_dir=session_dir)
     service.attach_runtime(runtime)
     host.agent_sessions = runtime
     def global_message(text):

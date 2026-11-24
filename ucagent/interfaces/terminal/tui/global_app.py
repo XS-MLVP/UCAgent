@@ -11,6 +11,7 @@ from ucagent.interfaces.terminal.tui.widgets.messages_panel import MessagesPanel
 from ucagent.interfaces.terminal.tui.agent_view import SuperAgentView, SubAgentView
 from ucagent.core.multi_agent.global_agent.display import session_summary
 from ucagent.interfaces.terminal.tui.agent_screen import AgentScreen
+from ucagent.interfaces.terminal.tui.widgets.recovery import reason_label
 
 SESSION_CSS = """
 Screen { background: $background; }
@@ -19,6 +20,7 @@ Screen { background: $background; }
 #agent-tree { width: 38; border: solid $secondary; }
 #global-input { height: 3; margin: 0 1; }
 #session-status { height: auto; padding: 0 1; }
+#global-attention { height: auto; max-height: 2; padding: 0 1; color: $warning; }
 """
 
 class SessionApp(App):
@@ -68,6 +70,7 @@ class GlobalApp(SessionApp):
         with Horizontal(id="global-body"):
             yield MessagesPanel(id="global-conversation")
             yield Tree("Agents", id="agent-tree")
+        yield Static(id="global-attention", markup=False)
         yield Input(placeholder="Describe a task or ask about a running Agent...", id="global-input")
         yield Footer()
 
@@ -101,11 +104,11 @@ class GlobalApp(SessionApp):
                     panel.append_message(event["payload"].get("text", ""))
                 elif event["agent_id"] == "global" and event["kind"] == "user_input":
                     panel.append_message(f"[You] {event['payload']['text']}\n")
-                elif event["kind"] in {"queued", "started", "result", "waiting_input", "runtime_error"}:
+                elif event["kind"] in {"queued", "started", "result", "waiting_input", "runtime_error", "preparation"}:
                     data = event["payload"]
-                    panel.append_message(f"[{event['agent_id']}] {data.get('status', event['kind'])}" +
+                    panel.append_message(f"[{event['agent_id']}] {data.get('text') or data.get('status', event['kind'])}" +
                                          (f" · {data['error']}" if data.get("error") else "") + "\n")
-            signature = [(a["agent_id"], a["status"], a["attempt"], a.get("stage_index"),
+            signature = [(a["agent_id"], a["status"], a["attempt"], a.get("stage_index"), a.get("preparation_progress"), (a.get("recovery", {}).get("issue") or {}).get("id"),
                           [(c["agent_id"], c.get("status")) for c in a.get("children", [])]) for a in state["agents"]]
             if signature != self.tree_state:
                 self.tree_state = signature
@@ -114,7 +117,11 @@ class GlobalApp(SessionApp):
                 tree.clear()
                 for agent in state["agents"]:
                     progress = f" {min(agent.get('stage_index', 0) + 1, len(agent['stages']))}/{len(agent['stages'])}" if agent.get("stages") else ""
-                    node = tree.root.add(Text(f"{agent['status']}{progress} · {agent['workflow_ref'].rsplit(':', 1)[-1]} · {agent['agent_id'][-4:]}"), data=agent["agent_id"], expand=True)
+                    issue = agent.get("recovery", {}).get("issue")
+                    label = "⏸ " + reason_label(issue) if issue else agent["status"]
+                    node = tree.root.add(Text(f"{label}{progress} · {agent.get('dut_name', '')} / {agent['workflow_ref'].rsplit(':', 1)[-1]} · {agent['agent_id'][-4:]}"), data=agent["agent_id"], expand=True)
+                    if agent["status"] == "preparing" and agent.get("preparation_progress"):
+                        node.add_leaf(Text(agent["preparation_progress"]))
                     if agent["agent_id"] == selected: tree.move_cursor(node)
                     for child in agent.get("children", []):
                         leaf = node.add_leaf(Text(f"{child.get('status', '')} · {child.get('task_id', '').rsplit('/', 1)[-1]}"), data=(agent["agent_id"], child["agent_id"]))
@@ -122,7 +129,13 @@ class GlobalApp(SessionApp):
                 tree.root.expand()
             pending = sum(x["state"] == "queued" for x in self.runtime.inbox.items)
             active = sum(a["status"] not in {"succeeded", "failed", "cancelled"} for a in state["agents"])
-            self.status_panel.update(Text(f"Global | {active} active Supers | {pending} queued messages | /help"))
+            waiting = [a for a in state["agents"] if a["status"] == "waiting_input"]
+            self.status_panel.update(Text(f"Global | {active - len(waiting)} running · {len(waiting)} need attention | {pending} queued messages | /help"))
+            notice = ""
+            if waiting:
+                selected = waiting[0]
+                notice = f"⏸ {selected.get('dut_name', '')} · {reason_label(selected.get('recovery', {}).get('issue'))}   /open {selected['agent_id']} for details and recovery"
+            self.query_one("#global-attention", Static).update(Text(notice))
             if self.host.snapshot()["instance"] in {"closed", "failed"}: self.exit()
         finally: self.refreshing = False
 

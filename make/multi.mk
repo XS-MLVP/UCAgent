@@ -13,12 +13,12 @@ PYTHON ?= python3
 MULTI_PYTHON ?= $(if $(wildcard $(ROOT_DIR)/.venv/bin/python),$(ROOT_DIR)/.venv/bin/python,$(PYTHON))
 MULTI_UCAGENT ?= $(MULTI_PYTHON) "$(ROOT_DIR)/ucagent.py"
 
-MULTI_WORKSPACE ?= $(ROOT_DIR)/output/workspace_multi
-MULTI_DUT ?= mission
+MULTI_WORKSPACE ?= $(CURDIR)
+MULTI_DUT ?=
 MULTI_CONFIG ?= $(ROOT_DIR)/config.yaml
 MULTI_PROMPT ?=
-MULTI_PLUGIN ?= $(ROOT_DIR)/ucagent/plugins/UnitTest
-MULTI_WORKFLOW ?= unittest:unittest
+MULTI_PLUGIN ?=
+MULTI_WORKFLOW ?=
 MULTI_TASK_WORKFLOW ?=
 
 # These overrides apply to the standard launch profile and session limits.
@@ -41,7 +41,7 @@ MULTI_LIMIT_OVERRIDES = \
 	$(if $(MULTI_MAX_PARALLEL),--override 'global_agent.max_parallel_supers=$(MULTI_MAX_PARALLEL)',) \
 	$(if $(MULTI_MAX_RUNS),--override 'global_agent.max_runs_per_request=$(MULTI_MAX_RUNS)',)
 
-MULTI_LAUNCH = $(MULTI_UCAGENT) "$(MULTI_WORKSPACE_ABS)/" "$(MULTI_DUT)" \
+MULTI_LAUNCH = $(MULTI_UCAGENT) "$(MULTI_WORKSPACE_ABS)/" $(if $(MULTI_DUT),"$(MULTI_DUT)",) \
 	--agent-mode multi \
 	--config "$(MULTI_CONFIG)" \
 	$(MULTI_POLICY_OVERRIDES) \
@@ -52,7 +52,7 @@ MULTI_LAUNCH = $(MULTI_UCAGENT) "$(MULTI_WORKSPACE_ABS)/" "$(MULTI_DUT)" \
 	$(if $(strip $(MULTI_PROMPT)),--loop-msg "$(MULTI_PROMPT)",) \
 	$(MULTI_UI) $(MULTI_ARGS)
 
-multi: ## Launch idle Global with UnitTest in its workflow catalog
+multi: ## Launch Global without binding a DUT or workflow
 	@test -f "$(MULTI_CONFIG)" || { echo "Error: config not found: $(MULTI_CONFIG)"; echo "Set MULTI_CONFIG=/path/to/config.yaml"; exit 1; }
 	@mkdir -p "$(MULTI_WORKSPACE_ABS)"
 	$(MULTI_LAUNCH)
@@ -64,27 +64,23 @@ multi_tui: MULTI_UI := --tui
 multi_tui: multi ## Launch Global Agent with the TUI
 
 multi_unit: MULTI_PLUGIN := $(ROOT_DIR)/ucagent/plugins/UnitTest
-multi_unit: MULTI_WORKFLOW := unittest:unittest
+multi_unit: MULTI_TASK_WORKFLOW := unittest:unittest
 multi_unit: MULTI_PROMPT := 使用指定的 UnitTest 工作流验证当前 DUT，并完成任务
-multi_unit: MULTI_TASK_WORKFLOW = $(MULTI_WORKFLOW)
 multi_unit: multi ## Launch the bundled UnitTest workflow explicitly
 
 multi_formal: MULTI_PLUGIN := $(ROOT_DIR)/ucagent/plugins/Formal
-multi_formal: MULTI_WORKFLOW := formal:formal
+multi_formal: MULTI_TASK_WORKFLOW := formal:formal
 multi_formal: MULTI_PROMPT := 为当前 DUT 生成形式化属性、脚本和覆盖证据，并完成验证
-multi_formal: MULTI_TASK_WORKFLOW = $(MULTI_WORKFLOW)
 multi_formal: multi ## Launch the Formal workflow
 
 multi_rtl2spec: MULTI_PLUGIN := $(ROOT_DIR)/ucagent/plugins/RTL2Spec
-multi_rtl2spec: MULTI_WORKFLOW := rtl2spec:generic-design-document
+multi_rtl2spec: MULTI_TASK_WORKFLOW := rtl2spec:generic-design-document
 multi_rtl2spec: MULTI_PROMPT := 为当前 RTL 生成有证据支撑的设计与功能检查点文档
-multi_rtl2spec: MULTI_TASK_WORKFLOW = $(MULTI_WORKFLOW)
 multi_rtl2spec: multi ## Launch the RTL2Spec generic document workflow
 
 multi_ppa: MULTI_PLUGIN := $(ROOT_DIR)/ucagent/plugins/DesignWithPPA
-multi_ppa: MULTI_WORKFLOW := design-with-ppa:unit-design-tdd
+multi_ppa: MULTI_TASK_WORKFLOW := design-with-ppa:unit-design-tdd
 multi_ppa: MULTI_PROMPT := 通过 TDD、覆盖率和 PPA 迭代完成当前单元设计
-multi_ppa: MULTI_TASK_WORKFLOW = $(MULTI_WORKFLOW)
 multi_ppa: multi ## Launch the DesignWithPPA unit-design workflow
 
 multi_check: ## Validate Global Agent paths without starting a model
@@ -103,12 +99,12 @@ multi_help: ## Show Global Agent launch examples
 		'Usage: make <target> [VARIABLE=value ...]' \
 		'' \
 		'Common variables:' \
-		'  MULTI_WORKSPACE   workspace directory (default: output/workspace_multi)' \
-		'  MULTI_DUT         DUT name (default: mission)' \
+		'  MULTI_WORKSPACE   project/search directory (default: current directory)' \
+		'  MULTI_DUT         optional initial DUT name' \
 		'  MULTI_CONFIG      config file with model settings and workflow policy' \
 		'  MULTI_PROMPT      first natural-language goal' \
-		'  MULTI_PLUGIN      plugin path or selector' \
-		'  MULTI_WORKFLOW    plugin:workflow available in the catalog' \
+		'  MULTI_PLUGIN      optional explicit plugin path or selector' \
+		'  MULTI_WORKFLOW    optional single-workflow catalog restriction' \
 		'  MULTI_TASK_WORKFLOW  exact startup workflow; empty keeps Global idle' \
 		'  MULTI_BACKEND     default backend for Global, Super and Sub' \
 		'  MULTI_MAX_SUBAGENTS / MULTI_MAX_PARALLEL / MULTI_MAX_RUNS' \

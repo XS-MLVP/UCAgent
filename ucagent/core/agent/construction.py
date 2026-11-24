@@ -100,6 +100,7 @@ def prepare_task(agent, options):
         plugin_runtime_config_keys=options.plugin_runtime_config_keys, seed=options.seed,
     )
     agent.cfg = prepared.cfg
+    agent.global_catalog = prepared.global_catalog
     from ucagent.core.multi_agent.super_agent.contracts import load_settings
     agent.multi_agent_settings = load_settings(agent.cfg, agent.workspace)
     from ucagent.core.workflow.contracts import load_handoff_settings
@@ -354,7 +355,7 @@ def assemble_backend(agent, options):
     if getattr(agent, "global_agent_settings", None) is not None:
         from ucagent.core.multi_agent.global_agent.service import GlobalAgentService
         from ucagent.core.tools.global_agent import global_tools
-        agent.global_service = GlobalAgentService(agent, agent.global_agent_settings)
+        agent.global_service = GlobalAgentService(agent, agent.global_agent_settings, catalog=agent.global_catalog)
         agent.test_tools = global_tools(agent)
     elif agent.multi_agent_settings is not None:
         from ucagent.core.multi_agent.super_agent.service import MultiAgentService

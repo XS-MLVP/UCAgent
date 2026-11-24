@@ -6687,6 +6687,18 @@
       "canonical_name": "quit",
       "owner": "ucagent/runtime/host.py",
       "contract": "Explicit instance shutdown in every frontend; bare q/quit/exit detach only when entered in TUI."
+    },
+    {
+      "name": "workflow_recovery",
+      "canonical_name": "workflow_recovery",
+      "owner": "ucagent/runtime/control/controller.py",
+      "contract": "Read categorized pause state and cumulative budgets."
+    },
+    {
+      "name": "workflow_recover",
+      "canonical_name": "workflow_recover",
+      "owner": "ucagent/runtime/control/controller.py",
+      "contract": "Apply an issue-bound operator reply, resume or explicit additive budget grant without bypassing stage review."
     }
   ]
 }

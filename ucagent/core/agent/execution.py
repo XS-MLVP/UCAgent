@@ -461,12 +461,10 @@ class VerifyAgent:
         return self
 
     def custom_chat(self, msg):
-        """Run user instructions through the same multi-agent planning loop when enabled."""
+        """Discuss task state without changing a multi-agent execution plan."""
         service = getattr(self, "multi_agent", None)
         if service is not None:
-            if service.has_active():
-                raise RuntimeError("Delegated work is active; pause it before changing the plan")
-            service.run_workflow(msg)
+            service.chat(msg)
             return
         self.do_work({"messages": [self.backend.get_human_message(msg)]}, self.get_work_config())
 

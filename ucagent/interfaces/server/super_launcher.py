@@ -20,14 +20,13 @@ class SubprocessSuperLauncher:
 
     def __init__(self, settings: GlobalSettings, session_root: str | Path,
                  source_workspace: str | Path, *, config_file: str | None = None,
-                 python_executable: str | None = None, dut_name: str | None = None):
+                 python_executable: str | None = None):
         """Retain only trusted policy and source locations; no Agent state is shared."""
         self.settings = settings
         self.session_root = Path(session_root).resolve()
         self.source_workspace = Path(source_workspace).resolve()
         self.config_file = str(Path(config_file).resolve()) if config_file and Path(config_file).is_file() else config_file
         self.python_executable = python_executable or sys.executable
-        self.dut_name = str(dut_name).strip() if dut_name else None
         self._backend_traits: dict[tuple[str, bool, str | None, str | None], tuple[bool, bool]] = {}
 
     def _resolve_plugin(self, selector: str) -> str:
@@ -83,6 +82,8 @@ class SubprocessSuperLauncher:
     def build_command(self, run: SuperSpec, workspace: str | Path,
                       result_path: str | Path, instruction: str, *, attempt: int = 1) -> list[str]:
         """Build the exact child argv from a named profile and validated run spec."""
+        if not run.dut_name:
+            raise ValueError("A Super requires a resolved dut_name")
         profile = self.settings.launch_profiles[run.launch_profile]
         if profile.backend == "blank":
             raise ValueError("A Super launch profile cannot use the blank backend")
@@ -96,7 +97,7 @@ class SubprocessSuperLauncher:
             self.python_executable,
             cli_path,
             str(Path(workspace).resolve()),
-            run.dut_name or self.dut_name or "DUT",
+            run.dut_name,
             "--internal-super",
             "--backend", profile.backend,
             "--max-subagents", str(profile.max_subagents),
@@ -118,8 +119,7 @@ class SubprocessSuperLauncher:
         config_file = self._config_for(run)
         if config_file:
             argv.extend(["--config", config_file])
-        for selector in self.settings.plugin_selectors:
-            argv.extend(["--plugin", self._resolve_plugin(selector)])
+        argv.extend(["--plugin", self._resolve_plugin(run.plugin_selector)])
         overrides = {
             "runtime_options.agent_mode": "multi",
             "agent_run.role": "super",
@@ -237,6 +237,11 @@ class SubprocessSuperLauncher:
             except ProcessLookupError:
                 pass
             process.wait(timeout=timeout)
+
+    def recover(self, handle, request):
+        """Send an explicit recovery action to the existing authenticated session."""
+        from ucagent.interfaces.server.agent_session import RemoteAgentView
+        return RemoteAgentView(Path(handle["messages_path"]).parent).recover(request)
 
     def send_input(self, handle, message):
         """Deliver guidance through the existing child runtime instead of stdin."""

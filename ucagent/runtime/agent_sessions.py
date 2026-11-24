@@ -3,9 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import os
 from pathlib import Path
-import shutil
 import threading
 import time
 from uuid import uuid4
@@ -13,22 +11,27 @@ from uuid import uuid4
 from ucagent.core.multi_agent.global_agent.session_contracts import SuperRequest, SuperSpec, TERMINAL_STATES
 from ucagent.core.multi_agent.global_agent.result import sha256_file, verify_workflow_run_result, _artifact_path
 from ucagent.core.workflow.contracts import canonical_file
+from ucagent.core.multi_agent.global_agent.duts import DUTCatalog
+from ucagent.core.workspace.preparation import PreparationOptions
+from ucagent.runtime.workspace_preparation import PreparationJob
 from ucagent.runtime.agent_events import AgentEvents, GlobalInbox, atomic_json
 
 class AgentSessions:
-    def __init__(self, service, workspace, *, launcher, host=None, root=None):
+    def __init__(self, service, workspace, *, launcher, host=None, root=None, session_dir=None):
         self.service, self.settings, self.catalog = service, service.settings, service.catalog
         self.workspace = Path(workspace).resolve()
         base = Path(root or self.settings.root or self.workspace / ".ucagent/global")
         if not base.is_absolute(): base = self.workspace / base
-        self.session_id = uuid4().hex
-        self.root = base.resolve() / "sessions" / self.session_id
-        self.root.mkdir(parents=True, exist_ok=False)
+        self.session_id = Path(session_dir).name if session_dir else uuid4().hex
+        self.root = Path(session_dir).resolve() if session_dir else base.resolve() / "sessions" / self.session_id
+        self.root.mkdir(parents=True, exist_ok=bool(session_dir))
         self.launcher, self.host = launcher, host
         self.events = AgentEvents(self.root)
         self.inbox = GlobalInbox(host, self.root, self.events) if host else None
         self.runs, self.keys, self.request_counts = {}, {}, {}
         self.handles = {}
+        self.preparations = {}
+        self.duts = DUTCatalog(self.workspace, self.settings.workspace_roots, self.root)
         self.lock = threading.RLock()
         self.stop = threading.Event()
         self.thread = None
@@ -70,8 +73,12 @@ class AgentSessions:
         """Launch an exact CLI task once, without a model reinterpreting its constraints."""
         text = instruction or f"Verify {dut_name} using the selected workflow {workflow_ref}."
         request_id = uuid4().hex
+        entry = self.catalog.entries[workflow_ref]
+        source = str(self.workspace) if not getattr(entry.workflow, "prepare_workspace", None) else None
+        if any((self.workspace / name).exists() for name in (f"{dut_name}.v", f"{dut_name}.sv", f"{dut_name}_RTL", dut_name)):
+            source = str(self.workspace)
         result = self.start_super(SuperRequest(workflow_ref=workflow_ref, dut_name=dut_name,
-                                              instruction=text), request_id=request_id)
+                                              source_workspace=source, instruction=text), request_id=request_id)
         self.events.append("global", "user_input", request_id=request_id, text=text)
         self.events.append("global", "message", text=f"Started {result['agent_id']}: {workflow_ref} ({dut_name})")
         return result
@@ -87,20 +94,17 @@ class AgentSessions:
             raise ValueError(f"Workflow requires exactly these input targets: {sorted(entry.workflow.inputs)}")
         return entry
 
-    def _source(self, source):
-        path = Path(source) if source else self.workspace
-        if not path.is_absolute(): path = self.workspace / path
-        path = path.resolve()
-        allowed = [self.workspace, *[Path(p).resolve() for p in self.settings.workspace_roots]]
-        if not path.is_dir() or not any(path.is_relative_to(p) for p in allowed):
-            raise ValueError("source_workspace must be an existing directory inside the configured workspace roots")
-        if path.is_relative_to(self.root): raise ValueError("Cannot use session runtime state as a source workspace")
-        return path
+    def list_duts(self, query=None):
+        """Expose candidate source paths without binding the Global session to a DUT."""
+        return self.duts.list(query)
 
     def start_super(self, request, *, request_id="operator"):
         spec = SuperRequest.model_validate(request) if not isinstance(request, SuperRequest) else request
-        self._entry(spec)
-        source = self._source(spec.source_workspace)
+        entry = self._entry(spec)
+        dut_name, source = self.duts.resolve(spec.dut_name, spec.source_workspace)
+        schema = getattr(entry.workflow, "preparation_schema", None) or PreparationOptions
+        options = schema.model_validate(spec.preparation).model_dump(exclude_unset=True)
+        spec = spec.model_copy(update={"dut_name": dut_name, "source_workspace": str(source), "preparation": options})
         fingerprint = hashlib.sha256((request_id + json.dumps(spec.model_dump(), sort_keys=True)).encode()).hexdigest()
         with self.lock:
             if self.closed: raise RuntimeError("Global session is closing")
@@ -111,6 +115,7 @@ class AgentSessions:
             agent_id = "super-" + uuid4().hex[:12]
             self.runs[agent_id] = {"agent_id": agent_id, "parent_id": "global", "role": "super",
                 "request_id": request_id, "spec": spec.model_dump(), "workflow_ref": spec.workflow_ref,
+                "plugin_selector": entry.owner.selector, "dut_name": dut_name,
                 "source_workspace": str(source), "attempt": 1, "status": "queued", "history": [],
                 "artifacts": {}, "error": None, "children": [], "stages": [], "stage_index": 0,
                 "created_at": time.time()}
@@ -152,7 +157,7 @@ class AgentSessions:
             history.append(copy.deepcopy(run))
             run.update(history=history, attempt=attempt + 1, status="queued", error=None, artifacts={},
                        children=[], stages=[], stage_index=0, request_id=request_id)
-            for key in ("pid", "started_at", "finished_at", "workspace", "result_path", "exit_code"):
+            for key in ("pid", "started_at", "finished_at", "workspace", "result_path", "exit_code", "preparation_progress"):
                 run.pop(key, None)
             self.request_counts[request_id] = self.request_counts.get(request_id, 0) + 1
             self.events.append(agent_id, "queued", attempt=run["attempt"], parent_id="global")
@@ -165,11 +170,29 @@ class AgentSessions:
             if run["status"] in TERMINAL_STATES: return self.agent_status(agent_id)
             run["status"] = "cancelling"
             handle = self.handles.pop(agent_id, None)
+            job = self.preparations.get(agent_id)
+            if job: job.cancelled.set()
             self.save()
         if handle: self.launcher.cancel(handle)
+        if job: job.thread.join(2)
         with self.lock:
-            self._finish(run, "cancelled", "Cancelled by the operator")
+            if job and not job.done.is_set():
+                return self.agent_status(agent_id)
+            self.preparations.pop(agent_id, None)
+            if run["status"] not in TERMINAL_STATES:
+                self._finish(run, "cancelled", "Cancelled by the operator")
             return self.agent_status(agent_id)
+
+    def recover_super(self, agent_id, request):
+        """Forward recovery to the live Super without creating another attempt."""
+        with self.lock:
+            run = self._run(agent_id)
+            if run["status"] in TERMINAL_STATES | {"cancelling"}:
+                raise ValueError("Agent process has ended; retry or start a new Super")
+            handle = self.handles.get(agent_id)
+            if handle is None:
+                raise ValueError("Super is not ready for recovery")
+        return self.launcher.recover(handle, request)
 
     def message_super(self, agent_id, message):
         with self.lock:
@@ -206,42 +229,35 @@ class AgentSessions:
         profile = self.settings.launch_profiles[run["spec"]["launch_profile"]]
         used = {}
         for other in self.runs.values():
-            if other["status"] not in {"starting", "running", "waiting_input", "cancelling"}: continue
+            if other["status"] not in {"preparing", "starting", "running", "waiting_input", "cancelling"}: continue
             for r in self.settings.launch_profiles[other["spec"]["launch_profile"]].resources:
                 used[r] = used.get(r, 0) + 1
         return all(used.get(r, 0) < self.settings.resources[r] for r in profile.resources)
 
-    def _launch(self, run):
-        spec = SuperSpec(**run["spec"], agent_id=run["agent_id"])
+    def _prepare(self, run):
+        """Reserve capacity and start preparation outside the scheduler lock."""
+        spec = SuperSpec(**run["spec"], agent_id=run["agent_id"], plugin_selector=run["plugin_selector"])
         root = self.root / "agents" / spec.agent_id / f"attempt-{run['attempt']}"
         workspace = root / "workspace"
-        workspace.mkdir(parents=True, exist_ok=False)
-        source = Path(run["source_workspace"])
-        def ignore(directory, names):
-            return [n for n in names if n in {".ucagent", ".git", "__pycache__", ".venv"}
-                    or (n.startswith(".") and n.endswith("_cache"))
-                    or n.endswith(".pyc") or (Path(directory) / n).resolve() == self.root.parent.parent]
-        # Prune generated trees before scanning; directory links could create copy cycles.
-        for directory, dirs, files in os.walk(source, followlinks=False):
-            excluded = set(ignore(directory, dirs + files))
-            dirs[:] = [name for name in dirs if name not in excluded]
-            for name in dirs + [name for name in files if name not in excluded]:
-                link = Path(directory) / name
-                if not link.is_symlink(): continue
-                if not link.resolve().is_relative_to(source):
-                    raise ValueError(f"Source symlink escapes workspace: {link.relative_to(source)}")
-                if link.is_dir():
-                    raise ValueError(f"Source directory symlink cannot be copied safely: {link.relative_to(source)}")
-        shutil.copytree(source, workspace, dirs_exist_ok=True, ignore=ignore)
-        for target, ref in spec.inputs.items():
-            path, receipt = self._accepted_artifact(ref.agent_id, ref.attempt, ref.path)
-            destination = _artifact_path(workspace, target)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, destination)
-            if sha256_file(destination) != receipt["sha256"]: raise ValueError("Input changed during copy")
-            destination.chmod(0o444)
-        result_path = root / "run_result.json"
-        run.update(status="starting", workspace=str(workspace), result_path=str(result_path))
+        inputs = [(target, *self._accepted_artifact(ref.agent_id, ref.attempt, ref.path))
+                  for target, ref in spec.inputs.items()]
+        def progress(message):
+            """Publish bounded preparation progress for Global's task tree."""
+            with self.lock:
+                run["preparation_progress"] = message[:500]
+                self.events.append(spec.agent_id, "preparation", attempt=run["attempt"], parent_id="global", text=message[:500])
+        job = PreparationJob(self._entry(spec).workflow, run["source_workspace"], workspace,
+                             spec.dut_name, spec.preparation, inputs=inputs, progress=progress,
+                             timeout=self.settings.launch_profiles[spec.launch_profile].preparation_timeout)
+        run.update(status="preparing", workspace=str(workspace), result_path=str(root / "run_result.json"))
+        self.preparations[spec.agent_id] = job
+        job.thread.start()
+
+    def _launch(self, run):
+        """Launch only a fully prepared, uncancelled attempt."""
+        spec = SuperSpec(**run["spec"], agent_id=run["agent_id"], plugin_selector=run["plugin_selector"])
+        workspace, result_path = Path(run["workspace"]), Path(run["result_path"])
+        run["status"] = "starting"
         instruction = (spec.instruction + "\nComplete the selected workflow through Check/Complete. "
                        "Delegate the workflow tasks to Subs. Return control after delegation; "
                        "workflow selection outside this task belongs to Global.\nInputs: " + ", ".join(spec.inputs))
@@ -261,7 +277,7 @@ class AgentSessions:
             preview[path] = artifact
         detail = {"agent_id": run["agent_id"], "attempt": run["attempt"], "workflow_ref": run["workflow_ref"],
                   "status": status, "error": run["error"], "artifacts": preview,
-                  "dut_name": run["spec"].get("dut_name"),
+                  "dut_name": run["dut_name"], "source_workspace": run["source_workspace"],
                   "instruction": run["spec"]["instruction"][:4000],
                   "instruction_truncated": len(run["spec"]["instruction"]) > 4000,
                   "artifact_count": len(run["artifacts"]), "artifacts_truncated": len(preview) < len(run["artifacts"])}
@@ -277,6 +293,17 @@ class AgentSessions:
     def tick(self):
         with self.lock:
             if self.closed: return
+            for agent_id, job in list(self.preparations.items()):
+                if not job.done.is_set(): continue
+                self.preparations.pop(agent_id)
+                run = self.runs[agent_id]
+                if job.cancelled.is_set():
+                    self._finish(run, "cancelled", "Cancelled by the operator")
+                elif job.error:
+                    self._finish(run, "failed", job.error)
+                else:
+                    try: self._launch(run)
+                    except Exception as error: self._finish(run, "failed", error)
             for agent_id, handle in list(self.handles.items()):
                 run = self.runs[agent_id]
                 try:
@@ -286,13 +313,16 @@ class AgentSessions:
                                            parent_id=agent_id, text=message["text"], source=message.get("source", "model"))
                     if status.get("snapshot"):
                         snap = status["snapshot"]
-                        for key in ("stages", "stage_index", "children"):
+                        for key in ("stages", "stage_index", "children", "recovery"):
                             if key in snap: run[key] = snap[key]
                         waiting = snap.get("execution") == "waiting_human"
-                        if waiting and run["status"] != "waiting_input":
-                            event = self.events.append(agent_id, "waiting_input", attempt=run["attempt"], parent_id="global")
+                        issue = snap.get("recovery", {}).get("issue") or {}
+                        if waiting and (run["status"] != "waiting_input" or run.get("attention_id") != issue.get("id")):
+                            run["attention_id"] = issue.get("id")
+                            event = self.events.append(agent_id, "waiting_input", attempt=run["attempt"], parent_id="global",
+                                                       text=issue.get("summary"), issue=issue)
                             if self.inbox:
-                                self.inbox.submit(f"Super {agent_id} is waiting for operator input or review. Inspect its state and ask the user for the needed action.",
+                                self.inbox.submit(f"Super {agent_id} is paused. Inspect AgentStatus.recovery and explain its reason and available actions. Do not restart or grant budget automatically. Report: {issue.get('summary', 'Review or input required')}",
                                                   request_id=run["request_id"], event_id=event["seq"])
                         run["status"] = "waiting_input" if waiting else "running"
                     if status["state"] == "running": continue
@@ -308,7 +338,7 @@ class AgentSessions:
                                     detail = stream.read().decode("utf-8", errors="replace")
                                 if detail.strip(): break
                         raise ValueError(f"Super exited with code {status.get('exit_code')}: {detail}")
-                    spec = SuperSpec(**run["spec"], agent_id=agent_id)
+                    spec = SuperSpec(**run["spec"], agent_id=agent_id, plugin_selector=run["plugin_selector"])
                     result = verify_workflow_run_result(run["result_path"], run["workspace"], spec,
                               list(self._entry(spec).workflow.outputs), expected_attempt=run["attempt"])
                     run["artifacts"] = {x.path: x.model_dump() for x in result.artifacts}
@@ -318,12 +348,12 @@ class AgentSessions:
                     remaining = self.handles.pop(agent_id, None)
                     if remaining: self.launcher.cancel(remaining)
                     self._finish(run, "failed", error)
-            active = sum(r["status"] in {"running", "starting", "waiting_input", "cancelling"} for r in self.runs.values())
+            active = sum(r["status"] in {"preparing", "running", "starting", "waiting_input", "cancelling"} for r in self.runs.values())
             for run in self.runs.values():
                 if active >= self.settings.max_parallel_supers: break
                 if run["status"] != "queued" or not self._available(run): continue
                 try:
-                    self._launch(run)
+                    self._prepare(run)
                     active += 1
                 except Exception as error: self._finish(run, "failed", error)
             self.save()

@@ -10,6 +10,7 @@ from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from ucagent.runtime.agent_events import atomic_json
+from ucagent.runtime.control.controller import ControlError
 
 class AgentSessionServer:
     def __init__(self, view, root):
@@ -36,10 +37,12 @@ class AgentSessionServer:
                             if type(data.get("command", False)) is not bool: raise ValueError("command must be boolean")
                             result = owner.view.submit_input(data["text"], command=data.get("command", False))
                         elif url.path == "/cancel": result = owner.view.cancel_operation()
+                        elif url.path == "/recover": result = owner.view.recover(data)
+                        elif url.path == "/review": result = owner.view.review(**data)
                         else: self.respond(404, {"error": "Unknown session action"}); return
                     else: self.respond(404, {"error": "Unknown session action"}); return
                     self.respond(200, result)
-                except (ValueError, KeyError, RuntimeError, TypeError) as error:
+                except (ValueError, KeyError, RuntimeError, TypeError, ControlError) as error:
                     self.respond(400, {"error": str(error)[:2000]})
             def respond(self, code, payload):
                 body = json.dumps(payload, ensure_ascii=False, default=str).encode()
@@ -68,7 +71,7 @@ class RemoteAgentView:
     def __init__(self, root, *, timeout=1):
         self.root, self.timeout = Path(root), timeout
 
-    def _call(self, path, payload=None):
+    def _call(self, path, payload=None, *, timeout=None):
         connection = json.loads((self.root / "connection.json").read_text())
         parsed = urlparse(connection["url"])
         if parsed.scheme != "http" or parsed.hostname != "127.0.0.1":
@@ -76,7 +79,7 @@ class RemoteAgentView:
         request = Request(connection["url"] + path, data=json.dumps(payload).encode() if payload is not None else None,
                           headers={"Authorization": "Bearer " + connection["token"], "Content-Type": "application/json"})
         try:
-            with urlopen(request, timeout=self.timeout) as response: return json.load(response)
+            with urlopen(request, timeout=self.timeout if timeout is None else timeout) as response: return json.load(response)
         except HTTPError as error:
             raise ValueError(json.loads(error.read()).get("error", "Session request failed")) from error
 
@@ -84,6 +87,12 @@ class RemoteAgentView:
     def events_since(self, cursor=0): return self._call(f"/events?cursor={cursor}")
     def submit_input(self, text, *, command=False): return self._call("/input", {"text": text, "command": command})
     def cancel_operation(self): return self._call("/cancel", {})
+    def recover(self, request):
+        """Allow prerequisite rechecks to finish without slowing regular polling."""
+        return self._call("/recover", request, timeout=30)
+    def review(self, issue_id, index, expected_revision, message):
+        """Approve the displayed stage revision through the authenticated session."""
+        return self._call("/review", dict(issue_id=issue_id, index=index, expected_revision=expected_revision, message=message), timeout=30)
 
 class SavedAgentView:
     """Read-only terminal history; loss of a process handle never restarts a workflow."""
@@ -105,3 +114,9 @@ class SavedAgentView:
         return {"events": events, "cursor": events[-1]["seq"] if events else cursor, "gap": False, "has_more": len(events) == 200}
     def submit_input(self, text, *, command=False): raise ValueError("Saved Agent view is read-only")
     def cancel_operation(self): raise ValueError("Saved Agent view is read-only")
+    def recover(self, request):
+        """Require a new Global attempt after the owning process has ended."""
+        raise ValueError("Agent process has ended; use retry instead")
+    def review(self, **kwargs):
+        """Keep historical stage evidence read-only."""
+        raise ValueError("Saved Agent view is read-only")

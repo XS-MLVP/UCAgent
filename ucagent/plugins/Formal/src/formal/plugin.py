@@ -4,6 +4,8 @@ from pathlib import Path
 
 from ucagent.core.plugins import Plugin, PluginWorkflow
 
+from .preparation import prepare_formal
+
 from .checkers import (
     BasicInfoStructureChecker,
     BugReportConsistencyChecker,
@@ -44,6 +46,7 @@ def get_plugin() -> Plugin:
         workflows=(
             PluginWorkflow(
                 name="formal",
+                prepare_workspace=prepare_formal,
                 config_file=root / "workflows" / "formal.yaml",
                 purpose="Generate formal properties, scripts, coverage evidence and bug reports for RTL.",
                 template_dir=root / "templates" / "formal_test",

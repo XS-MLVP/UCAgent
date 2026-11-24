@@ -628,6 +628,11 @@ class OperationExecutor:
 
     def _loop(self, context, message):
         """Schedule domain rounds and retry failures without entering a debugger."""
+        service = getattr(self.agent, "multi_agent", None)
+        if service is not None and service.issue:
+            service.recover({"issue_id": service.issue["id"], "action": "reply" if message else "resume",
+                             "message": message or ""}, start=False)
+            message = ""
         policy = self.retry_policy
         remaining = policy.max_attempts
         if message:

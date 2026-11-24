@@ -16,12 +16,13 @@ from ucagent.util.log import log_msg, warning
 from ucagent.util.file_policy import normalize_relative_path, is_file_writeable
 from .contracts import TaskPlan
 from .supervisor import StageDriver
+from .recovery import RecoveryControl, BudgetExhausted, ExecutionCircuitOpen, ISSUE_POLICIES
 
 
 PLANNING_OWNER = ContextVar("multi_agent_planning_owner", default=None)
 
 
-TERMINAL = {"verified", "failed", "cancelled", "blocked"}
+TERMINAL = {"verified", "failed", "cancelled", "needs_attention", "waiting_dependency"}
 
 
 @dataclass
@@ -32,6 +33,9 @@ class TaskBudget:
     calls: int = 0
     rounds: int = 0
     deadline: float | None = None
+    grants: dict = field(default_factory=dict)
+    failure_counts: dict = field(default_factory=dict)
+    failure_streaks: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -61,15 +65,25 @@ class TaskRecord:
     session_id: str | None = None
     model_rounds_available: bool = False
     display_state: dict = field(default_factory=dict)
+    budget_error: object = None
+    execution_issue: dict | None = None
+    tool_evidence: list = field(default_factory=list)
+    available_tools: list = field(default_factory=list)
+    capabilities: dict = field(default_factory=dict)
 
     def budget_status(self, limits):
-        """Report consumed logical budgets across attempts without exposing connection data."""
-        return {"backend_turns_used": self.budget.backend_turns, "backend_turns_limit": limits.worker_backend_turns,
+        """Report metrics and only show a limit when its optional fuse is enabled."""
+        def limit(name):
+            value = getattr(limits, name) + self.budget.grants.get(name, 0)
+            return value or None
+        return {"backend_turns_used": self.budget.backend_turns, "backend_turns_limit": limit("worker_backend_turns"),
                 "model_rounds_used": self.rounds if self.model_rounds_available else None,
-                "model_rounds_limit": limits.worker_model_rounds if self.model_rounds_available else None,
-                "tool_calls_used": self.calls, "tool_calls_limit": limits.worker_tool_calls,
+                "model_rounds_limit": limit("worker_model_rounds") if self.model_rounds_available else None,
+                "tool_calls_used": self.calls, "tool_calls_limit": limit("worker_tool_calls"),
                 "seconds_remaining": max(0, round(self.deadline - time.monotonic(), 2))
-                    if self.deadline is not None else limits.worker_timeout_seconds}
+                    if self.deadline is not None else None,
+                "failure_counts": dict(self.budget.failure_counts),
+                "failure_streaks": dict(self.budget.failure_streaks)}
 
     @property
     def calls(self):
@@ -102,7 +116,7 @@ class TaskRecord:
         self.budget.deadline = value
 
 
-class MultiAgentService:
+class MultiAgentService(RecoveryControl):
     """Share one queue and one stage owner across local, MCP and automatic callers."""
 
     def __init__(self, agent, settings, *, runner_factory=None):
@@ -129,12 +143,14 @@ class MultiAgentService:
         self._workflow_lock = threading.Lock()
         self.planning = None
         self._planning_turns = {}
+        self._supervisor_failure_streaks = {"supervisor_tool": 0, "supervisor_backend": 0}
         self._workflow_stop = threading.Event()
         self._feedback = None
         self._instruction = None
         self.operator_instructions = []
         self._supervisor_question = None
         self.handoff = None
+        self.init_recovery()
 
     def queue_instruction(self, message):
         """Queue operator guidance for the next safe Super planning boundary."""
@@ -153,9 +169,117 @@ class MultiAgentService:
             for item in self.operator_instructions:
                 if item["state"] != "queued":
                     continue
-                self._instruction = (self._instruction or "") + "\nOperator guidance: " + item["message"]
+                self._instruction = (self._instruction + "\nOperator guidance: " + item["message"]) if self._instruction else item["message"]
                 item["state"] = "delivered"
                 self.emit("instruction_delivered", instruction_id=item["id"])
+
+    def _execution_failure_issue(self, category, count, threshold, *, subject, error_type=None):
+        """Build a concise circuit notice without copying provider error payloads."""
+        label = {"tool_failure": "tool invocation", "backend_failure": "backend request",
+                 "checker_repeat": "identical Checker diagnostic", "supervisor_tool": "Super tool invocation",
+                 "supervisor_backend": "Super backend request"}.get(category, category.replace("_", " "))
+        detail = f" ({error_type})" if error_type else ""
+        summary = f"{subject} {label} failed {count} consecutive times{detail}; the circuit threshold is {threshold}."
+        action = ("Inspect the latest Sub message and failure evidence, correct the tool input or environment, "
+                  "then resume. The same failure streak is cleared when you resume.")
+        if category == "checker_repeat":
+            summary = f"The same Checker diagnostic repeated {count} times; automatic retries stopped to prevent a non-converging loop."
+            action = "Inspect the Checker diagnostic and its evidence, make a different corrective change, then resume."
+        return {"kind": "execution", "summary": summary, "next_action": action,
+                "category": category, "source": "runtime"}
+
+    def observe_worker_failure(self, record, category, *, subject, error=None):
+        """Count consecutive Sub failures and stop only after the category threshold."""
+        thresholds = {"tool_failure": self.settings.limits.tool_error_streak,
+                      "backend_failure": self.settings.limits.backend_error_streak}
+        count = record.budget.failure_counts.get(category, 0) + 1
+        streak = record.budget.failure_streaks.get(category, 0) + 1
+        record.budget.failure_counts[category] = count
+        record.budget.failure_streaks[category] = streak
+        threshold = thresholds[category]
+        self.emit("execution_failure", task_id=record.key, category=category,
+                  failure_count=count, consecutive=streak, threshold=threshold)
+        if streak < threshold:
+            return False
+        issue = self._execution_failure_issue(category, streak, threshold,
+                                              subject=subject, error_type=type(error).__name__ if error else None)
+        record.execution_issue = issue
+        record.error = issue["summary"]
+        record.cancel.set()
+        self.emit("execution_circuit_open", task_id=record.key, category=category,
+                  consecutive=streak, threshold=threshold)
+        return True
+
+    def observe_worker_success(self, record, category):
+        """Reset only the failure streak proven healthy by a successful operation."""
+        if record.budget.failure_streaks.get(category, 0):
+            record.budget.failure_streaks[category] = 0
+            self.emit("execution_failure_streak_reset", task_id=record.key, category=category)
+
+    def observe_checker_result(self, record, result):
+        """Open a circuit only when one identical failed Checker result keeps recurring."""
+        def find_count(value):
+            if isinstance(value, dict):
+                summary = value.get("failure_summary")
+                if isinstance(summary, dict) and isinstance(summary.get("repeat_failure_count"), int):
+                    return summary["repeat_failure_count"], summary
+                for child in value.values():
+                    found = find_count(child)
+                    if found:
+                        return found
+            elif isinstance(value, (list, tuple)):
+                for child in value:
+                    found = find_count(child)
+                    if found:
+                        return found
+            return None
+        observed = find_count(result)
+        if not observed:
+            return False
+        count, summary = observed
+        threshold = self.settings.limits.checker_repeat_failures
+        record.budget.failure_counts["checker_repeat"] = max(
+            record.budget.failure_counts.get("checker_repeat", 0), count)
+        record.budget.failure_streaks["checker_repeat"] = count
+        if count < threshold:
+            return False
+        issue = self._execution_failure_issue("checker_repeat", count, threshold,
+                                              subject="The current stage", error_type=None)
+        diagnostic = summary.get("error_code") or summary.get("error")
+        location = summary.get("location")
+        if diagnostic or location:
+            issue["summary"] += f" Diagnostic: {diagnostic or 'repeated failure'}"
+            if location:
+                issue["summary"] += f" at {location}"
+        record.execution_issue = issue
+        record.error = issue["summary"]
+        record.cancel.set()
+        self.emit("execution_circuit_open", task_id=record.key, category="checker_repeat",
+                  consecutive=count, threshold=threshold)
+        return True
+
+    def observe_supervisor_failure(self, category, *, error=None, phase=None):
+        """Apply the same error-streak policy to Super tools and backend requests."""
+        threshold = (self.settings.limits.tool_error_streak if category == "supervisor_tool"
+                     else self.settings.limits.backend_error_streak)
+        streak = self._supervisor_failure_streaks[category] + 1
+        self._supervisor_failure_streaks[category] = streak
+        self.emit("execution_failure", category=category, consecutive=streak, threshold=threshold,
+                  phase=phase)
+        if streak < threshold:
+            return False
+        subject = f"Super {phase or 'execution'}"
+        issue = self._execution_failure_issue(category, streak, threshold, subject=subject,
+                                              error_type=type(error).__name__ if error else None)
+        self._pending_execution_issue = issue
+        self.emit("execution_circuit_open", category=category, consecutive=streak, threshold=threshold)
+        return True
+
+    def observe_supervisor_success(self, category):
+        """Reset a Super error streak after its next successful operation."""
+        if self._supervisor_failure_streaks.get(category, 0):
+            self._supervisor_failure_streaks[category] = 0
+            self.emit("execution_failure_streak_reset", category=category)
 
     def emit(self, kind, **data):
         """Retain bounded structured events and wake attached runtime views."""
@@ -205,6 +329,8 @@ class MultiAgentService:
                 raise PermissionError("No planning turn is accepting plans")
             if self._closed:
                 raise RuntimeError("Multi-agent service is closing")
+            if self.issue:
+                raise RuntimeError("Workflow is paused; use the recovery controls before submitting work")
             if plan.plan_id in self.plans:
                 if self.plans[plan.plan_id]["fingerprint"] != fingerprint:
                     raise ValueError("plan_id already exists with different contents")
@@ -301,8 +427,9 @@ class MultiAgentService:
             revision_key = id(current)
             budget_key = id(budget_root)
             revision = self._scope_revisions.get(revision_key, 0)
-            if revision >= self.settings.limits.planning_revisions:
-                raise RuntimeError("Stage planning budget exhausted; operator intervention required")
+            revision_limit = self.supervisor_limit("planning_revisions")
+            if revision_limit > 0 and revision >= revision_limit:
+                raise self.interrupt_budget("planning_revisions", revision, revision_limit)
             lease = self.driver.active_lease or self.driver.acquire(
                 self.settings.delegation_scope if plan.scope == "auto" else plan.scope)
             self._scope_revisions[revision_key] = revision + 1
@@ -335,6 +462,8 @@ class MultiAgentService:
             tasks = [{"task_id": r.key, "state": r.state, "attempt": r.attempt,
                       "instruction": r.spec.instruction,
                       "summary": (r.result or {}).get("summary"), "artifacts": dict(r.artifacts),
+                      "issue": (r.result or {}).get("issue"),
+                      "evidence": list(r.tool_evidence[-10:]),
                       "error": r.error, "role": r.spec.role or self.settings.default_role,
                       "budget": r.budget_status(self.settings.limits),
                       "activity": r.activity or (r.worker.backend.requests.status() if r.worker is not None
@@ -342,7 +471,7 @@ class MultiAgentService:
                      for r in self.records.values() if plan_id is None or r.plan_id == plan_id]
             return {"plans": plans, "tasks": tasks, "running": self._running,
                     "max_workers": self.settings.max_workers, "workflow_state": self.workflow_state,
-                    "planning": self.planning is not None,
+                    "planning": self.planning is not None, "recovery": self.recovery_status(),
                     "metrics": {"plans": len(self.plans), "tasks": len(self.records),
                                 "worker_starts": sum(r.attempt for r in self.records.values()),
                                 "planning_turns": sum(self._planning_turns.values())},
@@ -439,8 +568,8 @@ class MultiAgentService:
                     if r.state != "queued":
                         continue
                     deps = [self.records[f"{r.plan_id}/{d}"] for d in r.spec.depends_on]
-                    if any(d.state in {"failed", "cancelled", "blocked"} for d in deps):
-                        r.state, r.error = "blocked", "A task dependency did not pass"
+                    if any(d.state in TERMINAL - {"verified"} for d in deps):
+                        r.state, r.error = "waiting_dependency", "Waiting for the prerequisite task to be repaired"
                         continue
                     busy_resources = {name for other in active if other.state in {"running", "submitted", "cancelling"}
                                       for name in other.spec.resources}
@@ -453,9 +582,11 @@ class MultiAgentService:
                     r.result, r.error = None, None
                     r.display_state = {}
                     r.started = time.monotonic()
-                    # Absolute time is per logical task, not reset by a repair attempt.
-                    if r.deadline is None:
-                        r.deadline = r.started + self.settings.limits.worker_timeout_seconds
+                    # A zero timeout disables the logical-task deadline. A configured
+                    # positive fuse is absolute and is not reset by repair attempts.
+                    worker_timeout = self.worker_limit(r, "worker_timeout_seconds")
+                    if r.deadline is None and worker_timeout > 0:
+                        r.deadline = r.started + worker_timeout
                     r.thread = threading.Thread(target=self._execute, args=(r,), name=f"worker-{r.key}", daemon=True)
                     r.thread.start()
                     self.emit("task_started", task_id=r.key, role=r.spec.role, attempt=r.attempt)
@@ -485,9 +616,10 @@ class MultiAgentService:
                              for name in record.spec.inputs}
             worker = WorkerSession(self, record)
             record.worker = worker
-            timer = threading.Timer(max(0, record.deadline - time.monotonic()), worker.timeout)
-            timer.daemon = True
-            timer.start()
+            if record.deadline is not None:
+                timer = threading.Timer(max(0, record.deadline - time.monotonic()), worker.timeout)
+                timer.daemon = True
+                timer.start()
             try:
                 worker.run(self.runner_factory)
             finally:
@@ -498,8 +630,8 @@ class MultiAgentService:
                 raise RuntimeError(record.error or "Task cancelled")
             if record.result is None:
                 raise RuntimeError("Worker exited without SubmitTaskResult")
-            if record.result.get("status") == "blocked":
-                raise RuntimeError("Worker blocked: " + record.result["summary"])
+            if record.result.get("status") == "needs_attention":
+                raise RuntimeError("Worker needs attention: " + record.result["summary"])
             # Stage owners may update workflow-writable inputs without enumerating outputs.
             # Split input-only artifacts and workflow-protected inputs remain immutable.
             for name, digest in record.inputs.items():
@@ -568,14 +700,17 @@ class MultiAgentService:
                     warning(f"Worker display snapshot failed: {display_error}")
             with self._cv:
                 record.state, record.error = state, error
-                if record.cancel.is_set():
+                if record.budget_error is not None or record.execution_issue is not None:
+                    record.state = "needs_attention"
+                elif record.cancel.is_set():
                     record.state = "cancelled"
-                elif (record.result or {}).get("status") == "blocked":
-                    record.state = "blocked"
+                elif (record.result or {}).get("status") == "needs_attention":
+                    record.state = "needs_attention"
                 elif (state == "failed" and not getattr(self.agent, "_need_human", False)
-                      and (record.result or {}).get("status") != "blocked"
-                      and record.attempt < self.settings.limits.task_max_attempts
-                      and time.monotonic() < record.deadline):
+                      and (record.result or {}).get("status") != "needs_attention"
+                      and record.attempt < self.worker_limit(record, "task_max_attempts")
+                      and (record.deadline is None or time.monotonic() < record.deadline)):
+
                     record.feedback = error
                     record.state = "queued"
                 record.worker = None
@@ -615,8 +750,8 @@ class MultiAgentService:
                     self.agent.stage_manager, [stage for i, stage in enumerate(self.agent.stage_manager.stages) if i in indices])}
             retry = (not result.get("complete") and not self._closed
                      and not getattr(self.agent, "_need_human", False)
-                     and all(r.state == "verified" and r.attempt < self.settings.limits.task_max_attempts
-                             and time.monotonic() < r.deadline for r in records))
+                     and all(r.state == "verified" and r.attempt < self.worker_limit(r, "task_max_attempts")
+                             and (r.deadline is None or time.monotonic() < r.deadline) for r in records))
             if retry:
                 # Parent repair is a new bounded attempt on the same lease. The
                 # worker may repair the parent but still cannot complete it.
@@ -628,7 +763,7 @@ class MultiAgentService:
                 for name in {r.plan_id for r in records}:
                     self.plans[name]["state"] = ("completed" if result.get("complete") else
                         "waiting_human" if getattr(self.agent, "_need_human", False) else
-                        "blocked" if any(r.state == "blocked" for r in records) else "failed")
+                        "needs_attention" if any(r.state == "needs_attention" for r in records) else "failed")
                     self.plans[name]["validation"] = result
                 self.driver.release(lease)
                 if not self._workflow_lock.locked():
@@ -675,7 +810,8 @@ class MultiAgentService:
         """Authorize only the active completed Super's explicit handoff turn."""
         turn = self.planning
         if turn and turn.get("handoff") and turn["submitted"]:
-            if self._closed or self.agent._need_break or self._workflow_stop.is_set() or time.monotonic() >= turn["deadline"]:
+            if (self._closed or self.agent._need_break or self._workflow_stop.is_set()
+                or (turn["deadline"] is not None and time.monotonic() >= turn["deadline"])):
                 raise PermissionError("Supervisor handoff was cancelled or expired")
         else:
             self.validate_planning()
@@ -683,7 +819,7 @@ class MultiAgentService:
                 or self.handoff.run is not self.handoff.chain.current
                 or token != self.planning["token"]):
             raise PermissionError("Use the current Super handoff transition_token")
-        if self.planning["blocked"]:
+        if self.planning["paused"]:
             raise PermissionError("Handoff turn is paused")
 
     def list_workflows(self):
@@ -723,16 +859,19 @@ class MultiAgentService:
         turn = self.planning
         if turn is None:
             raise PermissionError("No active supervisor planning turn")
+        if self._pending_execution_issue is not None:
+            raise ExecutionCircuitOpen(self._pending_execution_issue["category"])
         if self._closed or self.agent.is_break() or self._workflow_stop.is_set():
             raise PermissionError("Supervisor planning was cancelled")
-        if time.monotonic() >= turn["deadline"]:
-            raise TimeoutError("Supervisor planning deadline exceeded")
+        if turn["deadline"] is not None and time.monotonic() >= turn["deadline"]:
+            limit = self.supervisor_limit("supervisor_timeout_seconds")
+            raise self.interrupt_budget("supervisor_timeout_seconds", limit, limit)
         if self.agent.stage_manager.stage_index != turn["stage_index"]:
             raise PermissionError("Stage changed during planning")
         if submitting:
             if (token or PLANNING_OWNER.get()) != turn["token"]:
                 raise PermissionError("Use the current CurrentTips planning_token")
-            if turn["submitted"] or turn["blocked"] or turn["final"]:
+            if turn["submitted"] or turn["paused"] or turn["final"]:
                 raise PermissionError("Planning turn is no longer accepting a plan")
 
     def charge_planning_tool(self, action):
@@ -740,21 +879,24 @@ class MultiAgentService:
         with self._cv:
             if self.planning is None:
                 return
+            if self.planning.get("chat") and action not in {"read", "status", "tips", "roles", "list_workflows", "workflow_transition_status"}:
+                raise PermissionError("Chat is read-only; use the workflow controls to change execution")
             owned = PLANNING_OWNER.get() == self.planning["token"]
             if action in {"status", "wait", "cancel", "workflow_transition_status"} and not owned:
                 return
             if self.planning["submitted"] and self.planning.get("handoff") and action in {"request_next_workflow", "complete_workflow_chain"}:
                 return
             self.validate_planning()
-            if self.planning["submitted"] or self.planning["blocked"]:
+            if self.planning["submitted"] or self.planning["paused"]:
                 raise PermissionError("Planning turn already submitted; wait for its result")
             if self.planning.get("handoff"):
                 self.handoff.chain.charge(self.handoff.run, "tool_calls")
             self.planning["calls"] += 1
-            if self.planning["calls"] > self.settings.limits.supervisor_tool_calls:
-                raise RuntimeError("Supervisor tool-call budget exhausted")
+            limit = self.supervisor_limit("supervisor_tool_calls")
+            if limit > 0 and self.planning["calls"] > limit:
+                raise self.interrupt_budget("supervisor_tool_calls", self.planning["calls"], limit)
 
-    def pause_workflow(self, reason, planning_token=None):
+    def pause_workflow(self, reason, planning_token=None, kind="input", next_action="Reply with the missing information or decision."):
         """Yield to the user without manufacturing a task or accepting a stage."""
         with self._cv:
             if self.planning and self.planning.get("handoff"):
@@ -763,19 +905,19 @@ class MultiAgentService:
                 self.handoff.chain.save()
             else:
                 self.validate_planning(planning_token, submitting=True)
-            self.planning["blocked"] = reason
+            self.planning["paused"] = reason
             self._supervisor_question = reason
-            self.agent._need_human = True
-            self.emit("supervisor_blocked", reason=reason)
+            self.set_issue(kind, reason, next_action, source="super_report")
+            self.emit("supervisor_paused", reason=reason)
             return {"paused": True, "reason": reason}
 
     def planning_interrupted(self):
         """Stop an overdue model or a command planner immediately after it submits."""
         turn = self.planning
-        return bool(self._workflow_stop.is_set() or (turn and (self._closed
-                    or time.monotonic() >= turn["deadline"]
+        return bool(self._workflow_stop.is_set() or self._pending_execution_issue is not None or (turn and (self._closed
+                    or (turn["deadline"] is not None and time.monotonic() >= turn["deadline"])
                     or (getattr(self.agent.backend, "requires_mcp", False)
-                        and (turn["submitted"] or turn["blocked"])))))
+                        and (turn["submitted"] or turn["paused"])))))
 
     def before_backend_turn(self):
         """Charge a supervisor execution turn independently of provider model calls."""
@@ -785,26 +927,29 @@ class MultiAgentService:
             if turn.get("handoff"):
                 self.handoff.chain.charge(self.handoff.run, "backend_turns")
             turn["backend_turns"] = turn.get("backend_turns", 0) + 1
-            if turn["backend_turns"] > self.settings.limits.supervisor_backend_turns:
-                raise RuntimeError("Supervisor backend-turn budget exhausted")
+            limit = self.supervisor_limit("supervisor_backend_turns")
+            if limit > 0 and turn["backend_turns"] > limit:
+                raise self.interrupt_budget("supervisor_backend_turns", turn["backend_turns"], limit)
 
     def before_model(self):
         """Enforce the precise model-call budget when the selected backend exposes it."""
         with self._cv:
             turn = self.planning
-            if turn is None or turn["submitted"] or turn["blocked"]:
+            if (turn is None or turn["submitted"] or turn["paused"]
+                    or self._pending_execution_issue is not None):
                 return {"jump_to": "end"}
             self.validate_planning()
             turn["rounds"] += 1
-            if turn["rounds"] > self.settings.limits.supervisor_model_rounds:
-                raise RuntimeError("Supervisor model-round budget exhausted")
+            limit = self.supervisor_limit("supervisor_model_rounds")
+            if limit > 0 and turn["rounds"] > limit:
+                raise self.interrupt_budget("supervisor_model_rounds", turn["rounds"], limit)
         return None
 
     def yielded(self):
         """A successful control tool, not provider text, decides whether Super must yield."""
-        return bool(self.planning and (self.planning["submitted"] or self.planning["blocked"]))
+        return bool(self.planning and (self.planning["submitted"] or self.planning["paused"]))
 
-    def plan_turn(self, *, final=False, handoff=False):
+    def plan_turn(self, *, final=False, handoff=False, chat=None):
         """Run one real bounded Super model turn; only its tools may produce a plan."""
         from ucagent.core.backends.blank import BlankBackend
         if isinstance(self.agent.backend, BlankBackend):
@@ -816,16 +961,20 @@ class MultiAgentService:
             current = self.agent.stage_manager.get_current_stage()
             key = id(current)
             count = self._planning_turns.get(key, 0)
-            if count >= self.settings.limits.planning_revisions:
-                raise RuntimeError("Supervisor planning revisions exhausted; operator intervention required")
-            self._planning_turns[key] = count + 1
+            revision_limit = self.supervisor_limit("planning_revisions")
+            if chat is None and revision_limit > 0 and count >= revision_limit:
+                raise self.interrupt_budget("planning_revisions", count, revision_limit)
+            if chat is None:
+                self._planning_turns[key] = count + 1
+            timeout = self.supervisor_limit("supervisor_timeout_seconds")
             turn = {"token": uuid4().hex, "stage_index": self.agent.stage_manager.stage_index,
-                    "deadline": time.monotonic() + self.settings.limits.supervisor_timeout_seconds,
-                    "rounds": 0, "calls": 0, "submitted": None, "blocked": None, "final": final or handoff, "handoff": handoff}
+                    "deadline": time.monotonic() + timeout if timeout > 0 else None, "chat": chat is not None,
+                    "rounds": 0, "calls": 0, "submitted": None, "paused": None, "final": final or handoff, "handoff": handoff}
             if handoff:
                 deadline = self.handoff.run["decision"]["deadline"]
                 remaining = self.handoff.chain.settings.decision_limits.timeout_seconds if deadline is None else max(0, deadline - time.time())
-                turn["deadline"] = min(turn["deadline"], time.monotonic() + remaining)
+                handoff_deadline = time.monotonic() + remaining
+                turn["deadline"] = min(turn["deadline"], handoff_deadline) if turn["deadline"] is not None else handoff_deadline
             self.planning = turn
         token = PLANNING_OWNER.set(turn["token"])
         failed = True
@@ -837,6 +986,9 @@ class MultiAgentService:
                        "phase_label": self.agent.cfg.get_value("multi_agent_prompts.handoff_label", "Workflow handoff") if handoff else None}
             from .display import planning_message
             prompt = self.agent._default_system_prompt
+            if chat is not None:
+                prompt = "Answer the user about the current task. This is a read-only conversation: do not dispatch, pause, cancel or advance work. Explain verified facts and distinguish reports from evidence."
+                context.update(user_instruction=chat, recovery=self.recovery_status(), phase="chat")
             if handoff:
                 prompt += "\n\n" + self.agent.cfg.get_value("multi_agent_prompts.handoff", "")
             messages = [self.agent.backend.get_system_message(prompt),
@@ -845,22 +997,31 @@ class MultiAgentService:
             config = self.agent.get_work_config()
             while True:
                 self.agent.do_work({"messages": messages}, config)
-                if final or turn["submitted"] or turn["blocked"] or self.agent.is_break():
+                if self._pending_budget is not None:
+                    raise self._pending_budget
+                if self._pending_execution_issue is not None:
+                    raise ExecutionCircuitOpen(self._pending_execution_issue["category"])
+                if chat is not None or final or turn["submitted"] or turn["paused"] or self.agent.is_break():
                     break
                 # A text-only turn does not surrender the planning lease or reset budgets.
                 context["continuation"] = ("Choose RequestNextWorkflow, CompleteWorkflowChain or PauseWorkflow." if handoff else
                                            "Continue this planning turn: submit SubAgentTool or PauseWorkflow.")
                 messages = [self.agent.backend.get_human_message(
                     json.dumps(context, ensure_ascii=False, default=str), display_text=context["continuation"])]
-            if time.monotonic() >= turn["deadline"]:
-                raise TimeoutError("Supervisor planning deadline exceeded")
-            if not final and not turn["submitted"] and not turn["blocked"] and not self.agent.is_break():
+            if turn["deadline"] is not None and time.monotonic() >= turn["deadline"]:
+                limit = self.supervisor_limit("supervisor_timeout_seconds")
+                raise self.interrupt_budget("supervisor_timeout_seconds", limit, limit)
+            if chat is None and not final and not turn["submitted"] and not turn["paused"] and not self.agent.is_break():
                 raise RuntimeError("Super returned without SubAgentTool or PauseWorkflow; no task was dispatched")
             failed = False
             return turn["submitted"]
         finally:
             PLANNING_OWNER.reset(token)
             with self._cv:
+                if (failed and turn["deadline"] is not None and time.monotonic() >= turn["deadline"]
+                        and not self.agent._need_break):
+                    limit = self.supervisor_limit("supervisor_timeout_seconds")
+                    self.interrupt_budget("supervisor_timeout_seconds", limit, limit)
                 if failed and turn["submitted"] and not handoff:
                     self.cancel(turn["submitted"], stop_workflow=False)
                 self.planning = None
@@ -875,6 +1036,8 @@ class MultiAgentService:
         with self._cv:
             if self._closed:
                 raise RuntimeError("Multi-agent service is closing")
+            if self.issue:
+                return self.recover({"issue_id": self.issue["id"], "action": "reply" if instruction else "resume", "message": instruction or ""})
             if self._workflow_lock.locked() or (self.workflow_thread and self.workflow_thread.is_alive()):
                 return self.status()
             if isinstance(self.agent.backend, BlankBackend):
@@ -891,6 +1054,7 @@ class MultiAgentService:
             try:
                 self.workflow_thread.start()
             except Exception:
+                self.workflow_thread = None
                 self.workflow_state = "failed"
                 raise
             return self.status()
@@ -899,6 +1063,9 @@ class MultiAgentService:
         """Own the Super planning/result loop and retain ownership through model shutdown."""
         if not self._workflow_lock.acquire(blocking=False):
             raise RuntimeError("A workflow supervisor is already active")
+        if self.issue:
+            self._workflow_lock.release()
+            return self.status()
         self._workflow_stop.clear()
         if message is not None:
             self._instruction = message
@@ -913,7 +1080,21 @@ class MultiAgentService:
                 self._supervisor_question = None
         try:
             return self._drive_workflow()
+        except BudgetExhausted as exc:
+            self.pause_for_budget(exc)
+            return self.status()
         except Exception as exc:
+            if self._pending_budget is not None:
+                self.pause_for_budget(self._pending_budget)
+                return self.status()
+            if self._pending_execution_issue is not None:
+                issue = self._pending_execution_issue
+                self.set_issue(issue["kind"], issue["summary"], issue["next_action"],
+                               source="runtime", category=issue["category"])
+                return self.status()
+            if not self._closed and (self.agent.is_break() or self._workflow_stop.is_set()):
+                self.set_issue("operator", "Execution was paused by the operator.", "Continue when ready.")
+                return self.status()
             try:
                 from ucagent.core.multi_agent.global_agent.result import write_workflow_run_result
                 write_workflow_run_result(self.agent, "failed", error=str(exc))
@@ -929,6 +1110,34 @@ class MultiAgentService:
             self._workflow_lock.release()
             self.emit("workflow_stopped", state=self.workflow_state)
 
+    def _handle_plan_interruption(self, plan_id):
+        """Apply the same category policy before advancing or finalizing a scope."""
+        self._feedback = self.status(plan_id)
+        records = [self.records[key] for key in self.plans[plan_id]["tasks"]]
+        exhausted = next((r.budget_error for r in records if r.budget_error), None)
+        if exhausted:
+            self.pause_for_budget(exhausted)
+            return True
+        circuit_record = next((r for r in records if r.execution_issue), None)
+        if circuit_record:
+            issue = circuit_record.execution_issue
+            self.set_issue(issue["kind"], issue["summary"], issue["next_action"],
+                           source="runtime", task_id=circuit_record.key, category=issue["category"])
+            return True
+        report_record = next((r for r in records if (r.result or {}).get("issue") and ISSUE_POLICIES[r.result["issue"]["kind"]]["handling"] != "replan"), None)
+        if report_record is not None:
+            report = report_record.result["issue"]
+            self.set_issue(report["kind"], report["summary"], report["next_action"], source=report["source"],
+                           task_id=report_record.key, evidence=report.get("evidence"),
+                           conditions=report.get("conditions"), checks=report.get("checks"))
+            return True
+        if self.plans[plan_id]["state"] == "waiting_human":
+            if not self.issue:
+                self.set_issue("review", "The current stage requires human review.", "Complete the stage review, then continue.")
+            self.workflow_state = "waiting_human"
+            return True
+        return False
+
     def _drive_workflow(self):
         """Wake Super at stage/result boundaries and block on worker completion between turns."""
         self.workflow_state = "running"
@@ -938,7 +1147,13 @@ class MultiAgentService:
                 # Completing the last child can exhaust the stage list before its
                 # worker submits. A failed scope must never become overall success.
                 latest = next(reversed(self.plans.values()), None)
+                if latest is not None and latest["state"] == "running":
+                    with self._cv:
+                        self._cv.wait(.1)
+                    continue
                 if latest is not None and latest["state"] != "completed":
+                    if self._handle_plan_interruption(next(reversed(self.plans))):
+                        return self.status()
                     self.workflow_state = "failed"
                     self.emit("workflow_completion_rejected", error="The last delegated scope was not accepted")
                     return self.status()
@@ -972,6 +1187,8 @@ class MultiAgentService:
                 self.workflow_state = "completed" if result.get("exit") else "failed"
                 return result
             if getattr(self.agent, "_need_human", False):
+                if not self.issue:
+                    self.set_issue("review", "The current stage requires human review.", "Complete the stage review, then continue.")
                 self.workflow_state = "waiting_human"
                 return self.status()
             with self._cv:
@@ -989,11 +1206,12 @@ class MultiAgentService:
                 with self._cv:
                     if self.plans[active]["state"] == "running":
                         self._cv.wait(0.2)
-            self._feedback = self.status(active)
-            if self.plans[active]["state"] == "waiting_human":
-                self.workflow_state = "waiting_human"
-                return self._feedback
-            # A failed/blocked plan returns real task and Checker feedback to
+            if self._handle_plan_interruption(active):
+                return self.status()
+            # A failed or interrupted plan returns real task and Checker feedback to
             # Super. Per-stage planning and per-target work budgets remain spent.
-        self.workflow_state = "paused"
+        if not self._closed:
+            self.set_issue("operator", "Execution was paused by the operator.", "Continue when ready.")
+        else:
+            self.workflow_state = "paused"
         return self.status()

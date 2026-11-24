@@ -31,8 +31,9 @@ class SuperRequest(StrictContract):
     workflow_ref: str = Field(pattern=r"^[^:]+:[^:]+$")
     instruction: str = Field(min_length=1, max_length=32000)
     launch_profile: str = Field(default="standard", min_length=1)
-    source_workspace: str | None = None
-    dut_name: str | None = Field(default=None, min_length=1)
+    source_workspace: str | None = Field(default=None, description="Exact DUT source from ListDUTs, or a project-relative directory.")
+    dut_name: str | None = Field(default=None, min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_$-]*$", description="Concrete DUT module name; required when the source contains multiple DUTs.")
+    preparation: dict[str, Any] = Field(default_factory=dict, description="Workflow preparation options from ListWorkflows; omit to use defaults.")
     inputs: dict[str, AgentArtifactRef] = Field(default_factory=dict)
 
     @field_validator("inputs")
@@ -43,12 +44,14 @@ class SuperRequest(StrictContract):
         return value
 
 class SuperSpec(SuperRequest):
+    plugin_selector: str = Field(min_length=1)
     agent_id: str = Field(pattern=ID_PATTERN)
 
 class SuperProfile(StrictContract):
     backend: str = Field(default="langchain", min_length=1)
     max_subagents: int = Field(default=2, ge=1, le=128)
     max_attempts: int = Field(default=2, ge=1, le=10)
+    preparation_timeout: int = Field(default=900, ge=1, le=86400)
     config_ref: str | None = None
     no_embed_tools: bool = False
     resources: list[str] = Field(default_factory=list)
@@ -66,16 +69,17 @@ class SuperProfile(StrictContract):
 
     def describe(self):
         return {"backend": self.backend, "max_subagents": self.max_subagents,
-                "max_attempts": self.max_attempts, "resources": list(self.resources)}
+                "max_attempts": self.max_attempts, "preparation_timeout": self.preparation_timeout, "resources": list(self.resources)}
 
 class GlobalSettings(StrictContract):
     plugin_selectors: list[str] = Field(default_factory=list)
-    allowed_workflows: list[str] = Field(min_length=1)
+    allowed_workflows: list[str] = Field(default_factory=list)
     target_configs: dict[str, str] = Field(default_factory=dict)
     launch_profiles: dict[str, SuperProfile] = Field(min_length=1)
     resources: dict[str, int] = Field(default_factory=dict)
     workspace_roots: list[str] = Field(default_factory=list)
     root: str | None = None
+    project_root: str | None = None
     max_parallel_supers: int = Field(default=2, ge=1, le=32)
     max_runs_per_request: int = Field(default=12, ge=1, le=1000)
 
@@ -84,7 +88,7 @@ class GlobalSettings(StrictContract):
         allowed = set(self.allowed_workflows)
         if len(allowed) != len(self.allowed_workflows) or any(x.count(":") != 1 for x in allowed):
             raise ValueError("allowed_workflows must contain unique plugin:workflow references")
-        if set(self.target_configs) - allowed:
+        if allowed and set(self.target_configs) - allowed:
             raise ValueError("target_configs references an unknown workflow")
         if any(not k.strip() or type(v) is not int or v < 1 for k, v in self.resources.items()):
             raise ValueError("resources must have positive integer capacities")
