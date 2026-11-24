@@ -1,6 +1,7 @@
 """Independent worker sessions with task-bound tools and replaceable execution runners."""
 
 import json
+import copy
 import hashlib
 import shutil
 import os
@@ -43,14 +44,6 @@ class SubstageArgs(StrictModel):
     step_token: str = Field(description="Exact current step_token returned by CurrentTips")
     timeout: int = Field(default=0, ge=0, description="Checker timeout in seconds")
     stage_args: dict | str | None = Field(default=None, description="Current checker arguments")
-
-
-class ScopedCompleteArgs(SubstageArgs):
-    """Accept familiar completion calls without granting global stage control."""
-
-    step_token: str | None = Field(default=None, description=
-        "For a subtree, supply the latest CurrentTips.step_token to complete its current child. "
-        "For a single stage, Complete submits its journal for final validation after this worker stops.")
 
 
 class BoundTool(UCTool):
@@ -166,6 +159,8 @@ class WorkerSession:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, target)
         self.stage_manager = self.parent.stage_manager
+        self._checked_stage = None
+        self._checked_args = None
         self.thread_id = uuid4().hex
         self.session_id = uuid4()
         record.session_id = self.session_id.hex
@@ -260,7 +255,9 @@ class WorkerSession:
 
     def get_current_tips(self):
         """Expose the authorized step and cumulative budgets without changing ownership."""
+        submission = self.submission_state()
         return {**self.service.driver.tips(self.record.lease),
+                "submission": submission, "next_action": submission["next_action"],
                 "handoff_inputs": self.service.handoff.run["input_manifest"] if self.service.handoff else [],
                 "file_access": self.file_access_policy(),
                 "available_tools": list(self.record.available_tools),
@@ -270,6 +267,31 @@ class WorkerSession:
                 "task": {"id": self.record.key, "role": self.record.spec.role,
                          "inputs": list(self.record.spec.inputs), "outputs": list(self.record.spec.outputs)},
                 "budget": self.record.budget_status(self.service.settings.limits)}
+
+    def submission_state(self):
+        """Keep unfinished batches and missing completion evidence in the current worker."""
+        record = self.record
+        if not record.split:
+            current = self.stage_manager.get_current_stage()
+            if record.lease.steps:
+                if current in record.lease.steps:
+                    return {"ready": False, "error_code": "SUBSTAGES_REMAIN",
+                            "error": "Authorized substages remain unfinished.",
+                            "next_action": "CompleteSubStage"}
+            else:
+                if self._checked_stage is not current or not current.check_pass:
+                    return {"ready": False, "error_code": "STAGE_CHECK_REQUIRED",
+                            "error": "Check must pass all current-stage batches after the latest work before submitting.",
+                            "next_action": "Check"}
+                diagnostic = current.skill_usage_diagnostic()
+                if diagnostic is not None:
+                    return {**diagnostic, "ready": False, "next_action": "SetSkillUsage",
+                            "guidance": diagnostic["next_action"]}
+                if not (current.meta_get_journal() or "").strip():
+                    return {"ready": False, "error_code": "STAGE_JOURNAL_REQUIRED",
+                            "error": "Record actual work and evidence with SetCurrentStageJournal before submitting.",
+                            "next_action": "SetCurrentStageJournal"}
+        return {"ready": True, "next_action": "SubmitTaskResult"}
 
     def build_tools(self):
         """Instantiate fresh business tools and attach only task-authorized lifecycle tools."""
@@ -331,13 +353,14 @@ class WorkerSession:
                                     worker=self, delegate=t) for t in tools]
         actions = [
             ("CurrentTips", "Read your current authorized task step and its step_token.", EmptyArgs, "tips"),
-            ("SubmitTaskResult", "Submit actual work and stop this worker. ready is rejected while substages remain; continue using the returned tips. This does not declare the stage passed.", SubmitArgs, "submit"),
+            ("SubmitTaskResult", "Submit actual work and stop this worker. Stage tasks require all authorized substages "
+             "or all stage batches checked, required Skill evidence and a journal. File-only tasks submit against their "
+             "artifact contract without stage tools. Rejection keeps this worker active. This does not declare the stage passed.", SubmitArgs, "submit"),
         ]
         if not r.split:
-            actions.append(("Complete", "Scoped completion only: with step_token, validate the current authorized child. "
-                            "For a single stage, submit its journal and stop for final Checker validation; "
-                            "submitted is not stage acceptance.", ScopedCompleteArgs, "complete"))
-            actions.append(("Check", "Validate the authorized current step; fix reported issues.", ArgsDoCheck, "check"))
+            actions.append(("Check", "Validate the authorized current step and advance its batches without stopping this worker. "
+                            "Continue after batch_advanced; after all checks pass, finish required Skill evidence and journal, "
+                            "then follow next_action to complete the substage or submit the task.", ArgsDoCheck, "check"))
             if r.lease.steps:
                 actions.append(("CompleteSubStage", "Validate and complete only the authorized current descendant. Use the latest step_token.", SubstageArgs, "substage"))
         self.test_tools += [BoundTool(name=n, description=d, args_schema=a, worker=self, action=k)
@@ -362,37 +385,12 @@ class WorkerSession:
             driver = self.service.driver
             if action == "tips":
                 return self.get_current_tips()
-            scoped_submit = False
-            if action == "complete":
-                if r.lease.steps:
-                    if arguments.get("step_token") is not None:
-                        action = "substage"
-                    else:
-                        tips = self.get_current_tips()
-                        if tips["scope_done"]:
-                            return {"complete": False, **tips}
-                        return {"complete": False, "error_code": "STEP_TOKEN_REQUIRED",
-                                "error": "Use the current step_token to complete this authorized child",
-                                "next_call": {"tool": "CompleteSubStage", "arguments": {
-                                    **arguments, "step_token": tips["step_token"]}}, **tips}
-                else:
-                    journal = r.lease.root.meta_get_journal()
-                    if not journal:
-                        return {"complete": False, "error_code": "STAGE_JOURNAL_REQUIRED",
-                                "error": "Record actual work with SetCurrentStageJournal before Complete",
-                                "next_action": "SetCurrentStageJournal"}
-                    # This adapter only submits. The original Complete gate runs after
-                    # all worker tools have drained, just like SubmitTaskResult.
-                    action, scoped_submit = "submit", True
-                    arguments = {**arguments, "summary": journal, "status": "ready"}
             if action == "submit":
                 status = arguments.get("status", "ready")
-                if status == "ready" and r.lease.steps and self.stage_manager.get_current_stage() in r.lease.steps:
-                    return {"submitted": False, "error_code": "SUBSTAGES_REMAIN",
-                            "error": "Authorized substages remain unfinished",
-                            "action": "Continue the current step with CompleteSubStage; submit only after scope_done. "
-                                      "Use status=needs_attention with a structured issue for unfinished work.",
-                            **self.get_current_tips()}
+                if status == "ready":
+                    submission = self.submission_state()
+                    if not submission["ready"]:
+                        return {**self.get_current_tips(), **submission, "submitted": False}
                 if status == "needs_attention":
                     report = IssueReport.model_validate(arguments.get("issue"))
                     evidence_ids = {entry["id"] for entry in r.tool_evidence if entry["attempt"] == r.attempt}
@@ -408,23 +406,31 @@ class WorkerSession:
                     arguments["issue"] = {**report.model_dump(), "source": "sub_report",
                                           "evidence": [e for e in r.tool_evidence if e["id"] in report.evidence_ids], "checks": checks}
                 r.result = {"summary": arguments["summary"], "status": status, "issue": arguments.get("issue"),
-                            "stage_args": arguments.get("stage_args"), "timeout": arguments.get("timeout", 0)}
+                            "stage_args": arguments.get("stage_args") if arguments.get("stage_args") is not None
+                                else copy.deepcopy(self._checked_args), "timeout": arguments.get("timeout", 0)}
                 r.state = "submitted"
                 self.service.emit("task_submitted", task_id=r.key)
-                result = {"submitted": True, "stop": True}
-                if scoped_submit:
-                    result.update(complete=False, validation_pending=True,
-                                  message="Result submitted; final stage validation runs after this worker stops.")
-                return result
+                return {"submitted": True, "stop": True, "validation_pending": True,
+                        "message": "Result submitted; final validation runs after this worker stops."}
             if getattr(self.parent, "_need_human", False):
                 raise PermissionError("Human review is pending; submit status=needs_attention with issue.kind=review")
             if action == "check":
+                self._checked_stage = None
+                self._checked_args = None
                 result = driver.check(r.lease, arguments.get("timeout") or self.cfg.get_value("call_time_out", 300),
                                      arguments.get("stage_args"), actor=self.message_sender)
                 if self.service.observe_checker_result(r, result):
                     raise ExecutionCircuitOpen("checker_repeat", r.key)
-                return result
+                if result.get("check_pass") is True:
+                    self._checked_stage = self.stage_manager.get_current_stage()
+                    self._checked_args = copy.deepcopy(arguments.get("stage_args"))
+                    result = {**result, "message": "All current-stage checks passed. Finish required Skill evidence and journal before completing the authorized task."}
+                submission = self.submission_state()
+                return {**result, "submission": submission,
+                        "next_action": submission["next_action"] if result.get("check_pass") else "Check"}
             if action == "substage":
+                self._checked_stage = None
+                self._checked_args = None
                 result = driver.complete_substage(r.lease, arguments["step_token"],
                     arguments.get("timeout") or self.cfg.get_value("call_time_out", 300), arguments.get("stage_args"),
                     actor=self.message_sender)
@@ -449,6 +455,10 @@ class WorkerSession:
                         if tool.name != "CreateDirectory" or not any(self.service.path(p).is_relative_to(path) for p in r.spec.outputs):
                             raise PermissionError("Write target is outside this task's outputs")
             with driver.ownership():
+                if tool.name not in {"ReadTextFile", "PathList", "FindFiles", "GetFileInfo", "SearchText",
+                                     "ListSkill", "StageJournal", "AllStageJournal", "SetSkillUsage", "SetCurrentStageJournal"}:
+                    self._checked_stage = None
+                    self._checked_args = None
                 # Stage evidence callbacks and manager tools share the original checker state.
                 return tool.invoke(arguments)
 

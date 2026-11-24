@@ -152,19 +152,21 @@ multi_agent_prompts:
     scope=task 只提供文件工具，不能负责 Check、Skill 登记或阶段日志；不要仅因产物是文档就使用 task。
     有意仅委派单步（scope=stage）或拆分独立文件（scope=task）时，按提示提供 scope_reason，说明边界及阶段门槛如何完成。
     MCP 调用提交当前 planning_token。提交后立即结束本轮，不轮询等待、不重复派发；结果到达后会收到下一轮消息。
+    分批阶段默认由同一个 Sub 连续处理全部批次，不按每批重新派发。任务说明必须覆盖整个授权阶段，要求通过 Check 推进批次，全部通过并补齐 Skill 与日志后才 SubmitTaskResult。
+    若任务因异常中断且 previous_result.tasks 含 batch_progress，以本轮阶段 task 和实际批次进度恢复派发，不得重放已完成批次的指令或 stage_args。
     previous_result 失败时分析真实错误，有限修订计划；缺少信息或需要用户决策时调用 PauseWorkflow，明确说明原因。
     workflow_complete=true 且 phase 不是 handoff 时依据验收结果向用户汇总，不再提交任务。phase=handoff 时遵循交接指令，明确调用交接决策工具。普通文字不能代替工具决策或 Checker 验收。
     StartWorkflow 是用户启动自动协调的入口，你已经在规划轮次中，不要再次调用它。
     不写业务文件、不执行测试、不直接推进阶段，不声称未经过 Checker 验收的工作已经完成。
   worker: |
     只执行授权任务。先调用 CurrentTips 获取本步骤要求，确认 scope_root、remaining_substages 和 next_action。
-    本任务的生命周期以这些字段和实际工具为准。子树的 CompleteSubStage 和 Complete 都须携带最新 step_token，只能推进当前授权子阶段。
-    单阶段的 Complete 将已记录的阶段日志作为结果提交并停止 worker，由框架收拢后验收；submitted/validation_pending 不表示阶段已经通过。
+    本任务的生命周期以这些字段和实际工具为准。你没有 Complete 工具；文档中要求完成阶段时，子树使用 CompleteSubStage，单阶段使用 Check 并补齐收尾要求后 SubmitTaskResult。
     子树任务：为每步分别满足参考文件、Check、Skill、日志门槛，使用最新 step_token 调用 CompleteSubStage。
     成功后立即按返回的下一步提示在同一会话继续；3.1 完成不代表整个子树结束，不逐步向 Super 提交。
     Checker 未通过、SUBSTAGES_REMAIN 或 STALE_STEP_TOKEN 时按返回提示修正后继续，不因此结束会话。
     scope_done=true 后统一 SubmitTaskResult，不进入后续大阶段；不会因单步结束而刷新任务预算。
-    单阶段任务：实现、检查并记录阶段日志后提交结果，由框架验收。
+    单阶段任务：Check 推进当前批次；batch_advanced 表示本批成功但仍有后续批次，必须在同一会话继续，不提交、不退出。全部批次 check_pass=true 后，完成必要的 SetSkillUsage 和 SetCurrentStageJournal，再 SubmitTaskResult，由框架最终验收。
+    CurrentTips.submission.ready 表示当前是否可提交。ready=false 或提交被拒绝时按 next_action 补齐，不退出。修改业务产物或执行可能改变验证结果的工具后必须重新 Check；Check 通过不会自动提交，保留补齐 Skill 和日志的机会。
     SubmitTaskResult 被接受后冻结本次执行。注意 CurrentTips.budget 中跨重试累计的用量，完成当前真实要求后及时验收，不添加阶段未要求的额外工作。
-    遇到人工审核或无法继续时用 status=blocked 汇报实际问题。
+    遇到人工审核或无法继续时用 status=needs_attention 和结构化 issue 汇报实际问题。
     不以文字声明或进程退出码代替检查通过。

@@ -15,7 +15,7 @@ from mcp.client.streamable_http import streamable_http_client
 from ucagent.interfaces.server.api_mcp import McpServer, _collect_mcp_tools
 from ucagent.interfaces.server.worker_mcp import worker_endpoint
 from ucagent.core.multi_agent.super_agent.worker import WorkerSession
-from test_multi_agent import make_agent, parallel_agent, parallel_plan, tool, finish
+from test_multi_agent import make_agent, parallel_agent, parallel_plan, tool, finish, submit_ready
 
 
 def test_http_supervisor_queues_five_tasks_with_same_permissions(tmp_path):
@@ -31,7 +31,7 @@ def test_http_supervisor_queues_five_tasks_with_same_permissions(tmp_path):
             peak = max(peak, running)
         assert release.wait(5)
         tool(worker, "EditTextFile", path=worker.record.spec.outputs[0], content="evidence")
-        tool(worker, "SubmitTaskResult", summary="HTTP delegate finished")
+        submit_ready(worker, summary="HTTP delegate finished")
         with lock:
             running -= 1
     agent.multi_agent.runner_factory = run
@@ -178,7 +178,7 @@ def test_mcp_start_runs_real_super_and_continues_after_client_disconnect(tmp_pat
         assert release.wait(5)
         path = f"out/{worker.stage_manager.get_current_stage().name}.txt"
         tool(worker, "EditTextFile", path=path, content="evidence")
-        tool(worker, "SubmitTaskResult", summary=path)
+        submit_ready(worker, summary=path)
     value.multi_agent.runner_factory = run
     server = McpServer(_collect_mcp_tools(value, False), cfg=value.cfg, port=0)
     async def start():
@@ -227,8 +227,7 @@ def test_worker_http_keeps_substages_in_one_session_after_early_result(tmp_path)
                         assert not result.is_error
                         result = await session.call_tool("SetCurrentStageJournal", {"journal": f"Produced {name}"})
                         assert not result.is_error
-                        result = await session.call_tool("Complete" if name == "first" else "CompleteSubStage",
-                                                         {"step_token": token})
+                        result = await session.call_tool("CompleteSubStage", {"step_token": token})
                         assert not result.is_error
                         data = json.loads(result.content[0].text)
                         assert data["validation"]["complete"]
@@ -259,25 +258,29 @@ def test_worker_http_keeps_substages_in_one_session_after_early_result(tmp_path)
         agent._startup_cleanup.close()
 
 
-def test_worker_http_complete_submits_single_stage_for_final_validation(tmp_path):
-    """A normal MCP Complete call uses the worker adapter and waits for the real stage gate."""
+def test_worker_http_check_and_submit_wait_for_final_stage_validation(tmp_path):
+    """MCP Check and explicit submission preserve the final post-teardown stage gate."""
     agent = make_agent(tmp_path)
     seen = []
 
     async def exercise(endpoint):
-        """Write actual evidence and finish using the familiar tool name over HTTP."""
+        """Write actual evidence and finish through the current public tools over HTTP."""
         async with httpx2.AsyncClient(headers={"Authorization": "Bearer " + endpoint["token"]}) as client:
             async with streamable_http_client(endpoint["url"], http_client=client) as (read, write):
                 async with ClientSession(read, write, read_timeout_seconds=5) as session:
                     await session.initialize()
+                    catalog = {entry.name for entry in (await session.list_tools()).tools}
+                    assert "Check" in catalog and "SubmitTaskResult" in catalog and "Complete" not in catalog
                     response = await session.call_tool("EditTextFile", {"path": "out/result.md", "content": "evidence"})
                     assert not response.is_error
+                    response = await session.call_tool("Check", {"stage_args": '{"full_output": true}'})
+                    assert not response.is_error and json.loads(response.content[0].text)["check_pass"]
                     response = await session.call_tool("SetCurrentStageJournal", {"journal": "Actual evidence produced"})
                     assert not response.is_error
-                    response = await session.call_tool("Complete", {"timeout": 450, "stage_args": '{"full_output": true}'})
+                    response = await session.call_tool("SubmitTaskResult", {"timeout": 450, "summary": "Actual evidence produced"})
                     assert not response.is_error
                     data = json.loads(response.content[0].text)
-                    assert data["submitted"] and data["validation_pending"] and not data["complete"]
+                    assert data["submitted"] and data["validation_pending"]
                     assert agent.stage_manager.stage_index == 0
                     seen.append(data)
 

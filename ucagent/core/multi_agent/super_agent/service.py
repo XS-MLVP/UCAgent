@@ -784,7 +784,8 @@ class MultiAgentService(RecoveryControl):
                         "scope_tools": {
                             "auto/subtree": "One worker completes all listed substages with CompleteSubStage, "
                                             "Check, per-step journals and enabled Skill tools before submitting.",
-                            "stage": "Only the current step; Check, journals and enabled Skill tools; then submit.",
+                            "stage": "One worker checks all batches of the current step, records required Skill evidence "
+                                     "and a journal, then calls SubmitTaskResult.",
                             "task": "Independent file artifacts only; no Check, Skill or stage journal tools."}},
                     "handoff": self.handoff.context(self.planning["token"] if self.planning and self.planning.get("handoff") else None) if self.handoff else None,
                     "stage": self.agent.stage_manager.get_current_tips() if current is not None else None,

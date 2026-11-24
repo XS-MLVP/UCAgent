@@ -792,7 +792,7 @@ class BatchTask:
             self.savepoint_file()
             if is_complete:
                 return True, "Complete success."
-            return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
+            return True, {"success": f"All {self.name} are done. Finish the required evidence and follow the current task's next_action."}
 
         # Update completed task list
         for task in self.tbd_task_list:

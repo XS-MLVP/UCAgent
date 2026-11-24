@@ -70,6 +70,14 @@ def finish(service, plan_id, timeout=5):
     return result
 
 
+def submit_ready(worker, **arguments):
+    """Prepare ordinary scripted stage results through the same public worker gates."""
+    if not worker.record.split and not worker.record.lease.steps:
+        tool(worker, "Check")
+        tool(worker, "SetCurrentStageJournal", journal=arguments["summary"])
+    return tool(worker, "SubmitTaskResult", **arguments)
+
+
 def test_single_mode_and_configuration_validation(tmp_path):
     """Default/single construction never reads unused role files or creates workers."""
     cfg = Config({"runtime_options": {"agent_mode": "single"},
@@ -115,9 +123,10 @@ def test_delegate_submission_freezes_tools_and_preserves_gate(agent):
         workers.append(worker)
         names = {t.name for t in worker.test_tools}
         assert not names & {"GoToStage", "Exit", "SubAgentTool"}
-        assert next(t for t in worker.test_tools if t.name == "Complete").worker is worker
+        assert "Complete" not in names
+        assert next(t for t in worker.test_tools if t.name == "Check").worker is worker
         tool(worker, "EditTextFile", path="out/result.md", content="real evidence")
-        tool(worker, "SubmitTaskResult", summary="Created result.md")
+        submit_ready(worker, summary="Created result.md")
         with pytest.raises(PermissionError, match="stopped"):
             tool(worker, "EditTextFile", path="out/result.md", content="late write")
     service = agent.multi_agent
@@ -171,7 +180,7 @@ def test_subtree_continuous_scope_and_automatic_workflow(tmp_path, group, monkey
                 tool(worker, "EditTextFile", path="out/next.txt", content="too early")
         else:
             tool(worker, "EditTextFile", path="out/next.txt", content="next")
-        tool(worker, "SubmitTaskResult", summary="Authorized scope done")
+        submit_ready(worker, summary="Authorized scope done")
     value.multi_agent.runner_factory = run
     try:
         value.one_loop()
@@ -226,7 +235,7 @@ def test_bounded_queue_roles_dependencies_idempotency_and_tools(tmp_path):
         with pytest.raises(PermissionError):
             tool(worker, "EditTextFile", path="out/other.txt", content="illegal")
         tool(worker, "EditTextFile", path=worker.record.spec.outputs[0], content="evidence")
-        tool(worker, "SubmitTaskResult", summary="Produced evidence")
+        submit_ready(worker, summary="Produced evidence")
         with lock:
             running -= 1
     value.multi_agent.runner_factory = run
@@ -336,7 +345,7 @@ def test_default_work_volume_fuses_are_disabled_and_long_worker_finishes(tmp_pat
         for _ in range(205):
             tool(worker, "CurrentTips")
         tool(worker, "EditTextFile", path="out/result.md", content="Healthy long-running work")
-        tool(worker, "SubmitTaskResult", summary="Completed after 205 successful tool calls")
+        submit_ready(worker, summary="Completed after 205 successful tool calls")
     service.runner_factory = run
     try:
         service.submit({"plan_id": "long-healthy", "tasks": [{"id": "work", "instruction": "complete the output"}]})
@@ -430,6 +439,8 @@ def test_real_langchain_graph_uses_independent_worker_sessions(agent, monkeypatc
             return 20
     responses = [
         AIMessage(content="", tool_calls=[{"name": "EditTextFile", "args": {"path": "out/result.md", "content": "graph evidence"}, "id": "write"}]),
+        AIMessage(content="", tool_calls=[{"name": "Check", "args": {}, "id": "check"}]),
+        AIMessage(content="", tool_calls=[{"name": "SetCurrentStageJournal", "args": {"journal": "Graph evidence checked"}, "id": "journal"}]),
         AIMessage(content="", tool_calls=[{"name": "SubmitTaskResult", "args": {"summary": "graph completed"}, "id": "submit"}]),
         AIMessage(content="SHOULD NOT EXECUTE"),
     ]
@@ -444,7 +455,7 @@ def test_real_langchain_graph_uses_independent_worker_sessions(agent, monkeypatc
     agent.multi_agent.submit({"plan_id": "graph", "tasks": [{"id": "work", "instruction": "write evidence"}]})
     result = finish(agent.multi_agent, "graph")
     assert result["plans"]["graph"]["state"] == "completed", result
-    assert agent.multi_agent.records["graph/work"].rounds == 2
+    assert agent.multi_agent.records["graph/work"].rounds == 4
     assert len(models) == 2 and models[0] is not models[1]
 
 
@@ -457,7 +468,7 @@ def test_human_review_and_resume_with_runtime_coordinator(tmp_path, monkeypatch)
     def run(worker):
         """Produce evidence but leave human approval to the existing control surface."""
         tool(worker, "EditTextFile", path="out/result.md", content="human evidence")
-        tool(worker, "SubmitTaskResult", summary="Ready for review")
+        submit_ready(worker, summary="Ready for review")
     value.multi_agent.runner_factory = run
     host = RuntimeHost(value, mode="service")
     host.attach_control("test")
@@ -496,7 +507,7 @@ def test_two_plans_share_capacity_and_output_ownership(tmp_path):
                 entered.set()
         assert release.wait(4)
         tool(worker, "EditTextFile", path=worker.record.spec.outputs[0], content="evidence")
-        tool(worker, "SubmitTaskResult", summary="done")
+        submit_ready(worker, summary="done")
         with lock:
             running -= 1
     value.multi_agent.runner_factory = run
@@ -544,15 +555,20 @@ def test_batch_gate_remains_in_same_stage(tmp_path):
     def run(worker):
         """Consume the real batch feedback and repair the next required batch."""
         observed.append(runtime.manager.stage_index)
-        runtime.gate.generated = ["a"] if worker.record.attempt == 1 else ["a", "b"]
+        runtime.gate.generated = ["a"]
+        checked = tool(worker, "Check")
+        assert not checked["check_pass"] and checked["progress_summary"]["status"] == "batch_advanced"
+        assert worker.record.result is None and not worker.is_break()
+        runtime.gate.generated = ["a", "b"]
         tool(worker, "SetCurrentStageJournal", journal="Processed batch evidence")
-        tool(worker, "SubmitTaskResult", summary="batch ready")
+        assert submit_ready(worker, summary="batch ready")["submitted"]
     service.runner_factory = run
     try:
         service.submit({"plan_id": "batch", "scope": "stage", "tasks": [{"id": "t", "instruction": "batch"}]})
         result = finish(service, "batch")
         assert result["plans"]["batch"]["state"] == "completed", json.dumps(result, indent=2, default=str)
-        assert observed == [0, 0]
+        assert observed == [0] and result["metrics"]["worker_starts"] == 1
+        assert result["tasks"][0]["attempt"] == 1
         assert runtime.manager.stage_index == 1
     finally:
         assert service.close(3)["closed"]
@@ -642,7 +658,7 @@ def test_worker_skill_evidence_uses_original_stage_gate(tmp_path, use_skill):
             seen.append(dict(worker.stage_manager.get_current_stage().skill_list))
         else:
             assert not names & {"ListSkill", "SetSkillUsage", "RunSkillScript"}
-        tool(worker, "SubmitTaskResult", summary="evidence ready")
+        submit_ready(worker, summary="evidence ready")
     value.multi_agent.runner_factory = run
     try:
         value.multi_agent.submit({"plan_id": "skill", "tasks": [{"id": "t", "instruction": "work"}]})
@@ -679,7 +695,7 @@ def test_managed_supervisor_stops_graph_after_plan_submission(tmp_path, monkeypa
     def run(worker):
         """Satisfy the declared output through the delegated worker tools."""
         tool(worker, "EditTextFile", path="out/result.md", content="delegated evidence")
-        tool(worker, "SubmitTaskResult", summary="delegated")
+        submit_ready(worker, summary="delegated")
     value.multi_agent.runner_factory = run
     try:
         value.one_loop("Delegate the current stage")

@@ -7,7 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from multi_agent_fakes import install_planner
-from test_multi_agent import make_agent, stage, tool, finish
+from test_multi_agent import make_agent, stage, tool, finish, submit_ready
 
 
 def plan_message(context, name, tasks, scope="auto"):
@@ -57,7 +57,7 @@ def test_model_splits_dynamic_tasks_then_receives_results_without_polling(tmp_pa
         else:
             path = "out/report.txt"
         tool(worker, "EditTextFile", path=path, content="actual evidence")
-        tool(worker, "SubmitTaskResult", summary=f"Created {path}")
+        submit_ready(worker, summary=f"Created {path}")
         with lock:
             running -= 1
     value.multi_agent.runner_factory = run
@@ -98,7 +98,7 @@ def test_failed_checker_feedback_returns_to_super_for_replanning(tmp_path, monke
         """The first result deliberately misses the required artifact; the second creates it."""
         if worker.record.plan_id == "attempt-2":
             tool(worker, "EditTextFile", path="out/result.md", content="verified evidence")
-        tool(worker, "SubmitTaskResult", summary="Reported work; Checker must decide")
+        submit_ready(worker, summary="Reported work; Checker must decide")
     value.multi_agent.runner_factory = run
     try:
         value.one_loop()
@@ -106,6 +106,81 @@ def test_failed_checker_feedback_returns_to_super_for_replanning(tmp_path, monke
         assert len(planner.contexts) == 3
         records = list(value.multi_agent.records.values())
         assert records[0].budget is records[1].budget
+    finally:
+        value._startup_cleanup.close()
+
+
+@pytest.mark.parametrize("failure_point", ["worker", "scope_validation"])
+def test_batch_advance_replans_instead_of_retrying_stale_task(tmp_path, monkeypatch, failure_point):
+    """A batch transition gives Super a fresh current-batch task instead of replaying stale scope."""
+    value = make_agent(tmp_path, limits={"task_max_attempts": 2})
+    current_batch = {"name": "FG-API"}
+    value.stage_manager.stages[0].task = lambda: [current_batch["name"]]
+    service = value.multi_agent
+    real_check = service.driver.check
+    real_finish = service.driver.finish
+    finish_calls = 0
+
+    def advance_batch(lease, timeout, stage_args, actor=None):
+        """Advance once, then retain the real final-batch readiness gate."""
+        if current_batch["name"] == "FG-ARITHMETIC":
+            return real_check(lease, timeout, stage_args, actor=actor)
+        current_batch["name"] = "FG-ARITHMETIC"
+        return {"check_pass": False, "progress_summary": {
+            "status": "batch_advanced", "stage_index": 0, "stage_name": "functional_specification_refine",
+            "progress": {"current_batch": ["FG-ARITHMETIC"]},
+            "next_action": "Work on the current batch."}}
+
+    def finish_scope(lease, timeout, **kwargs):
+        """Simulate changed batch requirements at the post-teardown validation boundary."""
+        nonlocal finish_calls
+        finish_calls += 1
+        if failure_point == "scope_validation" and finish_calls == 1:
+            return {"complete": False, "last_check_result": {"progress_summary": {
+                "status": "batch_advanced", "stage_index": 0, "stage_name": "functional_specification_refine",
+                "progress": {"current_batch": ["FG-ARITHMETIC"]}}}}
+        return real_finish(lease, timeout, **kwargs)
+
+    service.driver.check = advance_batch
+    service.driver.finish = finish_scope
+
+    def decide(context, turn):
+        """Plan the API batch first, then use live stage tips after batch advancement."""
+        if context["workflow_complete"]:
+            return AIMessage(content="All current batches passed.")
+        if turn == 1:
+            return plan_message(context, "api-batch", [{"id": "work", "instruction": "Process FG-API batch"}])
+        previous_task = context["previous_result"]["tasks"][0]
+        assert previous_task["batch_progress"]["progress"]["current_batch"] == ["FG-ARITHMETIC"]
+        assert "FG-ARITHMETIC" in str(context["stage"])
+        return plan_message(context, "arithmetic-batch", [
+            {"id": "work", "instruction": "Process FG-ARITHMETIC batch"}])
+
+    planner = install_planner(value, monkeypatch, decide)
+
+    def run(worker):
+        """Advance the checker, then fail or submit so both retry boundaries are exercised."""
+        if worker.record.plan_id == "api-batch":
+            outcome = tool(worker, "Check")
+            assert outcome["progress_summary"]["status"] == "batch_advanced"
+            if failure_point == "worker":
+                raise RuntimeError("simulated backend failure after batch advancement")
+        else:
+            assert "FG-ARITHMETIC" in worker.record.spec.instruction
+        tool(worker, "EditTextFile", path="out/result.md", content="current batch evidence")
+        submit_ready(worker, summary="Submitted current batch work")
+
+    service.runner_factory = run
+    try:
+        value.one_loop("Refine the functional specification in batches")
+        result = service.status()
+        assert service.workflow_state == "completed", result
+        assert result["metrics"]["worker_starts"] == 2
+        assert len(planner.contexts) == 3
+        assert service.plans["api-batch"]["state"] == "failed"
+        assert service.plans["arithmetic-batch"]["state"] == "completed"
+        assert service.records["api-batch/work"].attempt == 1
+        assert any(event["event"] == "task_retry_suppressed" for event in result["events"])
     finally:
         value._startup_cleanup.close()
 
@@ -126,7 +201,7 @@ def test_supervisor_nonprogress_is_bounded(tmp_path, monkeypatch, kind):
     planner = install_planner(value, monkeypatch, decide)
     def run(worker):
         """Leave the required artifact absent so the final stage gate fails."""
-        tool(worker, "SubmitTaskResult", summary="No artifact created")
+        submit_ready(worker, summary="No artifact created")
     value.multi_agent.runner_factory = run
     try:
         value.one_loop()
@@ -156,7 +231,7 @@ def test_pause_request_waits_for_user_then_resumes_planning(tmp_path, monkeypatc
     def run(worker):
         """Satisfy the original stage after user clarification."""
         tool(worker, "EditTextFile", path="out/result.md", content="Markdown evidence")
-        tool(worker, "SubmitTaskResult", summary="Written")
+        submit_ready(worker, summary="Written")
     value.multi_agent.runner_factory = run
     try:
         value.one_loop()
@@ -206,7 +281,7 @@ def test_dynamic_split_cannot_drop_configured_output_rules(tmp_path):
     def run(worker):
         """Write a real but semantically invalid artifact through the managed tools."""
         tool(worker, "EditTextFile", path="out/result.md", content="wrong")
-        tool(worker, "SubmitTaskResult", summary="Written")
+        submit_ready(worker, summary="Written")
     value.multi_agent.runner_factory = run
     try:
         value.multi_agent.submit({"plan_id": "omit", "scope": "task", "tasks": [
@@ -246,7 +321,7 @@ def test_rejected_plan_can_be_corrected_in_same_bounded_model_turn(tmp_path, mon
         """Only the corrected authorized plan can reach this runner."""
         assert worker.record.spec.role == "worker"
         tool(worker, "EditTextFile", path="out/result.md", content="evidence")
-        tool(worker, "SubmitTaskResult", summary="Corrected")
+        submit_ready(worker, summary="Corrected")
     value.multi_agent.runner_factory = run
     try:
         value.one_loop()
@@ -274,7 +349,7 @@ def test_successive_child_stages_do_not_exhaust_failure_revisions(tmp_path, monk
         """Write only the current child's output before handing back ownership."""
         path = f"out/{worker.stage_manager.stage_index}.txt"
         tool(worker, "EditTextFile", path=path, content="evidence")
-        tool(worker, "SubmitTaskResult", summary=path)
+        submit_ready(worker, summary=path)
     value.multi_agent.runner_factory = run
     try:
         value.one_loop()
@@ -342,10 +417,13 @@ def test_super_and_worker_both_use_real_independent_langchain_graphs(tmp_path, m
                     "args": {"plan_id": "real-graphs", "tasks": [{"id": "work", "instruction": "Write evidence"}]}}]),
                     AIMessage(content="Verified complete.")]
             else:
-                assert "EditTextFile" in names and "Complete" in names
+                assert "EditTextFile" in names and "Check" in names and "Complete" not in names
                 assert not {"GoToStage", "Exit", "SubAgentTool"} & names
                 self.responses = [AIMessage(content="", tool_calls=[{"name": "EditTextFile", "id": "write",
                     "args": {"path": "out/result.md", "content": "real graph evidence"}}]),
+                    AIMessage(content="", tool_calls=[{"name": "Check", "id": "check", "args": {}}]),
+                    AIMessage(content="", tool_calls=[{"name": "SetCurrentStageJournal", "id": "journal",
+                    "args": {"journal": "Written and checked evidence"}}]),
                     AIMessage(content="", tool_calls=[{"name": "SubmitTaskResult", "id": "submit",
                     "args": {"summary": "Written evidence"}}])]
             return self
@@ -367,7 +445,7 @@ def test_super_and_worker_both_use_real_independent_langchain_graphs(tmp_path, m
         assert (tmp_path / "out/result.md").read_text() == "real graph evidence"
         assert len(models) == 4 and len({id(model) for model in models}) == 4
         assert value.get_tool_by_name("SubAgentTool").call_count == 1
-        assert value.multi_agent.records["real-graphs/work"].rounds == 2
+        assert value.multi_agent.records["real-graphs/work"].rounds == 4
         assert value.backend._stat_msg_count_ai == 2
     finally:
         value._startup_cleanup.close()
@@ -388,7 +466,7 @@ def test_background_super_owns_model_slot_and_cancel_can_resume(tmp_path, monkey
             assert release.wait(5)
             return
         tool(worker, "EditTextFile", path="out/result.md", content="resumed evidence")
-        tool(worker, "SubmitTaskResult", summary="Resumed")
+        submit_ready(worker, summary="Resumed")
     value.multi_agent.runner_factory = run
     host = RuntimeHost(value, mode="service")
     host.start()

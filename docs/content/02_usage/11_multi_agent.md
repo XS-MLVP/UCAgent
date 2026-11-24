@@ -128,7 +128,7 @@ Super 必须真实调用模型，通过 `SubAgentTool` 提交计划。框架不�
 托管 MCP 提交需带 `CurrentTips.planning_token`。每次规划只有一个有效 token，迟到调用和重复派发不能越过当前授权。
 
 - `auto/subtree`：一个 Sub 连续完成 3.1→3.2→…；用当前 `step_token` 调用 `CompleteSubStage`。子阶段完成或普通文字结束不会创建新任务尝试。过早 `SubmitTaskResult` 返回 `SUBSTAGES_REMAIN`，继续当前会话修复。
-- `stage`：只处理当前步骤，完成实现与日志后提交。对子树缩小 scope 必须说明 `scope_reason`。
+- `stage`：只处理当前步骤；分批阶段由同一个 Sub 通过 `Check` 连续完成全部批次，补齐 Skill 证据与日志后提交。对子树缩小 scope 必须说明 `scope_reason`。
 - `task`：独立文件任务，可并行；必须声明具体 inputs/outputs，输出不重叠，依赖无环，输入生产者是显式依赖。不开放 Check、阶段日志和 Skill 完成工具。已有产物契约及最终阶段 Checker 仍执行。
 
 `auto/stage/subtree` 委派继承工作流的 `write_dirs / un_write_dirs`；`inputs` 表示必须存在的输入，不会额外冻结工作流允许修改的文件。`outputs` 可省略或只列出部分产物，不会缩小这些委派的写入范围；产物仍由阶段 Checker 验收。例如，后续阶段可继续编辑作为输入的 API 文件，无须重复将其声明为输出。工作流禁止修改的输入仍受写入检查及结束时的内容校验保护。
@@ -137,9 +137,11 @@ Super 必须真实调用模型，通过 `SubAgentTool` 提交计划。框架不�
 
 队列不截断超额任务。A/B 通过产物验收后才能解锁依赖它们的 C。构造中、执行中、已提交但未退出、取消但未退出都占 Sub 名额。Super 不占该名额。重试、重新规划、换 plan/task ID 不能刷新同一逻辑任务的累计预算或绝对时限。
 
-**Check 由独占 Sub 发起；子阶段 Complete 也由 Sub 发起；授权根阶段的最终 Complete 由框架在所有 Sub 退出后执行。** 这些操作始终经过同一个 StageDriver、StageManager 和 Checker。纯分组节点不追加父 Checker。Skill、人工审核、BatchTask 和签名证据门槛保持有效。`SubmitTaskResult` 或进程零退出码都不代表验收通过。最后一个子阶段推进完但尚未提交的超时任务也不能让工作流成功结束。
+**Check 由独占 Sub 发起；子阶段通过 CompleteSubStage 完成；授权根阶段的最终 Complete 由框架在所有 Sub 退出后执行。** 这些操作始终经过同一个 StageDriver、StageManager 和 Checker。纯分组节点不追加父 Checker。Skill、人工审核、BatchTask 和签名证据门槛保持有效。`SubmitTaskResult` 或进程零退出码都不代表验收通过。最后一个子阶段推进完但尚未提交的超时任务也不能让工作流成功结束。
 
-独占 Sub 的 `Complete` 是受限兼容工具：子树要求最新 step_token；单阶段要求日志，转换为提交，返回 validation_pending，不能直接绕过最终验收。阶段完成后的自动摘要/清空继续停用，阈值摘要和手动摘要保持原行为。
+Sub 不暴露 `Complete`。`Check` 负责检查和批次推进，不自动提交；`CompleteSubStage` 保持最新 `step_token` 授权，仅推进子树当前步骤。单阶段必须先让全部批次通过 `Check`，再完成所需 Skill 登记和阶段日志，最后显式调用 `SubmitTaskResult`。`CurrentTips.submission` 和 `Check` 返回可提交状态与下一步；检查未通过、批次未完成或缺少收尾证据时，`ready` 提交被拒绝，当前 Sub 保持活动。业务修改或可能改变结果的工具调用会使此前的提交检查凭据失效，须再次 `Check`。文件拆分任务仍按产物契约提交；无法继续时仍可用 `needs_attention` 汇报。
+
+正常批次推进不会返回 Super 重新规划。批次推进后发生真实执行异常时，恢复计划使用最新批次状态，不重放已完成批次。最终验收仍在 Sub 退出后执行，提交成功只表示等待验收。阶段完成后的自动摘要/清空继续停用，阈值摘要和手动摘要保持原行为。
 
 ## 外部执行、取消与输出
 

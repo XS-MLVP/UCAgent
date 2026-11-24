@@ -882,9 +882,17 @@ class VerifyStage(object):
 
     def _check_forced_skill_usage(self, is_complete=False):
         """Require complete Skill evidence only for forced completion requests."""
+        diagnostic = self.skill_usage_diagnostic() if is_complete else None
+        if diagnostic is None:
+            return None
+        return self._return_precheck_failure(
+            "stage_skill_usage", "SkillUsageGate", diagnostic
+        )
+
+    def skill_usage_diagnostic(self):
+        """Inspect required Skill evidence without changing the latest Check result."""
         if not (
-            is_complete
-            and self.cfg.skill.use_skill
+            self.cfg.skill.use_skill
             and getattr(self, "force_use_skill", True)
             and self.skill_list
         ):
@@ -949,7 +957,7 @@ class VerifyStage(object):
                     f"for: {', '.join(incomplete_skills)}."
                 )
                 if incomplete_skills
-                else "[Skill Usage Not Validated] Complete requires a successful SetSkillUsage call for the current evidence."
+                else "[Skill Usage Not Validated] Stage completion requires a successful SetSkillUsage call for the current evidence."
             ),
             "observed": OrderedDict({
                 "incomplete_skills": incomplete_skills,
@@ -980,11 +988,9 @@ class VerifyStage(object):
             + f"`SetSkillUsage(skill_usage={applied_usage_arg})`. When no Skill has an "
             "applicable object, use: "
             + f"`SetSkillUsage(skill_usage={no_applicable_usage_arg})`. A stage may mix "
-            "these per-Skill outcomes. Then call `Complete` again.",
+            "these per-Skill outcomes. Then finish the current authorized stage.",
         })
-        return self._return_precheck_failure(
-            "stage_skill_usage", "SkillUsageGate", diagnostic
-        )
+        return diagnostic
 
     def _check_reference_files(self, is_complete=False):
         """Return a named failure containing every unread reference file."""

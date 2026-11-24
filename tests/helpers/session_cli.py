@@ -44,9 +44,10 @@ async def main():
     global SESSION
     if sys.argv[-3:] == ["mcp", "list", "--json"]:
         owned = next((arg.split(".")[1] for arg in sys.argv if arg.startswith("mcp_servers.ucagent_")), None)
-        servers = [{"name": "other_agent", "enabled": owned is None}]
+        servers = [{"name": "other_agent", "enabled": owned is None,
+                    "transport": {"type": "stdio", "command": "fixture-mcp"}}]
         if owned is not None:
-            assert 'mcp_servers={"other_agent"={enabled=false}}' in sys.argv
+            assert 'mcp_servers={"other_agent"={enabled=false,command="fixture-mcp"}}' in sys.argv
             servers.append({"name": owned, "enabled": True})
         print(json.dumps(servers))
         return
@@ -71,7 +72,7 @@ async def main():
         resumed = "--session" in options
         session_id = options[options.index("--session") + 1] if resumed else "ses_" + uuid4().hex
     else:
-        assert 'mcp_servers={"other_agent"={enabled=false}}' in options
+        assert 'mcp_servers={"other_agent"={enabled=false,command="fixture-mcp"}}' in options
         assert 'features.shell_tool=false' in options and 'sandbox_mode="read-only"' in options
         assert 'include_permissions_instructions=false' in options
         assert any('approval_mode="approve"' in arg for arg in options)
@@ -159,6 +160,25 @@ async def main():
                                    tasks=[{"id": "work", "instruction": "Complete the authorized stage"}])
                 else:
                     assert "SubmitTaskResult" in names and "SubAgentTool" not in names
+                    assert "Complete" not in names
+                    if "--batch-fixture" in options:
+                        assert "Check" in names and "CompleteSubStage" not in names
+                        name = "second" if resumed else "first"
+                        await call("EditTextFile", path=f"out/{name}.txt", content=f"{name} batch evidence")
+                        checked = await call("Check")
+                        if not resumed:
+                            assert not checked["check_pass"]
+                            assert checked["progress_summary"]["status"] == "batch_advanced"
+                            rejected = await call("SubmitTaskResult", summary="Only the first batch")
+                            assert not rejected["submitted"] and rejected["next_action"] == "Check"
+                            emit("item.completed", item={"type": "agent_message", "text": "First batch checked."})
+                        else:
+                            assert checked["check_pass"] and checked["next_action"] == "SetCurrentStageJournal"
+                            await call("SetCurrentStageJournal", journal="Both batches checked in this session")
+                            submitted = await call("SubmitTaskResult", summary="All batches passed Check")
+                            assert submitted["submitted"] and submitted["validation_pending"]
+                        emit("turn.completed", usage={"input_tokens": 10, "output_tokens": 4})
+                        return
                     if "--pause-fixture" in options and not Path("operator-ready.txt").is_file():
                         await call("SubmitTaskResult", status="needs_attention", summary="Waiting for required input",
                                    issue={"kind": "environment", "summary": "operator-ready.txt is missing",
@@ -180,7 +200,9 @@ async def main():
                         for path in paths:
                             await call("EditTextFile", path=path, content="evidence")
                         await call("SetCurrentStageJournal", journal="Produced required evidence")
-                        if tips["next_action"] != "CompleteSubStage":
+                        if "CompleteSubStage" not in names:
+                            checked = await call("Check")
+                            assert checked["check_pass"], checked
                             break
                         tips = await call("CompleteSubStage", step_token=tips["step_token"])
                         assert tips["validation"]["complete"], tips

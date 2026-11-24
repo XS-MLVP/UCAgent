@@ -10,6 +10,47 @@ from test_multi_agent import make_agent, stage
 from ucagent.interfaces.server.worker_mcp import worker_endpoint
 
 
+@pytest.mark.parametrize("managed", [False, True])
+def test_codex_mcp_validation_disables_all_inherited_servers(tmp_path, monkeypatch, managed):
+    """The installed CLI accepts isolated tools with multiple inherited MCP transports."""
+    import shutil
+    from types import SimpleNamespace
+    from ucagent.core.backends import get_backend
+    from ucagent.util.config import Config, load_yaml_with_env_vars
+
+    if shutil.which("codex") is None:
+        pytest.skip("Codex CLI is not installed")
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text('''
+[mcp_servers.first]
+command = "unused-mcp-server"
+[mcp_servers."second.with.dot"]
+url = "http://127.0.0.1:1/mcp"
+[mcp_servers.third]
+command = "another-unused-mcp-server"
+enabled = false
+''')
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    owner = SimpleNamespace(workspace=str(tmp_path), is_break=lambda: False, test_tools=[],
+                            execution_session=SimpleNamespace(directory=tmp_path / "session") if managed else None)
+    cfg = Config(load_yaml_with_env_vars(Path(__file__).parents[1] / "ucagent/setting.yaml"))
+    cfg.set_value("backend.key_name", "codex")
+    backend = get_backend(owner, cfg)
+    backend.init()
+    backend.endpoint = {"url": "http://127.0.0.1:12345/mcp", "token": ""}
+    try:
+        env = backend.prepare()
+        argv = backend._render_argv(backend.argv, backend._context())
+        servers = backend._capture(argv + ["mcp", "list", "--json"], env)
+        assert {server["name"]: server["enabled"] for server in servers} == {
+            "first": False, "second.with.dot": False, "third": False,
+            "ucagent_" + backend.session_key: True}
+        assert not backend.prompt_file.exists()
+    finally:
+        backend.exit()
+
+
 @pytest.mark.parametrize("backend_name", ["codex", "opencode", "client_a"])
 def test_managed_cli_super_and_subtree_resume_without_langchain(tmp_path, monkeypatch, backend_name):
     """One factory controls Super/Sub; ordinary child replies preserve the worker session."""
@@ -68,6 +109,43 @@ def test_managed_cli_super_and_subtree_resume_without_langchain(tmp_path, monkey
         assert all((tmp_path / f"out/{name}.txt").exists() for name in ("first", "second", "next"))
     finally:
         agent.set_break(True)
+        agent._startup_cleanup.close()
+
+
+@pytest.mark.parametrize("backend_name", ["codex", "opencode"])
+def test_managed_cli_keeps_all_batches_in_one_worker_session(tmp_path, backend_name):
+    """Real CLI subprocess/MCP resumes retain batch ownership after a rejected early result."""
+    from test_multi_agent import finish
+    from test_multi_agent_submission import batch_stage
+
+    helper = Path(__file__).parent / "helpers" / "session_cli.py"
+    executable = tmp_path / "batch-cli"
+    executable.write_text(f"#!{sys.executable}\nimport runpy, sys\nsys.argv.insert(1, '--batch-fixture')\n"
+                          f"runpy.run_path({str(helper)!r}, run_name='__main__')\n")
+    executable.chmod(0o700)
+    agent = make_agent(tmp_path, stages=[batch_stage()], config_overrides={
+        "backend.key_name": backend_name, f"backend.{backend_name}.args.executable": str(executable)})
+    workers = []
+
+    def run(worker):
+        """Observe identity while preserving the production backend and endpoint lifecycle."""
+        workers.append(worker)
+        worker.run_backend()
+
+    agent.multi_agent.runner_factory = run
+    agent.multi_agent.endpoint_factory = worker_endpoint
+    try:
+        agent.multi_agent.submit({"plan_id": "batches", "tasks": [{"id": "work", "instruction": "Complete all batches"}]})
+        result = finish(agent.multi_agent, "batches", 20)
+        assert result["plans"]["batches"]["state"] == "completed", result
+        assert len(workers) == result["metrics"]["worker_starts"] == 1
+        assert workers[0].record.attempt == 1 and workers[0].closed
+        calls = [json.loads(line) for line in (workers[0].session_dir / "invocations.jsonl").read_text().splitlines()]
+        assert [entry["resumed"] for entry in calls] == [False, True]
+        assert calls[0]["session_id"] == calls[1]["session_id"]
+        assert calls[0]["pid"] != calls[1]["pid"]
+        assert not any(event["event"] == "task_retry_suppressed" for event in result["events"])
+    finally:
         agent._startup_cleanup.close()
 
 

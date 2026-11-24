@@ -1771,6 +1771,20 @@ def test_forced_skill_usage_does_not_block_intermediate_check(tmp_path):
     assert calls == [("checker", {})]
 
 
+def test_skill_readiness_diagnostic_keeps_successful_check_intact(tmp_path):
+    """Inspecting completion readiness cannot revoke the Check needed by SetSkillUsage."""
+    calls = []
+    stage = _make_precheck_gate_stage(tmp_path, [_RecordingChecker(calls, "checker")])
+    stage.skill_list = {"unittest/required-skill": [False, False, False]}
+    stage.force_use_skill = True
+    assert stage._do_check()[0]
+    assert stage.check_pass
+    assert stage.skill_usage_diagnostic()["error_code"] == "SKILL_USAGE_INCOMPLETE"
+    assert stage.check_pass and calls == [("checker", {})]
+    stage.cfg.skill.use_skill = False
+    assert stage.skill_usage_diagnostic() is None and stage.check_pass
+
+
 def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
     """Report missing forced Skill evidence once the completion journal is recorded."""
     calls = []
@@ -1832,7 +1846,7 @@ def test_forced_skill_usage_complete_failure_is_named_and_actionable(tmp_path):
     assert "no applicable object" in summary["next_action"]
     assert "no script or artifact mutation is needed" in summary["next_action"]
     assert '"list": true, "read": true, "use": true' in summary["next_action"]
-    assert summary["next_action"].endswith("`Complete` again.")
+    assert summary["next_action"].endswith("finish the current authorized stage.")
 
 
 def test_complete_reaches_checker_after_forced_skill_usage_is_complete(tmp_path):

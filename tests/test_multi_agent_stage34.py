@@ -4,25 +4,27 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from multi_agent_fakes import install_planner
-from test_multi_agent import make_agent, stage, tool, finish
+from test_multi_agent import make_agent, stage, tool, finish, submit_ready
 from test_multi_agent_supervisor import plan_message
 from test_multi_agent_worker_context import ContextModel, call
 
 
 def test_worker_can_use_authorized_model_rounds_without_graph_restart(tmp_path, monkeypatch):
-    """Seventy-five real model/tool rounds fit the default eighty-round logical budget."""
+    """Seventy-five real model/tool rounds fit an authorized eighty-round logical budget."""
     import ucagent.core.backends.langchain.agent as backend_module
     models = []
 
     def choose(model, messages):
         """Exercise enough real middleware nodes to reproduce the former 250-step cutoff."""
-        if len(model.seen) < 73:
+        if len(model.seen) < 72:
             return call("CurrentTips")
-        if len(model.seen) == 73:
+        if len(model.seen) == 72:
             return call("EditTextFile", path="out/result.md", content="evidence after long work")
+        if len(model.seen) == 73:
+            return call("Check")
         if len(model.seen) == 74:
             return call("SetCurrentStageJournal", journal="Long authorized task completed")
-        return call("Complete")
+        return call("SubmitTaskResult", summary="Long authorized task completed")
 
     def factory(cfg, callbacks, **kwargs):
         """Allocate real graph providers without any online model calls."""
@@ -32,7 +34,7 @@ def test_worker_can_use_authorized_model_rounds_without_graph_restart(tmp_path, 
 
     monkeypatch.setattr(backend_module, "get_chat_model", factory)
     monkeypatch.setattr(backend_module, "negotiate_openai_api_mode", lambda cfg, **kwargs: None)
-    value = make_agent(tmp_path)
+    value = make_agent(tmp_path, limits={"worker_model_rounds": 80})
     value.message_echo = lambda *args, **kwargs: None
     try:
         value.multi_agent.submit({"plan_id": "long", "tasks": [{"id": "t", "instruction": "Long work"}]})
@@ -62,7 +64,7 @@ def test_supervisor_can_use_its_full_model_budget(tmp_path, monkeypatch):
     def run(worker):
         """Satisfy the actual stage gate after the full planning round budget."""
         tool(worker, "EditTextFile", path="out/result.md", content="evidence")
-        tool(worker, "SubmitTaskResult", summary="Evidence ready")
+        submit_ready(worker, summary="Evidence ready")
 
     value.multi_agent.runner_factory = run
     try:
@@ -90,32 +92,31 @@ def test_artifact_patterns_and_directories_fail_before_worker_start(tmp_path, fi
 
 
 @pytest.mark.parametrize("group", [True, False])
-def test_scoped_complete_keeps_subtree_and_parent_gates(tmp_path, group):
-    """Complete is usable, token-fenced, and cannot advance to the next unrelated root."""
+def test_complete_substage_keeps_subtree_and_parent_gates(tmp_path, group):
+    """The only child completion tool stays token-fenced and cannot enter the next root."""
     value = make_agent(tmp_path, stages=[stage("root", stage=[
         stage("child", output_files=["out/child.txt"])],
         **({} if group else {"output_files": ["out/child.txt"]})), stage("next")])
     observed = []
 
     def run(worker):
-        """Use the compatibility tool while retaining real child validation and root ownership."""
+        """Use explicit child completion while retaining validation and root ownership."""
         observed.append(worker.thread_id)
         current = tool(worker, "CurrentTips")
-        no_token = tool(worker, "Complete")
-        assert no_token["error_code"] == "STEP_TOKEN_REQUIRED"
+        assert "Complete" not in {item.name for item in worker.test_tools}
         assert value.stage_manager.stage_index == 0
-        failed = tool(worker, "Complete", step_token=current["step_token"])
+        failed = tool(worker, "CompleteSubStage", step_token=current["step_token"])
         assert not failed["validation"].get("complete")
         tool(worker, "EditTextFile", path="out/child.txt", content="child evidence")
         tool(worker, "SetCurrentStageJournal", journal="Child evidence created")
-        result = tool(worker, "Complete", step_token=failed["step_token"])
+        result = tool(worker, "CompleteSubStage", step_token=failed["step_token"])
         assert result["validation"]["complete"] and result["scope_done"]
-        stale = tool(worker, "Complete", step_token=failed["step_token"])
+        stale = tool(worker, "CompleteSubStage", step_token=failed["step_token"])
         assert stale["error_code"] == "STALE_STEP_TOKEN"
-        done = tool(worker, "Complete")
+        done = tool(worker, "CurrentTips")
         assert done["scope_done"] and done["next_action"] == "SubmitTaskResult"
         assert worker.record.result is None
-        tool(worker, "SubmitTaskResult", summary="Authorized subtree complete")
+        submit_ready(worker, summary="Authorized subtree complete")
 
     value.multi_agent.runner_factory = run
     try:
@@ -129,26 +130,31 @@ def test_scoped_complete_keeps_subtree_and_parent_gates(tmp_path, group):
 
 
 @pytest.mark.parametrize("valid", [True, False])
-def test_stage_complete_submits_and_leaves_final_checker_authoritative(tmp_path, valid):
-    """A scoped Complete submits a journal; it never declares acceptance before writer teardown."""
+def test_stage_submission_leaves_final_checker_authoritative(tmp_path, valid):
+    """Submitting checked evidence never declares acceptance before writer teardown."""
     value = make_agent(tmp_path, limits={"task_max_attempts": 1})
     submitted = []
 
     def run(worker):
-        """Emulate the 3.4 finishing worker using a concrete output contract and Complete."""
-        missing = tool(worker, "Complete")
+        """Check and submit before optionally simulating external artifact invalidation."""
+        missing = tool(worker, "SubmitTaskResult", summary="Too soon")
+        assert missing["error_code"] == "STAGE_CHECK_REQUIRED"
+        tool(worker, "EditTextFile", path="out/result.md", content="evidence")
+        checked = tool(worker, "Check", stage_args={"full_output": True})
+        assert checked["check_pass"]
+        missing = tool(worker, "SubmitTaskResult", summary="Missing journal")
         assert missing["error_code"] == "STAGE_JOURNAL_REQUIRED"
-        if valid:
-            tool(worker, "EditTextFile", path="out/result.md", content="evidence")
         tool(worker, "SetCurrentStageJournal", journal="Actual completion evidence")
-        result = tool(worker, "Complete", timeout=500, stage_args={"full_output": True})
+        result = tool(worker, "SubmitTaskResult", summary="Actual completion evidence", timeout=500)
         assert result["submitted"] and result["validation_pending"]
-        assert not result["complete"] and value.stage_manager.stage_index == 0
+        assert value.stage_manager.stage_index == 0
         assert worker.record.result["timeout"] == 500
         assert worker.record.result["stage_args"] == {"full_output": True}
         submitted.append(result)
         with pytest.raises(PermissionError, match="stopped"):
             tool(worker, "EditTextFile", path="out/late.txt", content="too late")
+        if not valid:
+            (tmp_path / "out/result.md").unlink()
 
     value.multi_agent.runner_factory = run
     try:
@@ -166,7 +172,8 @@ def test_graph_limit_configuration_is_preserved_and_failure_is_logged(tmp_path, 
     monkeypatch.setattr(backend_module, "get_chat_model", lambda *args, **kwargs:
                         ContextModel(choose=lambda model, messages: call("CurrentTips")))
     monkeypatch.setattr(backend_module, "negotiate_openai_api_mode", lambda cfg, **kwargs: None)
-    value = make_agent(tmp_path, config_overrides={"recursion_limit": 10}, limits={"task_max_attempts": 1})
+    value = make_agent(tmp_path, config_overrides={"recursion_limit": 10},
+                       limits={"task_max_attempts": 1, "worker_model_rounds": 80})
     value.message_echo = lambda *args, **kwargs: None
     try:
         value.multi_agent.submit({"plan_id": "guard", "tasks": [{"id": "t", "instruction": "Read"}]})
@@ -182,8 +189,8 @@ def test_graph_limit_configuration_is_preserved_and_failure_is_logged(tmp_path, 
 
 
 @pytest.mark.parametrize("gate", ["human", "skill"])
-def test_scoped_complete_cannot_bypass_review_or_skill_gate(tmp_path, gate):
-    """Compatibility with the tool name must retain real completion evidence requirements."""
+def test_submission_cannot_bypass_review_or_skill_gate(tmp_path, gate):
+    """Submission must retain real Skill and human review completion requirements."""
     if gate == "skill":
         skill = tmp_path / ".ucagent/skills/probe/SKILL.md"
         skill.parent.mkdir(parents=True)
@@ -197,14 +204,20 @@ def test_scoped_complete_cannot_bypass_review_or_skill_gate(tmp_path, gate):
     def run(worker):
         """Submit an actual output but deliberately leave the extra gate unsatisfied."""
         tool(worker, "EditTextFile", path="out/result.md", content="evidence")
+        assert tool(worker, "Check")["check_pass"]
         tool(worker, "SetCurrentStageJournal", journal="Evidence written; gate remains")
-        submissions.append(tool(worker, "Complete"))
+        submissions.append(tool(worker, "SubmitTaskResult", summary="Evidence written; gate remains"))
 
     value.multi_agent.runner_factory = run
     try:
         value.multi_agent.submit({"plan_id": "gated", "tasks": [{"id": "t", "instruction": "Close step"}]})
         result = finish(value.multi_agent, "gated")
-        assert len(submissions) == 1 and submissions[0]["validation_pending"]
+        assert len(submissions) == 1
+        if gate == "human":
+            assert submissions[0]["validation_pending"]
+        else:
+            assert not submissions[0]["submitted"]
+            assert submissions[0]["error_code"] == "SKILL_USAGE_INCOMPLETE"
         assert result["plans"]["gated"]["state"] == ("waiting_human" if gate == "human" else "failed")
         assert not value.stage_manager.stages[0].is_completed()
     finally:

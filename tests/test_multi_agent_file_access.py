@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from test_multi_agent import finish, make_agent, stage, tool
+from test_multi_agent import finish, make_agent, stage, submit_ready, tool
 
 
 @pytest.mark.parametrize("scope", ["stage", "task"])
@@ -31,7 +31,7 @@ def test_later_stage_can_read_and_update_previous_output(tmp_path, backend, scop
         tool(worker, "EditTextFile", path=relative, content="second stage" if index else "first stage")
         if not worker.record.split:
             tool(worker, "SetCurrentStageJournal", journal="Updated the assigned artifact.")
-        tool(worker, "SubmitTaskResult", summary="Updated the assigned artifact.")
+        submit_ready(worker, summary="Updated the assigned artifact.")
         observed.append(worker.session_id)
 
     agent.multi_agent.runner_factory = run
@@ -68,7 +68,7 @@ def test_split_worker_can_create_only_its_output_parent_directories(tmp_path, ba
         with pytest.raises(PermissionError, match="outside this task"):
             tool(worker, "EditTextFile", path="out/nested/deep/other.txt", content="denied")
         tool(worker, "EditTextFile", path=relative, content="assigned evidence")
-        tool(worker, "SubmitTaskResult", summary="Created the assigned output.")
+        submit_ready(worker, summary="Created the assigned output.")
 
     agent.multi_agent.runner_factory = run
     try:
@@ -100,7 +100,7 @@ def test_split_input_only_artifact_is_reported_and_enforced_as_read_only(tmp_pat
         access = tool(worker, "CurrentTips")["file_access"]
         assert source in access["un_write_dirs"]
         tool(worker, "EditTextFile", path=output, content="derived evidence")
-        tool(worker, "SubmitTaskResult", summary="Derived output ready.")
+        submit_ready(worker, summary="Derived output ready.")
 
     agent.multi_agent.runner_factory = run
     try:
@@ -151,6 +151,31 @@ def test_codex_managed_sandbox_banner_does_not_override_mcp_file_authority(manag
         assert 'mcp_servers.ucagent_test.tools.EditTextFile.approval_mode="approve"' in argv
 
 
+@pytest.mark.parametrize("managed", [False, True])
+def test_codex_inherited_servers_share_one_complete_override(managed):
+    """Whole-table overrides retain every disabled server and a valid transport."""
+    import tomllib
+
+    inherited = [
+        {"name": "local", "transport": {"type": "stdio", "command": "mcp-local"}},
+        {"name": "remote.with.dot", "transport": {"type": "streamable_http", "url": "http://localhost:1/mcp"}},
+        {"name": 'quoted"name', "transport": {"type": "stdio", "command": "mcp-other"}},
+    ]
+    template = Environment(loader=FileSystemLoader(Path(__file__).parents[1] / "ucagent/core/backends/assets"),
+                           undefined=StrictUndefined)
+    argv = json.loads(template.get_template("cli_codex_args.json.j2").render(
+        executable="codex", managed=managed, inherited=inherited, server_name="ucagent_test",
+        mcp_url="http://localhost:12345/mcp", tool_timeout=300, mcp_token="", tools=[]))
+    overrides = [argument for argument in argv if argument.startswith("mcp_servers=")]
+    assert len(overrides) == 1
+    servers = tomllib.loads(overrides[0])["mcp_servers"]
+    assert set(servers) == {server["name"] for server in inherited}
+    for server in inherited:
+        transport = server["transport"]
+        field = "command" if transport["type"] == "stdio" else "url"
+        assert servers[server["name"]] == {"enabled": False, field: transport[field]}
+
+
 @pytest.mark.parametrize("declare_output", [False, True])
 def test_in_place_output_still_requires_its_declared_input(tmp_path, declare_output):
     """An absent declared input cannot become a fabricated in-place update."""
@@ -162,7 +187,7 @@ def test_in_place_output_still_requires_its_declared_input(tmp_path, declare_out
         """Record an invalid execution that must be rejected before tools are exposed."""
         started.append(worker.record.key)
         tool(worker, "EditTextFile", path=relative, content="invented source")
-        tool(worker, "SubmitTaskResult", summary="Unexpected execution.")
+        submit_ready(worker, summary="Unexpected execution.")
 
     agent.multi_agent.runner_factory = run
     try:
@@ -237,7 +262,7 @@ def test_stage_handoff_can_update_inputs_without_listing_them_as_outputs(
                     result = tool(worker, "CompleteSubStage", step_token=tips["step_token"])
                     assert result["validation"]["complete"], result
                 old = new
-        tool(worker, "SubmitTaskResult", summary="Completed the assigned API implementation.")
+        submit_ready(worker, summary="Completed the assigned API implementation.")
 
     agent.multi_agent.runner_factory = run
     try:
@@ -281,7 +306,7 @@ def test_workflow_read_only_input_stays_protected_without_explicit_outputs(tmp_p
             if worker.record.lease.steps:
                 result = tool(worker, "CompleteSubStage", step_token=tool(worker, "CurrentTips")["step_token"])
                 assert result["validation"]["complete"], result
-        tool(worker, "SubmitTaskResult", summary="Wrote the authorized output.")
+        submit_ready(worker, summary="Wrote the authorized output.")
 
     agent.multi_agent.runner_factory = run
     try:
@@ -313,7 +338,7 @@ def test_immutable_input_changes_still_fail_final_validation(tmp_path, scope):
         path.write_text("changed by external writer")
         if not worker.record.split:
             tool(worker, "SetCurrentStageJournal", journal="Output ready for validation.")
-        tool(worker, "SubmitTaskResult", summary="Output ready for validation.")
+        submit_ready(worker, summary="Output ready for validation.")
 
     agent.multi_agent.runner_factory = run
     try:

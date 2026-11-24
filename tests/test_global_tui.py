@@ -31,6 +31,46 @@ def panel_text(panel):
     return "\n".join(row.plain for row in state.render_history) + state.current_line_buffer
 
 
+@pytest.mark.asyncio
+async def test_global_displays_backend_failure_and_accepts_next_message(global_session):
+    """A failed background turn reports its cause once and leaves input usable."""
+    frontend, runtime, seen = global_session
+    message = "CLI configuration validation failed; no model was started"
+
+    def fail_turn(text=None):
+        """Represent failure before the backend can start a model."""
+        raise RuntimeError(message)
+
+    frontend.host.agent.one_loop = fail_turn
+    app = GlobalApp(frontend)
+    async with app.run_test(size=(120, 38)) as pilot:
+        field = app.query_one("#global-input", Input)
+        field.value = "hello"
+        await pilot.press("enter")
+        prepare(runtime)
+        deadline = asyncio.get_running_loop().time() + 3
+        while message not in panel_text(app.query_one("#global-conversation", MessagesPanel)):
+            assert asyncio.get_running_loop().time() < deadline
+            await asyncio.to_thread(runtime.tick)
+            await pilot.pause(.02)
+        assert runtime.inbox.failed()
+        frontend.host.agent.one_loop = lambda text=None: seen.append(text)
+        field.value = "try again"
+        await pilot.press("enter")
+        prepare(runtime)
+        deadline = asyncio.get_running_loop().time() + 3
+        while runtime.inbox.pending():
+            assert asyncio.get_running_loop().time() < deadline
+            await asyncio.to_thread(runtime.tick)
+            await pilot.pause(.02)
+        await app.refresh_global()
+        text = panel_text(app.query_one("#global-conversation", MessagesPanel))
+        assert seen == ["try again"]
+        assert text.count(message) == 1
+        assert "[global] failed" in text
+        assert "[global] delivered" not in text
+
+
 async def wait_for_agent_messages(pilot, agent_id, expected):
     """Wait for asynchronous page delivery instead of assuming a fixed render latency."""
     deadline = asyncio.get_running_loop().time() + 3

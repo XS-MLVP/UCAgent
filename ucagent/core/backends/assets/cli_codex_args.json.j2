@@ -10,9 +10,10 @@
   , "-c", {{ ('features.' ~ feature ~ '=false') | tojson }}
   {% endfor %}
   {% endif %}
-  {% for server in inherited or [] %}
-  , "-c", {{ ('mcp_servers={' ~ (server.name | tojson) ~ '={enabled=false}}') | tojson }}
-  {% endfor %}
+  {% if inherited %}
+  {% set disabled_servers %}{% for server in inherited %}{{ ',' if not loop.first }}{{ server.name | tojson }}={enabled=false{% if server.transport.type == 'stdio' %},command={{ server.transport.command | tojson }}{% else %},url={{ server.transport.url | tojson }}{% endif %}}{% endfor %}{% endset %}
+  , "-c", {{ ('mcp_servers={' ~ disabled_servers ~ '}') | tojson }}
+  {% endif %}
   , "-c", {{ ('mcp_servers.' ~ server_name ~ '.url=' ~ (mcp_url | tojson)) | tojson }}
   , "-c", {{ ('mcp_servers.' ~ server_name ~ '.enabled=true') | tojson }}
   , "-c", {{ ('mcp_servers.' ~ server_name ~ '.tool_timeout_sec=' ~ tool_timeout) | tojson }}

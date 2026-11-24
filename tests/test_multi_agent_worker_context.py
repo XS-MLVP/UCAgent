@@ -13,7 +13,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
 
 from multi_agent_fakes import install_planner
-from test_multi_agent import make_agent, stage, tool, finish
+from test_multi_agent import make_agent, stage, tool, finish, submit_ready
 from ucagent.core.multi_agent.super_agent.worker import WorkerSession
 
 
@@ -246,6 +246,10 @@ def test_real_worker_repairs_lifecycle_errors_without_returning_to_super(tmp_pat
         else:
             if len(model.seen) == 1:
                 return call("EditTextFile", path="out/next.txt", content="next evidence")
+            if len(model.seen) == 2:
+                return call("Check")
+            if len(model.seen) == 3:
+                return call("SetCurrentStageJournal", journal="Next stage evidence checked")
         return call("SubmitTaskResult", summary="All authorized work passed")
 
     worker_models = []
@@ -294,7 +298,7 @@ def test_narrow_subtree_requires_explicit_reason_without_starting_worker(tmp_pat
         def run(worker):
             """Explicit narrowing still supports a deliberate file or single-step task."""
             tool(worker, "EditTextFile", path="out/narrow.txt", content="evidence")
-            tool(worker, "SubmitTaskResult", summary="Explicitly bounded work")
+            submit_ready(worker, summary="Explicitly bounded work")
 
         value.multi_agent.runner_factory = run
         plan["scope_reason"] = "Intentional single-step delivery; this stage has no Skill or reference gates."
@@ -374,7 +378,7 @@ def test_explicit_stage_overrides_subtree_default_for_leaf(tmp_path):
     def run(worker):
         """Produce a standalone artifact using the explicitly selected single-stage scope."""
         tool(worker, "EditTextFile", path="out/result.md", content="evidence")
-        tool(worker, "SubmitTaskResult", summary="Standalone work")
+        submit_ready(worker, summary="Standalone work")
 
     value.multi_agent.runner_factory = run
     try:

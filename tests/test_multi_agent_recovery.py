@@ -4,7 +4,7 @@ import time
 import pytest
 from langchain_core.messages import AIMessage
 from multi_agent_fakes import install_planner
-from test_multi_agent import make_agent, stage, tool, finish
+from test_multi_agent import make_agent, stage, tool, finish, submit_ready
 from ucagent.core.tools.uctool import to_mcp_tool
 
 
@@ -29,7 +29,7 @@ def test_missing_preferred_editor_does_not_freeze_worker(tmp_path):
         evidence = worker.get_current_tips()["recent_tool_evidence"]
         assert evidence[-1]["tool"] == "EditTextFile"
         assert "content" not in evidence[-1]
-        tool(worker, "SubmitTaskResult", summary="Done")
+        submit_ready(worker, summary="Done")
     agent.multi_agent.runner_factory = run
     try:
         agent.multi_agent.submit({"plan_id": "p", "tasks": [{"id": "t", "instruction": "Write"}]})
@@ -47,7 +47,7 @@ def test_forged_evidence_rejected(tmp_path):
                       issue=issue(evidence_ids=["invented"]))
         assert result["error_code"] == "UNKNOWN_EVIDENCE"
         tool(worker, "EditTextFile", path="out/result.md", content="Evidence")
-        tool(worker, "SubmitTaskResult", summary="Done")
+        submit_ready(worker, summary="Done")
     agent.multi_agent.runner_factory = run
     try:
         agent.multi_agent.submit({"plan_id": "p", "tasks": [{"id": "t", "instruction": "Write"}]})
@@ -87,7 +87,7 @@ def test_budget_pause_can_grant_and_resume_exactly_once(tmp_path, monkeypatch):
         if len(starts) == 1:
             tool(worker, "CurrentTips")
         tool(worker, "EditTextFile", path="out/result.md", content="Evidence")
-        tool(worker, "SubmitTaskResult", summary="Done")
+        submit_ready(worker, summary="Done")
     service.runner_factory = run
     try:
         agent.one_loop()
@@ -141,7 +141,7 @@ def test_general_prerequisite_pause_rechecks_before_resume(tmp_path, monkeypatch
                         "conditions": [{"kind": "fixture_ready", "value": "fixture"}]})
         else:
             tool(worker, "EditTextFile", path="out/result.md", content="evidence")
-            tool(worker, "SubmitTaskResult", summary="Done")
+            submit_ready(worker, summary="Done")
     service.runner_factory = run
     try:
         agent.one_loop()
@@ -173,7 +173,7 @@ def test_repairable_report_returns_to_super_without_human_pause(tmp_path, monkey
                  issue={"kind": "repairable", "summary": "Need a revised implementation", "next_action": "Replan with the feedback"})
         else:
             tool(worker, "EditTextFile", path="out/result.md", content="evidence")
-            tool(worker, "SubmitTaskResult", summary="Done")
+            submit_ready(worker, summary="Done")
     agent.multi_agent.runner_factory = run
     try:
         agent.one_loop()
@@ -204,7 +204,7 @@ def test_subtree_pause_preserves_accepted_child_and_resumes_remaining_work(tmp_p
             tool(worker, "EditTextFile", path="out/second.txt", content="evidence")
             tool(worker, "SetCurrentStageJournal", journal="Second done")
             tool(worker, "CompleteSubStage", step_token=tips["step_token"])
-            tool(worker, "SubmitTaskResult", summary="Both accepted")
+            submit_ready(worker, summary="Both accepted")
     service = agent.multi_agent
     service.runner_factory = run
     try:
@@ -237,7 +237,7 @@ def test_final_submission_is_recovered_without_reexecuting_completed_children(tm
             worker.timeout()
         else:
             assert tips["scope_done"]
-            tool(worker, "SubmitTaskResult", summary="Completed child evidence verified")
+            submit_ready(worker, summary="Completed child evidence verified")
     service = agent.multi_agent
     service.runner_factory = run
     try:
@@ -323,7 +323,7 @@ def test_recovery_start_failure_retains_grant_and_actionable_pause(tmp_path, mon
     def run(worker):
         """Produce real evidence after the execution service becomes available."""
         tool(worker, "EditTextFile", path="out/result.md", content="evidence")
-        tool(worker, "SubmitTaskResult", summary="Done")
+        submit_ready(worker, summary="Done")
     service.runner_factory = run
     request = {"issue_id": service.issue["id"], "action": "grant", "grant": {"planning_revisions": 2}}
     original_start = threading.Thread.start

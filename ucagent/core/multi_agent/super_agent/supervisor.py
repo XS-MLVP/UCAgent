@@ -95,7 +95,7 @@ class StageDriver:
             if done:
                 return {**context, "scope_done": True, "next_action": "SubmitTaskResult"}
             return {**context, "scope_done": False, "step_token": lease.token,
-                    "next_action": "CompleteSubStage" if lease.steps else "SubmitTaskResult",
+                    "next_action": "CompleteSubStage" if lease.steps else "Check",
                     "stage_index": self.manager.stage_index,
                     "tips": self.manager.get_current_tips()}
 

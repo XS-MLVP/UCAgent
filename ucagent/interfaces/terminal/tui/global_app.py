@@ -104,6 +104,12 @@ class GlobalApp(SessionApp):
                     panel.append_message(event["payload"].get("text", ""))
                 elif event["agent_id"] == "global" and event["kind"] == "user_input":
                     panel.append_message(f"[You] {event['payload']['text']}\n")
+                elif event["agent_id"] == "global" and event["kind"] == "turn_finished":
+                    data = event["payload"]
+                    if data.get("error"):
+                        error = data["error"]
+                        message = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+                        panel.append_message(f"[global] {data['state']} · {message}\n")
                 elif event["kind"] in {"queued", "started", "result", "waiting_input", "runtime_error", "preparation"}:
                     data = event["payload"]
                     panel.append_message(f"[{event['agent_id']}] {data.get('text') or data.get('status', event['kind'])}" +
