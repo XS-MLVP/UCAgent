@@ -124,6 +124,8 @@ def test_generic_workflow_is_registered() -> None:
     assert [workflow.name for workflow in plugin.workflows] == [
         "xiangshan-design-document",
         "generic-design-document",
+        "xiangshan-design-document-fmagent",
+        "generic-design-document-fmagent",
     ]
     assert plugin.workflows[1].config_file.name == "generic-design-document.yaml"
     assert any(

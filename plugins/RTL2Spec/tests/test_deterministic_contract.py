@@ -132,7 +132,7 @@ def test_structural_defects_cannot_be_signed(current, mutation, rule):
     elif mutation == 'bare_inapplicability':
         text = re.sub(r'\*\*处理过程\*\*[^\n]+', '**处理过程**：N/A', text)
     elif mutation == 'placeholder':
-        text = re.sub(r'\*\*处理过程\*\*[^\n]+', '**处理过程**：[输入有效条件、资源条件、控制条件和前置状态。]', text)
+        text = re.sub(r'\*\*处理过程\*\*[^\n]+', '**处理过程**：[输入有效条件、资源条件、控制输入、事务历史和可观察事件。]', text)
     elif mutation == 'renamed_header':
         text = text.replace('| 优先级 | FC | CK | Style |', '| Other | FC | CK | Style |')
     elif mutation.startswith('duplicate_'):

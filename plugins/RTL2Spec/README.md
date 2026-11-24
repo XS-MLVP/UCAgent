@@ -5,16 +5,27 @@
 
 ## 安装
 
-需要 Python 3.11+、Linux/macOS 和 UCAgent `>=26.9.2.dev14`。先用 `cd` 进入仓库根目录，使下面的 `.` 和 `./plugins/RTL2Spec` 指向正确的安装源。两条 `pip install` 分别安装 UCAgent 核心和 RTL2Spec 插件；最后用 `--validate-plugin` 检查当前 Python 环境能否加载插件及其依赖：
+需要 Python 3.11+（含 pip）、Linux/macOS 和 UCAgent `>=26.9.2.dev14`。从保留在本地的源码安装：先安装 UCAgent 核心，再运行插件一键安装脚本，最后检查当前 Python 环境能否加载插件及其依赖：
 
 ```bash
 cd "[你的UCAgent仓库绝对路径]"
 python -m pip install .
-python -m pip install ./plugins/RTL2Spec
+bash plugins/RTL2Spec/scripts/install.sh --python python
 ucagent --validate-plugin rtl2spec
 ```
 
-核心和插件须安装在同一 Python 环境。macOS 安装前设置 `export ARCHFLAGS="-arch $(uname -m)"`。下文使用 Codex 后端，先按 [UCAgent 使用说明](https://github.com/XS-MLVP/UCAgent/blob/main/README.zh.md)配置后端。
+核心和插件须安装在同一 Python 环境。脚本安装插件及依赖，获取 FM-Agent 源码、调用原生安装器并保存路径。安装可能联网并更新用户工具及配置；模型配置与认证见 [FM-Agent 文档](https://github.com/fmagent-project/FM-Agent)。macOS 安装前设置 `export ARCHFLAGS="-arch $(uname -m)"`。下文使用 Codex 后端，先按 [UCAgent 使用说明](https://github.com/XS-MLVP/UCAgent/blob/main/README.zh.md)配置后端。
+
+### 复用已有 FM-Agent
+
+已有源码时，可补装依赖；已有完整环境时，可直接指定解释器：
+
+```bash
+bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --skip-fetch
+bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --fmagent-python /path/to/env/bin/python --skip-fetch --skip-install
+```
+
+源码默认放在插件的 `third_party/FM-Agent`，路径选择保存在 `rtl2spec.local.toml`。安装后请保留 UCAgent 源码目录；当前采用源码安装方式。分步管理命令、路径覆盖和安装选项见 [FM-Agent 管理参考](docs/reference.md#fm-agent-管理)。
 
 ## 目录约定
 
@@ -27,7 +38,29 @@ ucagent --validate-plugin rtl2spec
 | YAML 的 `rtl2spec.workspace` | 存放输入与生成结果；相对路径以 YAML 所在目录为基准 |
 | YAML 的 `rtl2spec.output` | 工作区内的输出目录，必须为空或尚不存在 |
 
-任务目录可以自行更换，后续 `cd` 路径保持一致。`rtl2spec --init` 在当前目录导出配置，不覆盖已有文件；`Guide_Doc/`、`.ucagent/` 和输出由运行时生成，无需手工创建。
+任务目录可以自行更换，后续 `cd` 路径保持一致。`rtl2spec --init` 在当前目录导出任务配置，不覆盖已有文件，也不检查 FM-Agent 环境或保存 root/python。下面的 YAML 示例展示任务字段。`Guide_Doc/`、`.ucagent/` 和输出由运行时生成，无需手工创建。
+
+## 可选 FM-Agent 模块规格
+
+将任务配置的 `fmagent.enabled` 改为 `true`，工作流会在自动运行规格准备。`mode: run` 使用已准备的 FM-Agent 环境，以原生 `chip --only-spec` 生成资料；`resume`、`isolate` 透传原生选项。 `mode: reuse` 直接消费输入项目已有的 `fm_agent/`，不需要 FM-Agent 环境。两个模式都会将项目的 `fm_agent/` 和存在的 `.codegraph/` **永久迁至 `{OUT}-fmagent/`**，任务结束不搬回。两个输出目录须为空或不存在，且在输入项目及其 Git 仓库之外。再次 reuse 时，可手动复制旧 `fm_agent/` 回输入项目，选择新的空输出，保留旧交付副本。
+
+四个下游阶段分别读取原生资料中的 spec/info。进入草稿阶段时自动向 `{OUT}/specs/` 原样导出全部发现的 `*_spec.md`，保持原层级、文件名和字节，info 仅保留为可选参考。没有 spec 时创建空目录；不要求正文非空、格式或模块覆盖，不生成占位 spec，也不修订其正文。中文文档的原验收保持，specs 不纳入其质量签核。完整配置、直接 UCAgent 入口和失败处理见[参考手册](docs/reference.md)。
+
+## 轻量文档包导出
+
+默认将全部 specs 和 DUT 设计文档原样平铺到 `<workspace>/<DUT>_Doc/`，保留原 outputs；设置 `rtl2spec.export_docs: false` 可关闭。旧配置省略该字段也会开启导出，与 UnityTest 开关独立。
+
+仅导出已有文档时，设置 `rtl2spec.mode: reuse`、`rtl2spec.source: ../previous-workspace/outputs`，保持 `unitytest.enabled: false`，无需工程、硬件工具或模型环境。文档包可用于原生 `examples/<DUT>/Doc/`；硬件与验证由用户准备。路径与冲突规则见[参考手册](docs/reference.md#轻量文档包导出)。
+
+## 可选接续完整 UnityTest
+
+在同一 YAML 中设置 `unitytest.enabled: true`，统一入口会自动完成文档生成、DUT 包准备和文档交接，再启动独立的完整默认 UnityTest。省略此字段或设为 `false` 时不启动验证，默认仍导出文档包。接续前需另行准备 PATH 中的 picker、Verilator 及 Python 仿真依赖；只支持 Verilator，波形使用 FST。
+
+`unitytest.workspace` 默认是上游工作区内的 `verification`；请选择无既有 DUT 包、准备记录或验证状态的新目录。Generic 继续使用现有 `rtl2spec.json` 的文件顺序、include、宏和参数。香山使用本次生成结果和完整生成器 filelist，不重复调用生成入口。
+
+复用已有文档并接续验证时，将 `rtl2spec.mode` 改为 `reuse` 并设置 `rtl2spec.source` 为旧输出目录，同时设置 `unitytest.enabled: true`。`source` 相对 YAML 解析，只提供文档；硬件仍来自当前 workspace 的输入工程。此模式跳过整个生成 mission，忽略 FM-Agent 配置和环境，与 `fmagent.mode: reuse` 不同。
+
+下游 `{DUT}_Doc/` 包含全部 `specs/` 中递归发现的 `*_spec.md` 及 DUT 设计文档，平铺且字节原样；不按模块选择，不新增 spec 数量或质量门槛。同名冲突、构建或示例失败均停止并保留现场，不覆盖、不自动重试。配置隔离、参数支持条件和运行布局见[接续参考](docs/reference.md#完整-unitytest-接续)。
 
 ## 示例一：通用 RTL（Example: GenericBlock）
 
@@ -56,12 +89,25 @@ rtl2spec:
   module: GenericBlock                # [RTL 顶层模块名]
   workflow: generic-design-document
   output: outputs                     # [本次输出目录]
+  mode: run
+  export_docs: true
+
+unitytest:
+  enabled: false
+  workspace: verification
 
 backend:
   key_name: codex                      # [已配置的后端]
 
 template_overwrite:
   GENERIC_CONFIG: Generic              # [文档配置标签]
+
+fmagent:
+  enabled: false
+  mode: run
+  resume: false
+  isolate: false
+  submodule: .
 ```
 
 准备后的目录为：
@@ -123,12 +169,25 @@ rtl2spec:
   module: Sbuffer                       # [目标模块名]
   workflow: xiangshan-design-document
   output: outputs                       # [本次输出目录]
+  mode: run
+  export_docs: true
+
+unitytest:
+  enabled: false
+  workspace: verification
 
 backend:
   key_name: codex                        # [已配置的后端]
 
 template_overwrite:
   XS_CONFIG: DefaultConfig              # [香山配置类名]
+
+fmagent:
+  enabled: false
+  mode: run
+  resume: false
+  isolate: false
+  submodule: src/main/scala/xiangshan/mem/sbuffer
 ```
 
 准备后的目录为：
@@ -217,7 +276,7 @@ rtl2spec --config ~/rtl2spec-runs/generic/rtl2spec.yaml
 | `evidence/` | RTL、精确端口清单、输入基线；`ports.md` 提供附录 A 骨架 |
 | `logs/` | 工具调用和阶段耗时 |
 
-先读设计文档，再查看质量报告与验收记录。验收覆盖文档结构、引用和证据一致性；本流程不执行仿真或形式化验证，未执行项目保留 `Unrun`/`Open`。常见报错与修复入口见[工具参考](docs/reference.md#常见问题)。
+先读设计文档，再查看质量报告与验收记录。文档生成的验收覆盖结构、引用和证据一致性，不等于仿真或形式化验证，未执行项目保留 `Unrun`/`Open`。启用 UnityTest 接续后，验证结果另见验证工作区中的默认阶段、测试报告与产物；常见报错与修复入口见[工具参考](docs/reference.md#常见问题)。
 
 流程不依赖 Skill。Mermaid 图保留在 Markdown 源码中，阅读时使用支持 Mermaid 的查看器即可。
 
