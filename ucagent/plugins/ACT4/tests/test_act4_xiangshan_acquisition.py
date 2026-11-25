@@ -133,7 +133,7 @@ def test_gap_generation_runs_existing_workflow_and_requires_completed_stages(har
         if argv[:2] == ["git", "clone"]:
             shutil.copytree(harness.framework, argv[-1])
             return {"status": "passed", "exit_code": 0}
-        assert argv[1:3] == ["-m", "ucagent.cli"]
+        assert argv[1:3] == ["-m", "ucagent"]
         assert "act4-privileged-suite:privileged-suite-generation" in argv
         assert "--exit-on-completion" in argv and "--loop" in argv
         assert environment["ACT4_MANUAL_ROOT"] == str(manual)

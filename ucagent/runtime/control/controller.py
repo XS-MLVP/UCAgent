@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
+from ucagent.util.redaction import redact_config
 
 from ucagent.core.tools.fileops import BaseReadWrite
 from ucagent.util.file_policy import write_entry_has_wildcards
@@ -488,14 +489,14 @@ class Controller:
         return {"overwrite": force}
 
     def config_detail(self, key=None):
-        """Read a configuration subtree without leaking Config instances."""
+        """Read a detached configuration subtree with credentials masked at every scope."""
         data = self.agent.cfg.as_dict()
         if key:
             for part in key.split("."):
                 if not isinstance(data, dict) or part not in data:
                     raise ControlError("not_found", f"Configuration '{key}' not found.")
                 data = data[part]
-        return public_data(data)
+        return public_data(redact_config(data, tuple(key.split(".")) if key else ()))
 
     def show_web_session(self):
         """Read launch metadata only when a web session was supplied by the launcher."""

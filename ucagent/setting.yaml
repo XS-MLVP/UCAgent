@@ -244,18 +244,22 @@ launch:
     extra_args: []                    # additional CLI arguments
     configs:                          # predefined config options for dropdown
       UT:
-        cfg: "ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml"
+        plugin: ["toffee-ut"]
+        plugin_workflow: "toffee-ut:ut"
       Formal:
-        cfg: "formal.yaml"
+        plugin: ["formal"]
+        plugin_workflow: "formal:formal"
         use_skill: true
       Vibe:
-        cfg: "vibe.yaml"
+        plugin: ["unittest"]
+        plugin_workflow: "unittest:vibe"
         tui: false
         exit_on_completion: false
         use_skill: true
         loop: false
       Increment:
-        cfg: "inc.yaml"
+        plugin: ["unittest"]
+        plugin_workflow: "unittest:incremental"
   cluster:
     image: "ghcr.nju.edu.cn/xs-mlvp/ucagent:latest" # container image used by docker, docker_swarm, and k8s launch modes
     container_command: "ucagent"                    # command inside the image; local python/cli prefix is replaced with this command

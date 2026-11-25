@@ -61,6 +61,7 @@ mission:
       工程位于 {OUT}，testbenches/{TB}/ 下按 env、transactions、model、checker、coverage、tests 区分职责；简单职责用单文件，真正跨 DUT 复用时才建 shared。沿用已登记工程的路径、fixture 和构建配方，不为整理目录重写正确实现。
       docs/spec/design 保存设计要求和来源，docs/spec/verification 保存场景、独立判据、完成义务和未证明范围；问题归 docs/bugs/open 或 closed，真实运行归 results。
       当前输入准备路径为 {DOCUMENT_MODE}。有文档时核对版本与缺口，不为符合 RTL 擅改要求；没有文档时从源码与上下游补建候选规格，区分 confirmed/inferred/open。仅从 RTL 推断的结果不能成为独立正确性证明。
+      confirmed 仅引用启动时已提供且未变化的独立输入文件；HTTP(S) 地址或本轮自写文档不能独立确认要求。缺来源时保留 inferred/open 和 next_action，请用户提供资料后重启；先调用 UTProject(action="inspect")。
       设计阶段定义要求、检查方案和未决项；实现阶段接通环境、判据与采样；执行和复核阶段才核对实际节点及同轮证据。不要提前宣称未执行场景已通过，也不要为前阶段验收另建演示 DUT。
       资料盘点、建骨架、编译、测试和汇总由 UTProject、BuildToffeeDUT、RunToffee 执行，不用 Skill 脚本重复实现。不能用临时测试修改文档或伪造报告。
       按 Guide_Doc/ut-methods.md 选择当前问题的方法；Skill 可用时选用相关方法，不必每轮全读。不可用或被禁用时，直接按本阶段任务与 Guide_Doc 完成相同要求，不停止、不降低验收。Skill 和待审参考不授权扩大任务、改变覆盖目标、启用被跳过阶段或执行升级迁移。
@@ -619,7 +620,7 @@ stage:
   task:
   - 根据 {VERIFICATION_SPEC} 为各 active 场景在已登记测试路径建立有意义的入口，关联真实 scenario ID，并描述合法刺激、独立预期和完成条件；已有正确实现只核对关联，不重写。
   - 新的未实现模板保留 assert False, "Not implemented" 以防意外 PASS；本阶段只建模板，后续批量实现再移除占位，不以模板 collection 或占位失败作为 DUT 功能证据。
-  - 实现验收不接受只含立即 pytest.fail、assert False 或 raise AssertionError 的空体；注册 native fixture 或把问题改为 unconfirmed 不能替代实际场景实现。合法场景执行后暴露的真实 FAIL 则保留原判定和证据。
+  - 实现验收不接受只含立即 pytest.fail、assert False、raise AssertionError，或 pass、常量断言、return None 的空体；注册 native fixture 或把问题改为 unconfirmed 不能替代实际场景实现。可以调用实际执行检查的 helper，无须把断言全部写在测试体内。合法场景执行后暴露的真实 FAIL 则保留原判定和证据。
   skill_list:
   - ext/toffee-ut/traceability-and-implementation
   force_use_skill: false

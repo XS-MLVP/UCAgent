@@ -7,7 +7,7 @@ Checker 会检查哪些条件；它们本身不是测试结果，也不能替代
 
 ## 工作区中的相关目录
 
-以 `output/` 为工作区、默认输出目录 `unit_test/` 为例：
+以 `output/` 为工作区、显式选择 UnitTest 工作流的输出目录 `unit_test/` 为例：
 
 ```text
 output/
@@ -50,7 +50,7 @@ Guide_Doc 应写清以下内容：
 
 ## 常见产物
 
-默认 UnitTest 工作流通常会在 `unit_test/` 生成以下几类内容，是否出现取决于当前
+显式选择的 UnitTest 工作流通常会在 `unit_test/` 生成以下几类内容，是否出现取决于当前
 阶段是否启用：
 
 - `*_basic_info.md`、`*_verification_needs_and_plan.md`：DUT 信息、验证需求和计划；

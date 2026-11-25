@@ -4785,6 +4785,20 @@
       "review_scope": "migrate_dependency_or_documentation"
     },
     {
+      "path": "tests/test_stage_work.py",
+      "markers": ["business_command"],
+      "batches": ["B04"],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "tests/test_runtime_safety.py",
+      "markers": ["business_command"],
+      "batches": ["B01", "B04", "B05"],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage"
+    },
+    {
       "path": "tests/test_runtime_shutdown.py",
       "markers": [
         "business_command"

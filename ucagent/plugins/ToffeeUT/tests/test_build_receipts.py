@@ -13,6 +13,7 @@ from toffee_ut.audit import audit_project
 from toffee_ut.build import build_dut
 from toffee_ut.paths import digest, write_json
 from toffee_ut.project import scaffold
+from toffee_ut.sources import capture_source_documents, record_source_documents
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -54,6 +55,8 @@ def workspace(tmp_path):
     (package / 'libUTBlock.so').write_bytes(b'\x7fELF synthetic, NOT loadable\n')
     (package / 'Block_top.sv').write_text('// native output marker only\n')
     (package / 'Block.xscfg').write_text('{"synthetic": true}\n')
+    record_source_documents(tmp_path, 'Block', 'ut_project', capture_source_documents(
+        tmp_path, 'Block', 'ut_project', ['inputs/interface.md']))
     return tmp_path
 
 

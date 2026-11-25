@@ -6,6 +6,8 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 import shlex
 
+from .paths import local_path
+
 
 def collection_patterns(project=None):
     """Read declared pytest naming options without loading plugins or collecting tests."""
@@ -146,6 +148,48 @@ def collected_scenarios(path, *, project=None):
         if not excluded:
             result.update(names)
     return result
+
+
+def non_verifying_tests(path, *, project=None):
+    """Reject known empty/literal-only bodies without requiring local assert statements."""
+    result = failure_only_tests(path, project=project)
+    tree = ast.parse(Path(path).read_text(), filename=str(path))
+    literal_nodes = (ast.Constant, ast.List, ast.Tuple, ast.Set, ast.Dict, ast.Load,
+                     ast.Compare, ast.cmpop, ast.BoolOp, ast.boolop, ast.UnaryOp, ast.unaryop,
+                     ast.BinOp, ast.operator)
+    for node, parents in _collected_tests(tree, collection_patterns(project)):
+        body = node.body[1:] if ast.get_docstring(node, clean=False) is not None else node.body
+        empty = True
+        for statement in body:
+            if isinstance(statement, ast.Pass):
+                continue
+            if isinstance(statement, ast.Assert):
+                expressions = [statement.test, *([statement.msg] if statement.msg is not None else [])]
+            elif isinstance(statement, (ast.Expr, ast.Return)):
+                expressions = [statement.value] if statement.value is not None else []
+            else:
+                empty = False
+                break
+            if any(not isinstance(item, literal_nodes) for expression in expressions for item in ast.walk(expression)):
+                empty = False
+                break
+        if empty:
+            result["::".join((*[parent.name for parent in parents], node.name))] = node.lineno
+    return result
+
+
+def non_verifying_cases(workspace, project, nodeids):
+    """Match signed pytest identities to known empty bodies, parsing each source only once."""
+    root = local_path(workspace, project, allow_root=True)
+    files, rejected = {}, []
+    for nodeid in nodeids:
+        filename, _, identity = nodeid.partition("::")
+        if filename not in files:
+            path = local_path(workspace, (Path(project) / filename).as_posix())
+            files[filename] = non_verifying_tests(path, project=root)
+        if identity.split("[", 1)[0] in files[filename]:
+            rejected.append(nodeid)
+    return rejected
 
 
 def failure_only_tests(path, *, project=None):

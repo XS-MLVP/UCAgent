@@ -54,7 +54,9 @@ def test_original_design_gates_are_separate_and_fingerprint_current_sources(proj
                                 "checkpoint": "C1"}]}]})
     assert audit_project(project, "Block", phase="line_map")["ok"]
     input_file.write_text(input_file.read_text() + "New requirement not mapped\n")
-    assert "Input changed" in audit_project(project, "Block", phase="line_map")["error"]
+    result = audit_project(project, "Block", phase="line_map")
+    assert not result["ok"] and "unchanged independent source" in result["error"]
+    assert "inputs/interface.md" in result["error"]
 
 
 def test_static_review_requires_every_real_rtl_file_and_candidate_disposition(project, contract_writer):

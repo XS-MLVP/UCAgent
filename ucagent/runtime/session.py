@@ -3,8 +3,12 @@
 from collections import deque
 from dataclasses import dataclass, replace
 import json
+import logging
+import os
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 import threading
+from uuid import uuid4
 
 from ucagent.runtime.control.commands import CommandSession, CommandResult
 from ucagent.runtime.operations import TERMINAL_STATES
@@ -46,8 +50,24 @@ class RuntimeSession:
         self._model_messages = deque(maxlen=4000)
         self._displayed = set()
         self._history_file = Path(self.agent.workspace) / ".ucagent" / "command_history.json"
-        if self._history_file.is_file():
-            self.history = json.loads(self._history_file.read_text())
+        self._history_writable = True
+        try:
+            history = json.loads(self._history_file.read_text(encoding="utf-8"))
+            if not isinstance(history, list) or any(not isinstance(item, str) for item in history):
+                raise ValueError("Expected a list of command strings")
+            self.history = history
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as error:
+            try:
+                self._history_file.replace(self._history_file.with_name(
+                    f"command_history.corrupt-{uuid4().hex}.json"))
+            except OSError:
+                self._history_writable = False
+            logging.getLogger(__name__).warning(
+                "Command history could not be loaded (%s); starting with empty history. "
+                "Original data retained; persistence %s.", type(error).__name__,
+                "enabled" if self._history_writable else "disabled")
         self.host.output.subscribe(self.queue_output, replay=True)
         self.host.messages.subscribe(self.queue_message, replay=True)
         self.host.add_cleanup(self.close)
@@ -86,17 +106,32 @@ class RuntimeSession:
 
     def record_cmd_history(self, command):
         """Keep consecutive duplicate inputs out of session history."""
-        if command and (not self.history or self.history[-1] != command):
-            self.history.append(command)
+        with self._lock:
+            if command and (not self.history or self.history[-1] != command):
+                self.history.append(command)
 
     def get_cmd_history(self):
         """Return a detached input history for frontend navigation."""
-        return list(self.history)
+        with self._lock:
+            return list(self.history)
 
     def save_cmd_history(self):
-        """Persist only this console's history under its owned workspace."""
-        self._history_file.parent.mkdir(exist_ok=True)
-        self._history_file.write_text(json.dumps(self.history, ensure_ascii=False))
+        """Atomically persist UTF-8 history without replacing an unrecoverable original."""
+        with self._lock:
+            if not self._history_writable:
+                return
+            self._history_file.parent.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._history_file.parent,
+                                    prefix=".command-history-", delete=False) as stream:
+                temporary = Path(stream.name)
+                try:
+                    json.dump(self.history, stream, ensure_ascii=False)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                    stream.close()
+                    temporary.replace(self._history_file)
+                finally:
+                    temporary.unlink(missing_ok=True)
 
     def queue_output(self, text):
         """Order UI notices and runtime output in the same persistent display queue."""

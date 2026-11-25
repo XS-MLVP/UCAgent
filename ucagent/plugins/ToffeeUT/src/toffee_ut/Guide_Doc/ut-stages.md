@@ -47,7 +47,7 @@
 | Bug 归档 | `UTProject summary` 生成报告；`rtl` 问题逐节点校验 WaveInfo 观察和根因分析 |
 
 模板阶段可以保留显式失败入口；进入实现验收后，测试体仅含立即 `pytest.fail(...)`、
-`assert False` 或 `raise AssertionError(...)`（可带说明文档）的已知空模板不能获得
+`assert False`、`raise AssertionError(...)`、`pass`、常量断言或 `return None`（可带说明文档）的已知空模板不能获得
 场景实现或批次完成信用。即使 fixture 注册过 native DUT、原始结果是 FAIL，也须先
 实际实现合法刺激、比较和完成义务，不能只更名错误消息或问题分类。已执行场景后
 暴露的正确 FAIL 仍保留，不因本检查删断言或变成 PASS。该语法检查仅拒绝已知空体，

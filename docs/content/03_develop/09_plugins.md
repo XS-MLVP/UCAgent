@@ -7,16 +7,19 @@ Guide_Doc 和工作流中的任意一种或多种能力；这些贡献都是一�
 发现；源码开发时也可以通过显式配置的搜索路径发现。单 Agent 执行只导入并激活选中的插件；Global 会导入发现的插件声明建立目录，
 各 Super 只激活选中的插件。UCAgent 不会扫描或执行任意 workspace Python 文件。
 
+显式 `--plugin <ID>` 优先解析已安装发行包与配置的搜索路径；两者均无匹配时，
+才按清单在框架随附的 `ucagent/plugins/` 集合中查找，不依赖当前工作目录。
+
 `ucagent/plugins/RTL2Spec/` 提供文档生成插件；`ucagent/plugins/DesignWithPPA/` 展示自定义
 Tool、Checker、模板、Skill 与工作流的组合。
 
 ## 同仓维护的内置与可选插件
 
 同仓插件维护在 `ucagent/plugins/` 下（插件加载器即 `ucagent/core/plugins.py`）。
-发行口径分两类：框架 wheel 把 UnitTest 及其共享库 `common` 作为 package data 一并
+发行口径分两类：框架 wheel 把默认 ToffeeUT 和显式选择的 UnitTest（含共享库 `common`）作为 package data 一并
 打入（由 `pyproject.toml` 的 `ucagent.plugins` package-data 键、`packages.find`
-exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默认 UnitTest 工作流，
-无需单独安装；其余插件不随核心安装，作为独立发行包按需发布。无论哪种口径，插件的
+exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默认 ToffeeUT 工作流，
+无需单独安装；UnitTest 需另建旧版依赖环境；其余插件不随核心安装，作为独立发行包按需发布。无论哪种口径，插件的
 日常开发都应限定在自己的目录中：依赖、入口、配置、资源、测试和维护命令均由插件
 管理，不向核心的依赖清单、默认配置或 Tool/Checker 导出表添加插件内容。
 
@@ -499,9 +502,9 @@ ucagent <workspace> <dut> \
 插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流）、workspace 设置、显式
 `--config`、CLI `--override`。`workflow` 指针是启动期选择数据，由命令行在启动时解析，
 任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它（置空即纯框架运
-行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`ucagent/plugins/UnitTest`），由
-`default.yaml` 的 `workflow` 指针自动解析并激活；pip 安装场景下指针可写成
-`<可导入模块>:<包内相对路径>`（如 `unit_test:workflows/unittest.yaml`）以定
+行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`ucagent/plugins/ToffeeUT`），由
+`ucagent/core/locales/zh.yaml` 的 `workflow` 指针自动解析并激活；pip 安装场景下指针可写成
+`<可导入模块>:<包内相对路径>`（如 `toffee_ut:workflows/ut.yaml`）以定
 位已安装插件包内的配置。显式选择某个插件工作流时，默认工作流被整体替换而非叠加，因此
 每个插件工作流应自带其工具、运行时和 Skill 配置。未限定插件 ID 的短工作流名只有在已激
 活插件中唯一时才允许。运行元数据会分别保留显式配置、插件与工作流选择器和工作流配置来

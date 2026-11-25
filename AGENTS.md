@@ -64,10 +64,11 @@ and fabricated evidence from being accepted.
   the dynamic Bug contract. Other plugins declare sibling import roots when
   they use those helpers. Plugins copy optional skills to
   `.ucagent/skills/ext/<plugin_name>/`.
-- `ucagent/plugins/UnitTest/src/unit_test/workflows/`: default `unittest.yaml`
+- `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/`: default `ut.yaml` for Toffee 2.
+- `ucagent/plugins/UnitTest/src/unit_test/workflows/`: explicit legacy `unittest.yaml`
   and self-contained `incremental.yaml`/`vibe.yaml` baselines. The sibling
   `presets/labeled_spec.yaml` is an overlapping `--config` preset, not a workflow.
-- Only UnitTest ships in the framework wheel. `ucagent.plugins` remains a data
+- ToffeeUT and UnitTest ship in the framework wheel. `ucagent.plugins` remains a data
   package; its package-data key, packages.find excludes and MANIFEST.in prunes
   exclude Formal, DesignWithPPA, RTL2Spec, ACT4 and plugin tests from the wheel.
 - `tests/`: framework and focused regression tests. Plugin tests stay under
@@ -139,7 +140,7 @@ Configuration is loaded in this order:
    default task workflow the launcher resolved from the `workflow` selector
    (resolved relative to core/locales first, then to the repository
    root; currently
-   `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`; a
+   `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml`; a
    `<importable-module>:<relative-path>` selector resolves inside an installed
    plugin package for pip-installed setups); `mission.prompt.system` and
    `mission.prompt.tips.*` append to the framework layer's values, and a

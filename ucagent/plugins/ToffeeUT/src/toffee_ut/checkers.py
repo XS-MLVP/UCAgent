@@ -8,7 +8,7 @@ from ucagent.core.checkers.base import BatchTask, Checker
 
 from .audit import audit_project, read_spec
 from .layout import project_layout
-from .implementation import collect_test_files, failure_only_tests
+from .implementation import collect_test_files, non_verifying_tests
 from .paths import digest, local_path
 from .runner import current_run
 from .stage_audit import RESTORED_PHASES
@@ -137,7 +137,7 @@ class ToffeeUTBatchChecker(Checker):
             return source, []
         empty_tests = {(path.relative_to(root).as_posix(), name)
                        for path in collect_test_files(root, layout["tests"])
-                       for name in failure_only_tests(path, project=root)}
+                       for name in non_verifying_tests(path, project=root)}
         cases = {node: case for node, case in cases.items()
                  if (node.partition("::")[0], node.partition("::")[2].split("[", 1)[0]) not in empty_tests}
         return source, [name for name in source if any(name in case["scenarios"] and not case["selftest"]

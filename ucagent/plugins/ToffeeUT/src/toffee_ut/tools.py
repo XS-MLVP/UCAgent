@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, WithJsonSchema, model_validator
 import yaml
 
 from ucagent.core.tools.uctool import UCTool
@@ -19,6 +19,7 @@ from .layout import project_layout
 from .paths import local_path, write_json
 from .project import inspect_inputs, scaffold
 from .runner import archived_run, current_run, default_targets, run_tests
+from .sources import capture_source_documents, record_source_documents
 from .waveform import WaveInfo
 
 
@@ -68,6 +69,13 @@ class UTProject(UCTool):
     project: str
     dut: str
     cfg: Any
+    _source_documents: dict = PrivateAttr(default_factory=dict)
+
+    def __init__(self, **data):
+        """Capture configured sources before the model can write task artifacts."""
+        super().__init__(**data)
+        self._source_documents = capture_source_documents(
+            self.workspace, self.dut, self.project, self.cfg.get_value("runtime_options.ut_documents", None))
 
     def _run(self, action, phase="tests", run_manager=None):
         """Dispatch a fixed operation under the configured workspace write policy."""
@@ -88,6 +96,7 @@ class UTProject(UCTool):
                                       self.cfg.get_value("runtime_options.ut_documents", None),
                                       self.cfg.get_value("runtime_options.ut_rtl_dirs", None),
                                       self.cfg.get_value("runtime_options.ut_document_mode", "auto"))
+                record_source_documents(self.workspace, self.dut, self.project, self._source_documents)
                 write_json(root / "results/input_inventory.json", data)
                 return {"ok": True, **data}
             data = summarize(self.workspace, self.dut, self.project,

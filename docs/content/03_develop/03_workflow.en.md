@@ -9,32 +9,32 @@ Before completing a stage, use `SetCurrentStageJournal` to record the work summa
 
 ## 1. Default Workflow
 
-The default workflow is selected by `workflow` in `ucagent/core/locales/zh.yaml` and resolves to `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
+The `workflow` selector in `ucagent/core/locales/zh.yaml` resolves to `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml` (`toffee-ut:ut`), with 20 top-level stages. ToffeeUT uses Toffee 2 and defaults to the `ut_project` output directory. UnitTest is an explicitly selected legacy-environment workflow; do not mix its dependencies with Toffee 2. The runtime Stage Manager flattens parent and child stages, so indices used by `--skip`, `hmcheck_set`, and `GoToStage` must come from `status` or `hmcheck_list` in the active run.
 
 | Top Index | Stage | Default Status |
 | ---: | --- | --- |
 | 0 | `requirement_analysis_and_planning` | Executing |
 | 1 | `dut_function_understanding` | Executing |
-| 2 | `functional_specification_analysis`: FG, FC, CK, line-by-line mapping sub-stages | Executing |
+| 2 | `functional_specification_analysis`: behavior groups, requirements, checkpoints, line mapping | Line mapping skipped when no input documents exist |
 | 3 | `functional_specification_refine` | Executing |
 | 4 | `static_bug_analysis` | Executing |
 | 5 | `dut_wrapper_implementation`: DUT creation, pytest fixture | Executing |
 | 6 | `coverage_model_implementation`: coverage groups, coverage points, batch implementation | Executing |
 | 7 | `test_environment_implementation`: env, Bundle, Mock, and fixture | Partially human-checked, default skip |
 | 8 | `basic_api_implementation` | Executing |
-| 9 | `reference_model_implementation` | Executing when `NEED_REF_MODEL=true` |
-| 10 | `reference_model_fixture_imp` | Executing when `NEED_REF_MODEL=true` |
+| 9 | `reference_model_implementation` | Enabled by `runtime_options.ut_reference_model=true` |
+| 10 | `reference_model_fixture_imp` | Enabled by `runtime_options.ut_reference_model=true` |
 | 11 | `basic_api_functional_test` | Executing |
 | 12 | `create_test_case_templates` | Executing |
 | 13 | `comprehensive_verification_and_bug_analysis`: batch implementation of test cases | Executing |
 | 14 | `refine_test_cases_based_on_functional_points` | Executing |
 | 15 | `static_bug_validation` | Executing |
-| 16 | `line_coverage_analysis_and_improvement` | Default skip |
+| 16 | `line_coverage_analysis_and_improvement` | Enabled by default: `runtime_options.ut_line_coverage=true` |
 | 17 | `generate_random_test_cases` | Executing |
 | 18 | `verification_review_and_summary` | Executing |
 | 19 | `record_and_report_bugs` | Executing |
 
-In the default configuration, `human_check_env_specification`, `human_check_env_implementation`, and `line_coverage_analysis_and_improvement` use `skip: true`; whether they actually execute is also subject to environment variables and project override configurations. Formal, Vibe, and Increment are plugin workflows selected with `--plugin-workflow formal:formal`, `unittest:vibe`, and `unittest:incremental`, respectively. Their stage counts and names differ, so the table above does not apply to them.
+Human environment-spec review, human environment-implementation review, and Mock stages are controlled by `runtime_options.ut_human_env_spec_review`, `runtime_options.ut_human_env_review`, and `runtime_options.ut_mock_components`; all default to false. Without documents, derived requirements remain inferred/open; a stage's presence or skipped status is not proof of verification. After loading their plugins, select Formal, Vibe, and Increment with `--plugin-workflow formal:formal`, `unittest:vibe`, and `unittest:incremental`. Their acceptance settings differ from the table above.
 
 ## 2. Stage Fields
 

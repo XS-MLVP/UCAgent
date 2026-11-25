@@ -1,6 +1,7 @@
 """A durable list of independent work inside an opt-in verification workflow."""
 
 import json
+import hashlib
 import re
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -42,6 +43,7 @@ class StageWork:
         """Include unresolved items from reached stages; never repeat completed work in tips."""
         rows = {state: [] for state in ("ready", "human", "stalled")}
         states = []
+        inventory = []
         scoped = [(i, stage.name) for i, stage in enumerate(stages)
                   if not stage.is_skipped() and (i == index or stage.is_reached())]
         # Work on the current stage first, then any previously reached stages.
@@ -50,14 +52,18 @@ class StageWork:
             for item_id, item in data["items"].items():
                 state = item["state"]
                 states.append((i, item_id, state))
+                inventory.append((i, item_id, item))
                 if state in rows:
                     rows[state].append({"stage": i, "id": item_id, **item})
-        # A review is valid only for this inventory. Editing prose does not count as work progress.
+        # Review covers content across stages; progress still compares only item states.
         states.sort()
+        fingerprint = hashlib.sha256(json.dumps(sorted(inventory), sort_keys=True,
+                                               ensure_ascii=False).encode("utf-8")).hexdigest()
         review_index = index if index < len(stages) else max((i for i, _ in scoped), default=None)
         review = self._read(review_index, stages[review_index].name)["review"] if review_index is not None else None
-        audited = bool(review and review["states"] == [list(state) for state in states])
-        return {**rows, "reviewed": audited, "states": states, "review_index": review_index}
+        audited = bool(review and review.get("fingerprint") == fingerprint)
+        return {**rows, "reviewed": audited, "states": states, "review_index": review_index,
+                "fingerprint": fingerprint}
 
     @staticmethod
     def public(view):
@@ -76,7 +82,7 @@ class StageWork:
         if action == "review":
             if view["ready"] or view["stalled"]:
                 raise ValueError("Unresolved AI work remains. Continue it or record its actual dependency; do not sign off the list.")
-            data["review"] = {"evidence": evidence, "states": [list(state) for state in view["states"]]}
+            data["review"] = {"evidence": evidence, "fingerprint": view["fingerprint"]}
         else:
             if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,79}", item_id):
                 raise ValueError("Use a stable item id (lowercase letters, digits, '.', '_' or '-').")

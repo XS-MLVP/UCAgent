@@ -169,11 +169,15 @@ class AgentSessions:
             run = self._run(agent_id)
             if run["status"] in TERMINAL_STATES: return self.agent_status(agent_id)
             run["status"] = "cancelling"
-            handle = self.handles.pop(agent_id, None)
+            handle = self.handles.get(agent_id)
             job = self.preparations.get(agent_id)
             if job: job.cancelled.set()
             self.save()
-        if handle: self.launcher.cancel(handle)
+        if handle:
+            self.launcher.cancel(handle)
+            with self.lock:
+                if self.handles.get(agent_id) is handle:
+                    self.handles.pop(agent_id)
         if job: job.thread.join(2)
         with self.lock:
             if job and not job.done.is_set():
@@ -368,11 +372,22 @@ class AgentSessions:
         with self.lock: return any(r["status"] not in TERMINAL_STATES for r in self.runs.values())
 
     def close(self):
+        """Stop admission and retry owned cancellations until children and preparation drain."""
         self.stop.set()
         with self.lock:
-            if self.closed: return
             self.closed = True
             active = [r["agent_id"] for r in self.runs.values() if r["status"] not in TERMINAL_STATES]
-        for agent_id in active: self.cancel_super(agent_id)
+        errors = []
+        for agent_id in active:
+            try:
+                self.cancel_super(agent_id)
+            except Exception as error:
+                errors.append(f"{agent_id}: {error}")
         if self.thread and self.thread is not threading.current_thread(): self.thread.join(5)
-        with self.lock: self.save()
+        with self.lock:
+            self.save()
+            closed = not (self.handles or self.preparations or self.has_active()
+                          or self.thread and self.thread.is_alive())
+        if errors:
+            raise RuntimeError("; ".join(errors))
+        return {"closed": closed}

@@ -9,32 +9,32 @@
 
 ## 1. 默认工作流
 
-中文默认工作流由 `ucagent/core/locales/zh.yaml` 的 `workflow` 指针指向 `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
+中文默认工作流由 `ucagent/core/locales/zh.yaml` 的 `workflow` 指针指向 `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml`（`toffee-ut:ut`），当前有 20 个顶层阶段。ToffeeUT 使用 Toffee 2，默认产物目录为 `ut_project`；UnitTest 是显式选择的旧环境工作流，不与 Toffee 2 混装。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
 
 | 顶层索引 | 阶段 | 默认状态 |
 | ---: | --- | --- |
 | 0 | `requirement_analysis_and_planning` | 执行 |
 | 1 | `dut_function_understanding` | 执行 |
-| 2 | `functional_specification_analysis`：FG、FC、CK、逐行映射子阶段 | 执行 |
+| 2 | `functional_specification_analysis`：行为组、要求、检查点、逐行映射子阶段 | 无输入文档时跳过逐行映射 |
 | 3 | `functional_specification_refine` | 执行 |
 | 4 | `static_bug_analysis` | 执行 |
 | 5 | `dut_wrapper_implementation`：DUT 创建、pytest fixture | 执行 |
 | 6 | `coverage_model_implementation`：覆盖组、覆盖点和批量实现 | 执行 |
 | 7 | `test_environment_implementation`：env、Bundle、Mock 和 fixture | 部分人工检查默认跳过 |
 | 8 | `basic_api_implementation` | 执行 |
-| 9 | `reference_model_implementation` | `NEED_REF_MODEL=true` 时执行 |
-| 10 | `reference_model_fixture_imp` | `NEED_REF_MODEL=true` 时执行 |
+| 9 | `reference_model_implementation` | `runtime_options.ut_reference_model=true` 时执行 |
+| 10 | `reference_model_fixture_imp` | `runtime_options.ut_reference_model=true` 时执行 |
 | 11 | `basic_api_functional_test` | 执行 |
 | 12 | `create_test_case_templates` | 执行 |
 | 13 | `comprehensive_verification_and_bug_analysis`：批量实现测试用例 | 执行 |
 | 14 | `refine_test_cases_based_on_functional_points` | 执行 |
 | 15 | `static_bug_validation` | 执行 |
-| 16 | `line_coverage_analysis_and_improvement` | 默认跳过 |
+| 16 | `line_coverage_analysis_and_improvement` | 默认执行，`runtime_options.ut_line_coverage=true` |
 | 17 | `generate_random_test_cases` | 执行 |
 | 18 | `verification_review_and_summary` | 执行 |
 | 19 | `record_and_report_bugs` | 执行 |
 
-默认配置中 `human_check_env_specification`、`human_check_env_implementation` 和 `line_coverage_analysis_and_improvement` 使用 `skip: true`；具体是否执行还会受环境变量和项目覆盖配置影响。Formal、Vibe、Increment 是插件工作流（分别经 `--plugin-workflow formal:formal`、`unittest:vibe`、`unittest:incremental` 选用），阶段数量和名称不同，不能套用上表。
+人工环境规格审核、人工环境实现审核和 Mock 阶段分别由 `runtime_options.ut_human_env_spec_review`、`runtime_options.ut_human_env_review`、`runtime_options.ut_mock_components` 控制，默认关闭。没有文档时生成的候选要求保持 inferred/open；阶段存在或被跳过不代表已验证。Formal、Vibe、Increment 是插件工作流（加载对应插件后分别经 `--plugin-workflow formal:formal`、`unittest:vibe`、`unittest:incremental` 选用），不能套用上表的验收配置。
 
 ## 2. 阶段字段
 

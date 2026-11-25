@@ -159,6 +159,8 @@ def control(tmp_path):
                               llm_fail_suggestion=None, llm_pass_suggestion=None, force_todo=False)
     manager.get_current_stage = lambda: stages[manager.stage_index] if manager.stage_index < len(stages) else None
     manager._previous_stage_journal = partial(StageManager._previous_stage_journal, manager)
+    manager.stage_work = None
+    manager._stage_work_view = partial(StageManager._stage_work_view, manager)
     manager.attach_todo_summary = partial(StageManager.attach_todo_summary, manager)
     manager.get_current_tips = partial(StageManager.get_current_tips, manager)
     manager.detail = partial(StageManager.detail, manager)

@@ -194,7 +194,7 @@ class XiangShanAcquisition:
         request = {"module": scope["module"], "request": scope["request"], "job": job,
                    "features": [feature for feature in scope["features"] if feature.get("generation_job") == identifier]}
         bundle.write_json(attempt / "handoff-request.json", request)
-        argv = [sys.executable, "-m", "ucagent.cli", str(attempt), job["suite"],
+        argv = [sys.executable, "-m", "ucagent", str(attempt), job["suite"],
                 "--plugin", "act4-privileged-suite", "--plugin-workflow", "act4-privileged-suite:privileged-suite-generation",
                 "--output", "act4_assets", "--backend", backend, "--loop", "--exit-on-completion",
                 "--loop-msg", "Read handoff-request.json. Generate only the declared missing privileged suite using the normal workflow and all its checks. Do not modify unrelated suites."]

@@ -55,6 +55,11 @@ If password protection is required:
 ucagent --as-master-persist --as-master --as-master-password "your_password"
 ```
 
+This password protects HTTP pages and all four task/agent terminal and Web Console
+WebSocket proxies. The proxy authenticates Master credentials before connecting upstream
+with child credentials. An unset password still means unauthenticated access; do not
+expose a passwordless Master to untrusted networks.
+
 Starting Master itself does not require a model address, API Key, or model name. If you need to launch child Agents from the Launch page, you can configure model variables in the Master process environment; these are only used to construct the launch environment for child Agents.
 
 The `--backend` flag in Master mode is used to set the default backend when launching child Agents from the Launch page; the current Master process always uses a model-less backend.
@@ -109,6 +114,14 @@ Recommendations:
 3. Mark the main RTL and parse modules
 4. Select the DUT name, module, and Picker simulator, then execute compilation
 5. Check the command preview and launch the hosted task
+
+Built-in presets use `plugin` / `plugin_workflow`: UT selects `toffee-ut:ut`, Formal
+selects `formal:formal`, Vibe selects `unittest:vibe`, and Increment selects
+`unittest:incremental`. They select independent baselines through `--plugin` and
+`--plugin-workflow`, not workflow identifiers passed as `--config` files. Separately
+selected YAML remains a user configuration override. Leave output blank to use the
+workflow default. Formal requires its plugin; Vibe/Increment require the legacy UnitTest
+environment. Preset selection does not install or mix these dependencies.
 
 The compilation form's **Picker Simulator** displays inline radio choices in the order of the `launch.default_args.simulator` list and selects the first available simulator. The default priority is `[verilator, vcs, gsim, uvs]`. To prefer VCS, for example, configure:
 

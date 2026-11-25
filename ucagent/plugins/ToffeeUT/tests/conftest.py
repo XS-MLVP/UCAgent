@@ -8,6 +8,7 @@ import yaml
 
 from toffee_ut.project import inspect_inputs, scaffold
 from toffee_ut.paths import digest, write_json
+from toffee_ut.sources import capture_source_documents, record_source_documents
 
 
 def write_contract(path, data):
@@ -34,7 +35,7 @@ def project(tmp_path):
     (root / "conftest.py").write_text('"""Pure-Python adapter self-test; deliberately no native DUT."""\n')
     (root / "testbenches/block/tests/test_contract.py").write_text(
         '"""Pure adapter test, not hardware evidence."""\nimport pytest\n'
-        '@pytest.mark.scenario("S1")\ndef test_value():\n    assert 1 == 1\n')
+        '@pytest.mark.scenario("S1")\ndef test_value():\n    actual = int("1")\n    assert actual == 1\n')
     write_contract(root / "docs/spec/design/Block.md", {
         "kind": "design", "dut": "Block", "requirements": [{"id": "R1", "statement": "Identity is preserved",
         "precondition": "Legal input", "observation": "Returned value", "timing": "On response",
@@ -43,6 +44,8 @@ def project(tmp_path):
         "kind": "verification", "dut": "Block", "scenarios": [{"id": "S1", "requirement": "R1",
         "stimulus": "Offer one legal input", "expected": "Same value", "oracle": "Independent fixture contract",
         "completion": "Compare the returned value", "status": "active"}]})
+    record_source_documents(tmp_path, "Block", "ut_project", capture_source_documents(
+        tmp_path, "Block", "ut_project", ["inputs/interface.md"]))
     return tmp_path
 
 

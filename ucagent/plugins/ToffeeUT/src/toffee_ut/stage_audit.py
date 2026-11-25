@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 from .layout import project_layout
-from .implementation import collect_test_files, collected_scenarios, failure_only_tests
+from .implementation import collect_test_files, collected_scenarios, non_verifying_cases
 from .paths import digest, local_path
 from .runner import current_run
 
@@ -22,9 +22,13 @@ RESTORED_PHASES = frozenset({
 
 
 def _validate_functional_failures(workspace, dut, project, checked, requirements, scenarios, cases):
-    """Accept only call-phase RTL FAILs with this DUT's native identity and validated current attribution."""
+    """Reject vacuous cases and require native identity plus current attribution for RTL FAILs."""
     from .audit import current_issues
 
+    empty = non_verifying_cases(workspace, project, cases)
+    if empty:
+        raise ValueError(f"Unimplemented failure-only or vacuous test cannot receive functional execution credit: {empty[:12]}; "
+                         "implement its stimulus, comparison and completion obligations")
     failures = {node: case for node, case in cases.items() if case["status"] == "FAIL"}
     if not failures:
         return
@@ -33,7 +37,6 @@ def _validate_functional_failures(workspace, dut, project, checked, requirements
     layout = project_layout(workspace, dut, project)
     expected_class = "DUT" + layout["export_name"]
     builds = [row["build"] for row in checked["manifest"].get("artifacts", []) if row["kind"] == "native"]
-    empty_tests = {}
     for node, case in failures.items():
         if case["phases"].get("call", {}).get("outcome") != "failed":
             raise ValueError(f"Functional FAIL needs an actual call-phase assertion failure: {node}")
@@ -42,13 +45,6 @@ def _validate_functional_failures(workspace, dut, project, checked, requirements
             raise ValueError(f"Functional FAIL needs this DUT's matching per-case native manifest identity: {node}")
         if not case["scenarios"] or any(tag not in scenarios for tag in case["scenarios"]):
             raise ValueError(f"Functional FAIL needs declared scenario identities: {node}")
-        filename, _, identity = node.partition("::")
-        if filename not in empty_tests:
-            path = local_path(workspace, (Path(project) / filename).as_posix())
-            empty_tests[filename] = failure_only_tests(path, project=layout["root"])
-        if identity.split("[", 1)[0] in empty_tests[filename]:
-            raise ValueError(f"Unimplemented failure-only test cannot receive functional execution credit: {node}; "
-                             "implement its stimulus, comparison and completion obligations")
     # Reuse delivery's attribution without imposing full-selection, coverage or residual closure here.
     issues = current_issues(workspace, dut, project, checked, requirements, nodeids=set(failures))
     for node, case in failures.items():

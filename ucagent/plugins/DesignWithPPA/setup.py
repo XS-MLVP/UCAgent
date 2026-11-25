@@ -6,7 +6,7 @@ from setuptools import setup
 
 
 project = Path(__file__).resolve().parent
-repository = project.parent.parent
+repository = project.parents[2]
 generated = []
 try:
     if not (project / "PKG-INFO").is_file() and (repository / "ucagent/__init__.py").is_file():

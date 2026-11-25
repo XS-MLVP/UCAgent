@@ -11,10 +11,11 @@ from urllib.parse import urlsplit
 import yaml
 
 from .layout import project_layout
-from .implementation import collect_test_files, failure_only_tests
+from .implementation import collect_test_files, non_verifying_cases, non_verifying_tests
 from .paths import digest, local_path
 from .runner import current_run
 from .reports import SUMMARY_END, SUMMARY_START, render_summary
+from .sources import confirmed_source_documents
 
 
 class ContractLoader(yaml.SafeLoader):
@@ -56,6 +57,7 @@ def contracts(workspace, dut, project):
     if design.get("dut") != dut or not isinstance(design.get("requirements"), list) or not design["requirements"]:
         raise ValueError("Design spec must name the DUT and contain nonempty requirements")
     requirements = {}
+    confirmed_sources = None
     for row in design["requirements"]:
         if not isinstance(row, dict):
             raise ValueError("Each requirement must be an object")
@@ -69,6 +71,8 @@ def contracts(workspace, dut, project):
             if url.scheme:
                 if url.scheme not in {"http", "https"} or not url.netloc:
                     raise ValueError(f"Source must be an HTTP(S) URL or workspace-relative file: {row['id']}")
+                if row["basis"] == "confirmed":
+                    raise ValueError(f"Confirmed requirement {row['id']} needs a captured independent input file, not an unverified URL")
             else:
                 source = local_path(workspace, row["source"].split("#", 1)[0])
                 if not source.is_file():
@@ -78,6 +82,13 @@ def contracts(workspace, dut, project):
                         candidate.suffix.lower() in {".v", ".sv", ".vh", ".svh", ".scala"}
                         for candidate in (source, resolved_source))):
                     raise ValueError(f"Confirmed requirement {row['id']} needs an independent source, not its own contract or RTL")
+                if row["basis"] == "confirmed":
+                    if confirmed_sources is None:
+                        confirmed_sources = confirmed_source_documents(workspace, dut, project)
+                    relative = resolved_source.relative_to(Path(workspace).resolve()).as_posix()
+                    if confirmed_sources.get(relative) != digest(resolved_source):
+                        raise ValueError(f"Confirmed requirement {row['id']} needs an unchanged independent source captured at startup: {row['source']}; "
+                                         "ask the operator to supply the source, or keep this requirement inferred/open with next_action")
         if row["basis"] != "confirmed" and (not isinstance(row.get("next_action"), str) or not row["next_action"].strip()):
             raise ValueError(f"Unconfirmed requirement needs a next_action: {row['id']}")
         requirements[row["id"]] = row
@@ -164,6 +175,8 @@ def delivery_data(workspace, dut, project, *, line_coverage_required=None):
     cases = checked["cases"]["cases"]
     functional = {node: row for node, row in cases.items() if not row["selftest"]}
     problems, missing = [], []
+    if non_verifying_cases(workspace, project, functional):
+        problems.append("non_verifying_tests")
     if not checked["record"]["full_selection"]:
         problems.append("partial_selection")
     scenario_results = {}
@@ -339,10 +352,10 @@ def audit_project(workspace, dut, project="ut_project", phase="tests", *, line_c
                                and not node.test.value and isinstance(node.msg, ast.Constant)
                                and node.msg.value == "Not implemented" for node in ast.walk(tree)):
                             raise ValueError(f"Unimplemented placeholder assertion: {path.relative_to(root)}")
-                        empty = failure_only_tests(path, project=root)
+                        empty = non_verifying_tests(path, project=root)
                         if empty:
                             name, line = next(iter(empty.items()))
-                            raise ValueError(f"Unimplemented failure-only test: {path.relative_to(root)}:{line}::{name}; "
+                            raise ValueError(f"Unimplemented failure-only or vacuous test: {path.relative_to(root)}:{line}::{name}; "
                                              "implement real stimulus, comparison and completion obligations instead of relabeling its failure")
             if phase in {"triage", "final"}:
                 data = delivery_data(workspace, dut, project, line_coverage_required=line_coverage_required)

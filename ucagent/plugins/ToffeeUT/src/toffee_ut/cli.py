@@ -8,6 +8,7 @@ from .audit import audit_project, summarize
 from .paths import local_path, write_json
 from .project import inspect_inputs, scaffold
 from .runner import run_tests
+from .sources import capture_source_documents, record_source_documents
 from .stage_audit import RESTORED_PHASES
 
 
@@ -30,6 +31,8 @@ def main(argv=None):
     try:
         if args.action == "inspect":
             result = inspect_inputs(args.workspace, args.dut, args.project, args.document, args.rtl_dir, args.mode)
+            record_source_documents(args.workspace, args.dut, args.project,
+                                    capture_source_documents(args.workspace, args.dut, args.project, args.document))
             write_json(local_path(args.workspace, (Path(args.project) / "results/input_inventory.json").as_posix()), result)
         elif args.action == "scaffold":
             result = scaffold(args.workspace, args.dut, args.project, args.native_package)

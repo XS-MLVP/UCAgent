@@ -5,7 +5,7 @@ Templates and `Guide_Doc` are inputs to stage tasks. They instruct the Agent on 
 
 ## Relevant Directories in the Workspace
 
-Using `output/` as the workspace and the default output directory `unit_test/` as an example:
+Using `output/` as the workspace and the explicitly selected UnitTest workflow output directory `unit_test/` as an example:
 
 ```text
 output/
@@ -40,7 +40,7 @@ Templates are initial files copied or rendered into the workspace. The selected 
 
 ## Common Artifacts
 
-The default UnitTest workflow typically generates the following categories of content in `unit_test/`, depending on whether the current stage is enabled:
+The explicitly selected UnitTest workflow typically generates the following categories of content in `unit_test/`, depending on whether the current stage is enabled:
 
 - `*_basic_info.md`, `*_verification_needs_and_plan.md`: DUT information, verification needs, and plans;
 - `*_functions_and_checks.md`: FG/FC/CK functional models, referenced by test and coverage definitions;

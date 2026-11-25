@@ -351,7 +351,7 @@
         </div>
         <div>
           <label>Output Directory</label>
-          <input id="output" value="unit_test">
+          <input id="output" placeholder="Workflow default">
         </div>
         <div>
           <label>Workspace Base</label>
@@ -506,7 +506,7 @@ const LAUNCH_YAML_HELP = `# REQUIRED: RTL input.
 task_name: my_task       # optional; default: module/task id
 dut: my_dut              # optional; default: module
 module: top_module       # optional with main_rtl
-output: unit_test       # optional; default: unit_test
+output: ut_project      # optional; omitted uses workflow default
 config: config.yaml      # optional config path/preset
 simulator: vcs           # optional: verilator, gsim, vcs, uvs
 picker_args:             # optional picker args
@@ -1273,8 +1273,11 @@ function buildBatchCommandPreview() {
     useZipWorkspace ? '/api/workspace/<batch-task>.tar.gz' : '<batch-workspace>/workspace',
     '<yaml-dut>',
     '--config', '<yaml/common config>',
-    '--output', document.getElementById('output').value.trim() || 'unit_test',
   ];
+  const output = document.getElementById('output').value.trim();
+  if (output) args.push('--output', output);
+  for (const plugin of dynamicOptions.plugin || []) args.push('--plugin', plugin);
+  if (dynamicOptions.plugin_workflow) args.push('--plugin-workflow', dynamicOptions.plugin_workflow);
   if (useZipWorkspace && workspaceBase) args.push('--workspace-base', workspaceBase);
   if (dynamicOptions.stream_output) args.push('-s');
   if (dynamicOptions.human) args.push('-hm');
@@ -1623,7 +1626,7 @@ async function compileBatchItem(item, simulator = getSelectedSimulator()) {
 }
 
 function batchConfigForItem(item) {
-  const selectedConfig = document.getElementById('config-path').value.trim();
+  const selectedConfig = selectedConfigFile();
   const itemConfig = String(item.fields?.config || '').trim();
   return selectedConfig || itemConfig || 'config.yaml';
 }
@@ -1648,7 +1651,7 @@ function collectBatchLaunchPayload(item, simulator = getSelectedSimulator()) {
     config: batchConfigForItem(item),
     backend: document.getElementById('backend').value.trim(),
     launch_mode: getSelectedLaunchMode(),
-    output: document.getElementById('output').value.trim() || 'unit_test',
+    output: document.getElementById('output').value.trim(),
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
     use_zip_workspace: state.launchConfig?.use_zip_workspace !== false,
@@ -2549,9 +2552,10 @@ function buildCommandPreview() {
     'ucagent',
     workspacePath,
     state.relaunch ? getRelaunchDutName() : (compileCurrent ? compile.dut_name : normalizeDutName(dutName)),
-    '--config', document.getElementById('config-path').value.trim() || 'config.yaml',
-    '--output', document.getElementById('output').value.trim() || 'unit_test',
+    '--config', selectedConfigFile() || 'config.yaml',
   ];
+  const output = document.getElementById('output').value.trim();
+  if (output) args.push('--output', output);
   if (useZipWorkspace && workspaceBase) {
     args.push('--workspace-base', workspaceBase);
   }
@@ -3236,10 +3240,10 @@ function collectLaunchPayload() {
     main_verilog_path: state.relaunch ? (compile.main_verilog_path || '') : (mainFile ? mainFile.stored_path : ''),
     simulator: state.relaunch ? compile.simulator : getSelectedSimulator(),
     picker_args: state.relaunch ? listValue(compile.picker_extra_args || []) : getPickerArgs(),
-    config: document.getElementById('config-path').value.trim() || 'config.yaml',
+    config: selectedConfigFile() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
     launch_mode: getSelectedLaunchMode(),
-    output: document.getElementById('output').value.trim() || 'unit_test',
+    output: document.getElementById('output').value.trim(),
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
     use_zip_workspace: useZipWorkspace,
@@ -3348,7 +3352,7 @@ function configPresetToOption(name, preset) {
     }
     return {
       name: optionName,
-      value: String(cfgValue || optionName),
+      value: String(defaults.plugin_workflow || cfgValue || optionName),
       source: 'predefined',
       defaults,
       presetName: optionName,
@@ -3377,7 +3381,9 @@ function normalizeConfigOptionFromApi(item) {
   const name = String(item.name ?? item.value ?? '').trim();
   if (source === 'predefined') {
     if (isPlainObject(item.defaults)) {
-      const cfgValue = item.value ?? item.cfg ?? item.config ?? item.defaults.config ?? item.defaults.cfg ?? '';
+      const cfgValue = item.defaults.plugin_workflow
+        ? (item.defaults.config ?? item.defaults.cfg ?? '')
+        : (item.value ?? item.cfg ?? item.config ?? item.defaults.config ?? item.defaults.cfg ?? '');
       const defaults = { ...item.defaults };
       delete defaults.cfg;
       if (cfgValue !== undefined && cfgValue !== null && String(cfgValue).trim() !== '') {
@@ -3385,7 +3391,7 @@ function normalizeConfigOptionFromApi(item) {
       }
       return {
         name,
-        value: String(cfgValue || name),
+        value: String(defaults.plugin_workflow || cfgValue || name),
         source,
         defaults,
         presetName: String(item.preset_name || item.presetName || name),
@@ -3408,6 +3414,12 @@ function getSelectedConfigOption() {
   const index = Number(selected?.dataset.optionIndex);
   if (!Number.isInteger(index) || index < 0 || index >= state.configOptions.length) return null;
   return state.configOptions[index];
+}
+
+function selectedConfigFile() {
+  const value = document.getElementById('config-path').value.trim();
+  const option = getSelectedConfigOption() || state.configOptions.find((item) => item.value === value);
+  return option?.defaults?.plugin_workflow ? String(option.defaults.config || '') : value;
 }
 
 function getRelaunchRecordedConfig() {
@@ -3493,7 +3505,7 @@ function mergeLaunchConfigForConfigOption(option) {
   const base = { ...(state.launchBaseConfig || {}) };
   const defaults = isPlainObject(option?.defaults) ? { ...option.defaults } : {};
   const merged = { ...base, ...defaults };
-  if (option?.value) {
+  if (option?.value && !defaults.plugin_workflow) {
     merged.config = option.value;
   }
   return merged;
@@ -3509,7 +3521,7 @@ function applySelectedConfigDefaults(options = {}) {
   state.selectedConfigPresetName = selectedOption?.presetName || '';
   if (!selectedOption && select?.value) {
     effectiveConfig.config = select.value;
-  } else if (select?.value) {
+  } else if (select?.value && !selectedOption?.defaults?.plugin_workflow) {
     effectiveConfig.config = select.value;
   }
   state.launchConfig = effectiveConfig;

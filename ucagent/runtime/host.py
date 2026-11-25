@@ -291,7 +291,12 @@ class RuntimeHost:
             self._wake.wait()
             self._wake.clear()
             if self._close_requested:
-                self._shutdown()
+                try:
+                    self._shutdown()
+                except Exception as error:
+                    self._record_shutdown_error(self._shutdown_phase or "shutdown", error)
+                    self._wake.wait(0.1)
+                    self._wake.set()
                 continue
             records = self.operations.list()
             active_models = any(row["model"] and row["state"] not in TERMINAL_STATES for row in records)
@@ -349,27 +354,44 @@ class RuntimeHost:
                 self.task_outcome = "blocked"
                 self.request_shutdown(self.stop_reason, exit_code=2)
 
+    def _record_shutdown_error(self, name, error):
+        """Keep bounded retry diagnostics without duplicating the same persistent failure."""
+        entry = {"step": name, "message": str(error)}
+        with self._lock:
+            if entry not in self.errors:
+                self.errors.append(entry)
+
+    def _drain_owner(self, name, action):
+        """Retain a failing or live resource and mark it drained only after confirmation."""
+        if name in self._steps:
+            return True
+        self._shutdown_phase = name
+        try:
+            result = action()
+            if isinstance(result, dict) and not result["closed"]:
+                return False
+        except Exception as error:
+            self._record_shutdown_error(name, error)
+            return False
+        self._steps.add(name)
+        return True
+
     def _shutdown(self):
         """Drain operations before persistence, sync, services and restoration; retain pending owners."""
         # Initiate cancellation across all owners before waiting on any one of them.
-        if "cancel" not in self._steps:
-            self._steps.add("cancel")
-            sessions = getattr(self, "agent_sessions", None)
-            if sessions is not None:
-                sessions.close()
-            if self.close_reason != "mission_completed":
-                self.agent.set_break(True)
-            service = getattr(self.agent, "multi_agent", None)
-            if service is not None:
-                service.close(0)
-        remaining = max(0, self._shutdown_deadline - time.monotonic())
-        pending = self.operations.close(remaining, cancel=self.close_reason != "mission_completed")
-        if not pending["closed"]:
-            self._wake.wait(0.1)
-            self._wake.set()
-            return
+        drained = True
+        if self.close_reason != "mission_completed":
+            drained &= self._drain_owner("cancel", lambda: self.agent.set_break(True))
+        sessions = getattr(self, "agent_sessions", None)
+        if sessions is not None:
+            drained &= self._drain_owner("agent_sessions", sessions.close)
         service = getattr(self.agent, "multi_agent", None)
-        if service is not None and not service.close(max(0, self._shutdown_deadline - time.monotonic()))["closed"]:
+        if service is not None:
+            drained &= self._drain_owner("multi_agent", lambda: service.close(0))
+        remaining = max(0, self._shutdown_deadline - time.monotonic())
+        drained &= self._drain_owner("operations", lambda: self.operations.close(
+            remaining, cancel=self.close_reason != "mission_completed"))
+        if not drained:
             self._wake.wait(0.1)
             self._wake.set()
             return
@@ -389,13 +411,8 @@ class RuntimeHost:
                                        for row in result if isinstance(row, dict) and row.get("ok") is False)
             except Exception as error:
                 self.errors.append({"step": name, "message": str(error)})
-        try:
-            self._shutdown_phase = "closing services"
-            stopped = self.services.close(max(0, self._shutdown_deadline - time.monotonic()))
-        except Exception as error:
-            self.errors.append({"step": "services", "message": str(error)})
-            stopped = {"closed": False}
-        if not stopped["closed"]:
+        if not self._drain_owner("services", lambda: self.services.close(
+                max(0, self._shutdown_deadline - time.monotonic()))):
             # A listener can finish independently of operation notifications.
             self._wake.wait(0.1)
             self._wake.set()

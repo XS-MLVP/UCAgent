@@ -7,7 +7,11 @@ The `ucagent/plugins/RTL2Spec/` directory provides a documentation generation pl
 
 ## Co-located Bundled and Optional Plugins
 
-Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/core/plugins.py`). Distribution splits into two tracks: the framework wheel bundles UnitTest and its shared `common` library as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default UnitTest workflow with no separate installation; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
+An explicit `--plugin <ID>` first resolves installed distributions and configured search
+paths. Only when neither matches does it consult manifests in the framework's bundled
+`ucagent/plugins/` collection, independently of the current working directory.
+
+Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/core/plugins.py`). Distribution splits into two tracks: the framework wheel bundles default ToffeeUT and explicitly selected UnitTest (including its shared `common` library) as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default ToffeeUT workflow with no separate installation; UnitTest requires a separate legacy-dependency environment; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
 
 | Content | Maintenance Location |
 | :--- | :--- |
@@ -405,6 +409,13 @@ ucagent <workspace> <dut> \
 ```
 
 Both `--plugin-workflow` and `--config` can be used simultaneously. Workflow configuration is an independent baseline layer and does not impersonate user configuration files; the final priority order is: core global, user global, core language default, plugin workflow, workspace settings, explicit `--config`, CLI `--override`. Short workflow names without a specified plugin ID are only allowed if unique within the activated plugin. Runtime metadata separately preserves explicit configuration, plugin and workflow selector, and workflow configuration sources. The same information is also written to `launch_context` in `.ucagent/runtime_config.json`; non-secret final configuration scalars explicitly declared by the plugin are written separately to `plugin_options`, without copying the full configuration or credentials to the runtime snapshot.
+
+The default UT workflow is itself a local plugin at `ucagent/plugins/ToffeeUT`, selected
+by `workflow` in `ucagent/core/locales/zh.yaml`. For separately installed plugins, a selector
+such as `toffee_ut:workflows/ut.yaml` locates the YAML inside the importable package.
+Workspace configuration, `--config`, or `--override` can replace or null the default
+selector; null means framework-only. Explicit plugin workflow selection replaces the
+default baseline rather than stacking on top of it.
 
 Resources and dependency fields of `PluginWorkflow` are optional:
 

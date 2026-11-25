@@ -955,6 +955,11 @@ def load_plugin(
         for manifest in _local_plugin_manifests(search_paths)
         if _read_local_manifest(manifest)["name"] == selector
     ]
+    if not matches and not local_matches:
+        bundled = Path(__file__).resolve().parents[1] / "plugins"
+        if bundled.is_dir():
+            local_matches = [manifest for manifest in _local_plugin_manifests([bundled])
+                             if _read_local_manifest(manifest)["name"] == selector]
     if matches and local_matches:
         installed_sources = [
             str(getattr(getattr(entry, "dist", None), "name", None) or entry.value)

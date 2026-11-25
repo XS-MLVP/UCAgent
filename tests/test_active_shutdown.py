@@ -302,7 +302,7 @@ runtime.manager.save_stage_info = lambda: (root / "saved").write_text("saved")
 entered = threading.Event()
 def blocked(ctx):
     entered.set()
-    threading.Event().wait(30)
+    threading.Event().wait()
 host.start()
 host.operations.submit("uninterruptible-tool", blocked, model=True)
 assert entered.wait(2)
@@ -315,17 +315,19 @@ host.wait()
     os.close(slave)
     transcript = bytearray()
 
-    def read_until(marker):
+    def read_until(marker, *, timeout=5):
         """Wait only for observable terminal output and fail with a bounded transcript."""
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + timeout
         while marker not in transcript:
-            assert process.poll() is None, transcript.decode(errors="replace")
-            assert time.monotonic() < deadline, transcript.decode(errors="replace")
-            if select.select([master], [], [], 0.05)[0]:
+            diagnostic = f"Waiting for {marker!r}:\n{transcript[-8000:].decode(errors='replace')}"
+            assert process.poll() is None, diagnostic
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, f"Timed out after {timeout}s. {diagnostic}"
+            if select.select([master], [], [], min(0.05, remaining))[0]:
                 transcript.extend(os.read(master, 65536))
 
     try:
-        read_until(b"(UnityChip)")
+        read_until(b"(UnityChip)", timeout=30)
         os.write(master, b"q\n")
         read_until(b"grace period expired")
         read_until(b"uninterruptible-tool")

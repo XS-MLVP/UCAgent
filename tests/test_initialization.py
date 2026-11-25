@@ -133,13 +133,19 @@ def test_startup_modes_preserve_initial_command_order(tmp_path, cli_runtime, opt
     with mock.patch("sys.argv", ["ucagent", str(tmp_path), "DUT", "--config", str(config),
         *options, "--icmd", "pwd", "--icmd", "status"]), \
          mock.patch("ucagent.VerifyAgent") as factory, \
-         mock.patch("ucagent.interfaces.terminal.tui.enter_tui", return_value=""):
+         mock.patch("ucagent.enter_tui", return_value="") as tui_entry:
         factory.return_value.cfg.get_value.side_effect = lambda key, default=None: ["config-tail"] if key == "init_cmds" else default
         factory.return_value.cfg.backend.key_name = "blank"
         factory.return_value.emulate_config.return_value = None
         cli_runtime.registry.execute.return_value.data = {"ok": True}
         run()
     assert cli_runtime.startup.start.call_args.args[0] == ["logo_and_version", "pwd", "status", "config-tail"]
+    startup_session = cli_runtime.startup.start.call_args.args[1]
+    assert startup_session.session.cwd == tmp_path
+    if "--tui" in options:
+        tui_entry.assert_called_once_with(startup_session)
+    else:
+        tui_entry.assert_not_called()
     factory.return_value.pre_run.assert_called_once()
     from ucagent import RuntimeHost
     assert RuntimeHost.call_args.kwargs["mode"] == mode

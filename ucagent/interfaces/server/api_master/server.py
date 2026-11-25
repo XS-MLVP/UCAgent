@@ -594,6 +594,8 @@ class MasterApiServer(
                 add_value(flag, value)
 
         add_value("--config", req.get("config"))
+        add_list("--plugin", req.get("plugin", []))
+        add_value("--plugin-workflow", req.get("plugin_workflow"))
         add_value("--workspace-base", req.get("workspace_base"))
         add_value("--template-dir", req.get("template_dir"))
         add_flag("--template-overwrite", req.get("template_overwrite"))

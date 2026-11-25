@@ -197,17 +197,13 @@ class _RecordingCheckStage:
 
 
 def _cfg():
-    return SimpleNamespace(
-        tools=SimpleNamespace(RunTestCases=SimpleNamespace(test_dir="tests")),
-        mission=SimpleNamespace(name="mission"),
-        vmanager=SimpleNamespace(
-            llm_suggestion=SimpleNamespace(
-                check_fail_refinement=None,
-                check_pass_refinement=None,
-            ),
-        ),
-        skill=SimpleNamespace(use_skill=False),
-    )
+    """Use the resolved configuration interface required by the real stage manager."""
+    return Config({
+        "tools": {"RunTestCases": {"test_dir": "tests"}},
+        "mission": {"name": "mission"},
+        "vmanager": {"llm_suggestion": {"check_fail_refinement": None, "check_pass_refinement": None}},
+        "skill": {"use_skill": False},
+    })
 
 
 def _saved_info():

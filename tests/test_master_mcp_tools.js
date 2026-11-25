@@ -28,7 +28,7 @@ function launchPage(backend, disabled) {
             fields.set(key, {
               dataset: {launchKey: key, launchType: attributes.match(/data-launch-type="([^"]+)"/)[1]},
               checked: /\bchecked\b/.test(attributes),
-              value: tag === 'textarea' ? content.trim() : '',
+              value: tag === 'textarea' ? content.trim() : (attributes.match(/value="([^"]*)"/)?.[1] || ''),
               matches: (selector) => selector === '[data-launch-key]',
             });
           }
@@ -90,6 +90,37 @@ for (const backend of ['codex', 'opencode', 'claude', 'langchain', 'blank']) {
       }
     });
   }
+}
+
+for (const selector of ['toffee-ut:ut', 'formal:formal', 'unittest:vibe', 'unittest:incremental']) {
+  test(`${selector}: preset selection keeps workflow separate from config`, () => {
+    const page = launchPage('codex', false);
+    const plugin = selector.split(':')[0];
+    page.evaluate(`
+      state.launchBaseConfig = {mcp_server: true};
+      state.configOptions = [normalizeConfigOptionFromApi({name: 'Workflow', value: '${selector}',
+        source: 'predefined', defaults: {plugin: ['${plugin}'], plugin_workflow: '${selector}'}})];
+      document.getElementById('config-path').value = '${selector}';
+      applySelectedConfigDefaults();
+    `);
+    for (const expression of ['collectLaunchPayload()', 'collectBatchLaunchPayload(state.batchItems[0])']) {
+      const payload = page.evaluate(expression);
+      assert.equal(payload.config, 'config.yaml');
+      assert.equal(payload.plugin_workflow, selector);
+      assert.deepEqual(Array.from(payload.plugin), [plugin]);
+      assert.equal(payload.output, '');
+    }
+    for (const expression of ['buildCommandPreview()', 'state.batchMode = true; buildBatchCommandPreview()']) {
+      const preview = page.evaluate(expression);
+      assert.ok(preview.includes(`--plugin-workflow ${selector}`));
+      assert.ok(preview.includes(`--plugin ${plugin}`));
+      assert.ok(!preview.includes(`--config ${selector}`));
+      assert.ok(!preview.includes('--output'));
+    }
+    const option = page.evaluate(`configPresetToOption('Workflow', {plugin: ['${plugin}'], plugin_workflow: '${selector}'})`);
+    assert.equal(option.value, selector);
+    assert.equal(option.defaults.config, undefined);
+  });
 }
 
 test('backend change/input events and YAML import preserve a manual file-tool choice', async () => {

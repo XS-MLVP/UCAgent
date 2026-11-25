@@ -51,6 +51,10 @@ http://localhost:8800
 ucagent --as-master-persist --as-master --as-master-password "your_password"
 ```
 
+该密码同时保护 HTTP 页面和四个 task/agent 的终端、Web Console WebSocket 代理；
+代理先验证 Master 凭据，再使用子 Agent 凭据连接上游。未设置密码仍为无认证模式，
+不要把无密码 Master 暴露到不可信网络。
+
 Master 启动本身不要求模型地址、API Key 或模型名称。若需要从 Launch 页面启动子 Agent，可在 Master 进程环境中配置模型变量；它们只用于构造子 Agent 的启动环境。
 
 Master 模式下的 `--backend` 用于设置 Launch 页启动子 Agent 时的默认 backend；Master 当前进程始终使用无模型 backend。
@@ -105,6 +109,12 @@ ucagent ./output Adder --master 127.0.0.1:8800
 3. 标记主 RTL 并解析模块
 4. 选择 DUT 名称、模块与 Picker 仿真器后执行编译
 5. 检查命令预览并启动托管任务
+
+内置选择项使用 `plugin` / `plugin_workflow`：UT 为 `toffee-ut:ut`，Formal 为
+`formal:formal`，Vibe 为 `unittest:vibe`，Increment 为 `unittest:incremental`。
+它们通过 `--plugin` 和 `--plugin-workflow` 选择独立基线，不把工作流标识当作 `--config` 文件。
+另选 YAML 仍作为用户配置；产物目录留空时采用工作流默认值。Formal 需安装对应插件，
+Vibe/Increment 需旧版 UnitTest 环境，选择预设不会自动安装或混合依赖。
 
 编译区的 **Picker Simulator** 使用横向单选勾选项，按 `launch.default_args.simulator` 列表顺序显示，默认勾选第一个可用仿真器。默认优先级为 `[verilator, vcs, gsim, uvs]`；例如优先使用 VCS，可配置：
 

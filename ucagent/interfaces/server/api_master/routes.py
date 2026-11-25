@@ -14,6 +14,7 @@ import shlex
 import tempfile
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
+from fastapi import WebSocketException
 from ucagent.util.log import warning
 from ucagent.util.workspace_archive import WorkspaceArchiveError
 
@@ -167,19 +168,19 @@ class RoutesMixin:
                     headers={"WWW-Authenticate": 'Basic realm="UCAgent Master"'},
                 )
 
-        def _check_ws_password(headers: Dict[str, str]) -> None:
+        async def _check_ws_password(websocket: WebSocket) -> None:
+            """Authenticate the Master before looking up or connecting to a child."""
             if not password:
                 return
-            auth = headers.get("authorization", "")
-            if not auth.startswith("Basic "):
-                raise PermissionError("Authentication required")
+            scheme, _, credentials = websocket.headers.get("authorization", "").partition(" ")
             try:
-                decoded = base64.b64decode(auth[6:]).decode("utf-8")
-            except Exception as exc:  # pragma: no cover - defensive
-                raise PermissionError("Invalid authentication header") from exc
-            _, _, pwd = decoded.partition(":")
-            if not _secrets.compare_digest(pwd.encode("utf-8"), password.encode("utf-8")):
-                raise PermissionError("Authentication required")
+                decoded = base64.b64decode(credentials, validate=True).decode("utf-8")
+            except (ValueError, UnicodeError):
+                raise WebSocketException(code=1008, reason="Authentication required") from None
+            _, separator, pwd = decoded.partition(":")
+            if (scheme.lower() != "basic" or not separator or not _secrets.compare_digest(
+                    pwd.encode("utf-8"), password.encode("utf-8"))):
+                raise WebSocketException(code=1008, reason="Authentication required")
 
         def _fix_tcp_url(url: str, client_ip: str) -> str:
             return _fix_reported_tcp_url(url, client_ip)
@@ -1226,7 +1227,7 @@ class RoutesMixin:
                             defaults["config"] = cfg_value
                     options.append({
                         "name": name_str,
-                        "value": str(cfg_value or name_str),
+                        "value": str(defaults.get("plugin_workflow") or cfg_value or name_str),
                         "source": "predefined",
                         "defaults": defaults,
                         "preset_name": name_str,
@@ -1744,7 +1745,7 @@ class RoutesMixin:
                 except Exception as exc:
                     raise HTTPException(status_code=502, detail=f"Failed to proxy Agent Web console: {exc}") from exc
 
-        @app.websocket("/task/{task_id}/terminal/ws")
+        @app.websocket("/task/{task_id}/terminal/ws", dependencies=[Depends(_check_ws_password)])
         async def proxy_terminal_ws(websocket: WebSocket, task_id: str):
             try:
                 task = self._get_task(task_id)
@@ -1843,7 +1844,7 @@ class RoutesMixin:
                 except WebSocketDisconnect:
                     return
 
-        @app.websocket("/agent/{agent_id}/web-console/ws")
+        @app.websocket("/agent/{agent_id}/web-console/ws", dependencies=[Depends(_check_ws_password)])
         async def proxy_agent_web_console_ws(websocket: WebSocket, agent_id: str):
             try:
                 with self._agents_lock:
@@ -1956,7 +1957,7 @@ class RoutesMixin:
                 except WebSocketDisconnect:
                     return
 
-        @app.websocket("/agent/{agent_id}/terminal/ws")
+        @app.websocket("/agent/{agent_id}/terminal/ws", dependencies=[Depends(_check_ws_password)])
         async def proxy_agent_terminal_ws(websocket: WebSocket, agent_id: str):
             try:
                 with self._agents_lock:
@@ -2070,7 +2071,7 @@ class RoutesMixin:
                     except Exception:
                         pass
 
-        @app.websocket("/task/{task_id}/web-console/ws")
+        @app.websocket("/task/{task_id}/web-console/ws", dependencies=[Depends(_check_ws_password)])
         async def proxy_web_console_ws(websocket: WebSocket, task_id: str):
             try:
                 task = self._get_task(task_id)

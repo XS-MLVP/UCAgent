@@ -73,7 +73,8 @@ def test_exit_zero_uncertain_is_not_a_pass_or_a_native_dut_run(project):
     summary = delivery_data(project, "Block", "ut_project")
     assert summary["status"] == "INCOMPLETE"
     assert set(summary["problems"]) == {"missing_per_case_native_registration", "missing_native_build_evidence",
-                                        "static_review_missing", "native_line_coverage_not_collected", "native_line_coverage_review_missing"}
+                                        "static_review_missing", "native_line_coverage_not_collected", "native_line_coverage_review_missing",
+                                        "non_verifying_tests"}
 
 
 def test_partial_selection_and_source_edits_cannot_reuse_full_green(project):

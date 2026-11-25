@@ -13,6 +13,7 @@ from toffee_ut.audit import summarize
 from toffee_ut.plugin import get_plugin
 from toffee_ut.tools import BuildToffeeDUT, CoverageInfo, RunToffee, UTProject
 from toffee_ut.waveform import WaveInfo
+from toffee_ut.sources import capture_source_documents, record_source_documents
 from ucagent import VerifyAgent
 from ucagent.core.agent.configuration import resolve_task_configuration
 from ucagent.core.plugins import LoadedPlugin, load_plugin, validate_plugin
@@ -140,6 +141,7 @@ def test_model_free_agent_requires_real_stage_artifacts_with_or_without_skills(
         plugins=[LoadedPlugin(get_plugin(), "toffee-ut", "test")], plugin_workflow="toffee-ut:ut",
         cfg_override=[{"backend.key_name": "blank"}, {"skill.use_skill": skills}, {"langfuse.enable": False},
                       {"runtime_options.ut_rtl_dirs": ["inputs/Block.sv"]},
+                      {"runtime_options.ut_documents": ["inputs/interface.md"]},
                       {"vmanager.llm_suggestion.check_fail_refinement.enable": False},
                       {"vmanager.llm_suggestion.check_pass_refinement.enable": False}],
         no_embed_tools=True, no_history=True)
@@ -164,7 +166,8 @@ def test_model_free_agent_requires_real_stage_artifacts_with_or_without_skills(
         else:
             assert not skill_root.exists()
         assert [tool.name for tool in agent.stage_manager.plugin_manager_tools] == ["RunToffee"]
-        assert agent.get_tool_by_name("UTProject")._run("inspect")["ok"]
+        inspected = agent.get_tool_by_name("UTProject")._run("inspect")
+        assert inspected["ok"], inspected
         assert agent.get_tool_by_name("UTProject")._run("scaffold")["ok"]
         # This real tool call still runs pure Python only. Typed native audit
         # inputs above are separate and never become claimed simulation output.
@@ -247,6 +250,8 @@ def test_guide_examples_obey_the_actual_contract_parser(tmp_path, checked_eviden
     scaffold(workspace, "Queue")
     (workspace / "ut_project/docs/spec/design/Queue.md").write_text(examples[0])
     (workspace / "ut_project/docs/spec/verification/Queue.md").write_text(examples[1])
+    record_source_documents(workspace, "Queue", "ut_project", capture_source_documents(
+        workspace, "Queue", "ut_project", ["inputs/queue-interface.md"]))
     assert audit_project(workspace, "Queue", phase="plan")["ok"]
     results = (package / "Guide_Doc/ut-results.md").read_text()
     issue, report = re.findall(r"````markdown\n(.*?)^````$", results, re.M | re.S)

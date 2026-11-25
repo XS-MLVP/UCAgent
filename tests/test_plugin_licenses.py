@@ -65,7 +65,7 @@ def test_plugin_license_builds_and_standalone_sdist(plugin_project, tmp_path):
     from build import ProjectBuilder
 
     project = plugin_project
-    repository = project.parent.parent
+    repository = project.parents[2]
     builder = ProjectBuilder(project)
     metadata = builder.prepare("wheel", tmp_path / "metadata")
     assert all(not (project / name).exists() for name in NOTICE_FILES)
@@ -116,7 +116,7 @@ def test_plugin_metadata_uses_updated_root_notice(plugin_project, tmp_path):
     from build import ProjectBuilder
 
     project = plugin_project
-    repository = project.parent.parent
+    repository = project.parents[2]
     builder = ProjectBuilder(project)
     builder.prepare("wheel", tmp_path / "first")
     notice = repository / "NOTICE.md"
@@ -135,7 +135,7 @@ def test_failed_build_preserves_sources_and_removes_temporary_copies(
 
     project = plugin_project
     if defect in NOTICE_FILES:
-        (project.parent.parent / defect).unlink()
+        (project.parents[2] / defect).unlink()
     elif defect == "configuration":
         config = project / "pyproject.toml"
         config.write_text(config.read_text().replace(

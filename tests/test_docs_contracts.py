@@ -24,6 +24,22 @@ STARTUP_PAGES = (
 )
 
 
+@pytest.mark.parametrize("locale", ("", ".en"))
+def test_documented_default_workflow_matches_locale_and_workflow_defaults(locale):
+    """Authoritative architecture and lifecycle pages follow the actual default selector."""
+    selector = load_yaml_with_env_vars(str(ROOT / "ucagent/core/locales/zh.yaml"))["workflow"]
+    workflow = load_yaml_with_env_vars(str(ROOT / selector))
+    assert selector == "ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml"
+    assert len(workflow["stage"]) == 20 and workflow["output"] == "ut_project"
+    assert workflow["runtime_options"]["ut_line_coverage"] is True
+    for page in ("01_start/05_architecture", "03_develop/03_workflow"):
+        text = (CONTENT / f"{page}{locale}.md").read_text(encoding="utf-8")
+        assert selector in text and "toffee-ut:ut" in text and "ut_project" in text
+    text = (CONTENT / f"03_develop/03_workflow{locale}.md").read_text(encoding="utf-8")
+    assert "runtime_options.ut_line_coverage=true" in text
+    assert "NEED_REF_MODEL=true" not in text
+
+
 @pytest.mark.parametrize("page", STARTUP_PAGES)
 @pytest.mark.parametrize("locale", ("", ".en"))
 def test_unittest_mcp_examples_keep_required_tools(page, locale, monkeypatch):

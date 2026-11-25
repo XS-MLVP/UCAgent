@@ -78,35 +78,30 @@ exclude = [
 
 [tool.setuptools.package-data]
 ucagent = [
-    "**/*.bak",
-    "**/*.css",
-    "**/*.html",
-    "**/*.ignore",
-    "**/*.ini",
-    "**/*.j2",
-    "**/*.js",
-    "**/*.json",
-    "**/*.lock",
-    "**/*.md",
-    "**/*.patch",
-    "**/*.rs",
-    "scripts/surfer/LICENSE-EUPL-1.2.txt",
-    "**/*.sucl",
-    "**/*.sv",
-    "**/*.svg",
-    "**/*.tcl",
-    "**/*.tcss",
-    "**/*.toml",
-    "**/*.wasm",
-    "**/*.yaml",
+    "setting.yaml",
+    "SKILL.md",
+    "application/presets/**/*.yaml",
+    "core/locales/*.yaml",
+    "core/multi_agent/global_agent/workflow.yaml",
+    "core/backends/assets/**/*",
+    "interfaces/server/fst_converter/**/*",
+    "interfaces/server/static/**/*",
+    "interfaces/server/templates/**/*",
+    "interfaces/terminal/**/*.tcss",
+    "scripts/**/*",
 ]
-# Built-in workflow bundled with the framework distribution: UnitTest. The
+# Built-in workflows bundled with the framework: ToffeeUT and UnitTest. The
 # project manifest and the full src tree (workflows, presets, templates,
 # skills, docs) ship as package data; tests do not. The other plugin projects
 # stay source-tree only and are distributed as their own packages. The key is quoted because the package name contains a
 # dot; an unquoted `ucagent.plugins` would try to mutate the plain `ucagent`
 # array above, which TOML forbids.
 "ucagent.plugins" = [
+    "ToffeeUT/ucagent-plugin.toml",
+    "ToffeeUT/src/**/*",
     "UnitTest/ucagent-plugin.toml",
     "UnitTest/src/**/*",
 ]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["**/__pycache__/*", "**/*.pyc", "**/*.pyo"]
