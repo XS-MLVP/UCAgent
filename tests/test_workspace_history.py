@@ -113,14 +113,16 @@ def test_workspace_git_is_independent_of_stage_history(control, tmp_path):
     assert stage.get_stage_file_content("out/source.txt")["content"] == "source content"
 
 
-def test_live_preview_rejects_output_symlink_escape(control, tmp_path):
-    """Preview scanning must not read output bytes beyond the workspace boundary."""
+def test_live_preview_records_link_identity_without_reading_target(control, tmp_path):
+    """Preview tracks external links as leaves without exposing their target bytes."""
     stage = control.agent.stage_manager.stages[0]
     stage.hist_init()
     stage.meta_data.pop("commit")
     outside = tmp_path.parent / (tmp_path.name + "-outside.txt")
     outside.write_text("outside evidence")
     (tmp_path / "out/escape.txt").symlink_to(outside)
-    with pytest.raises(WorkspaceAccessError, match="outside"):
-        stage.get_stage_outcome(use_cache=False)
+    outcome = stage.get_stage_outcome(use_cache=False)
+    assert outcome["changed_file_statuses"] == {"out/escape.txt": "added"}
+    payload = stage.history_query().current_file("out/escape.txt", suppress_diff=True)
+    assert payload["error"] is None and payload["content"] == str(outside)
     assert outside.read_text() == "outside evidence"

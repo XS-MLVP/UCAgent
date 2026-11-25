@@ -5110,6 +5110,17 @@
       "review_scope": "inspect_command_usage"
     },
     {
+      "path": "docs/content/02_usage/13_global_agent.en.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "inspect_command_usage"
+    },
+    {
       "path": "docs/content/02_usage/13_global_agent.md",
       "markers": [
         "business_command"

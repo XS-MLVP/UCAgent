@@ -1260,7 +1260,7 @@ def sync_dir_to(
         same_type = target_mode is not None and stat.S_IFMT(source_mode) == stat.S_IFMT(target_mode)
         if target_mode is not None and not same_type:
             _remove_sync_node(target)
-        # Link identity is its text, including dangling, external and cyclic links.
+
         if stat.S_ISLNK(source_mode):
             link_text = os.readlink(source)
             if not same_type or os.readlink(target) != link_text:

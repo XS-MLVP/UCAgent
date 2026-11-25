@@ -28,7 +28,7 @@ Specific artifacts depend on the workflow, enabled stages, and test results. The
 
 A workflow is a sequence of ordered stages. Each stage specifies the task, reference files, expected output, and Checker. The Agent uses tools to complete the task, then calls `Check` to view the acceptance results; only after calling `Complete` and passing the final checks and applicable gates can it proceed to the next stage.
 
-The default Chinese UT workflow is defined in `ucagent/core/locales/zh.yaml`, with other configurations available for Formal, Vibe, Increment, etc. Custom workflows are loaded via `--config <file>` without modifying the framework or requiring additional registration. See [Workflow Configuration](../03_develop/03_workflow.md) for specific configuration methods.
+Framework prompts and defaults live in `ucagent/core/locales/zh.yaml`. Its `workflow` selector points to the default Chinese UT workflow in the `ucagent/plugins/UnitTest` plugin. Formal, Vibe, and Increment are also plugin workflows, provided by `ucagent/plugins/Formal` and sibling workflows within `ucagent/plugins/UnitTest`, and selected with `--plugin-workflow`. Custom workflows are loaded via `--config <file>` without modifying the framework or requiring additional registration. See [Workflow Configuration](../03_develop/03_workflow.md) for specific configuration methods.
 
 ## Configuration and Launch Entry Points
 

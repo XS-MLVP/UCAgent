@@ -50,12 +50,12 @@ class StageHistory:
                 "commit_has_changes": has_changes}
 
     def workspace_content(self, file_path):
-        """Read current text safely, retaining the stage file payload contract."""
+        """Read regular-file bytes or symlink text without following link targets."""
         try:
-            data = WorkspaceFiles(self.workspace).read_bytes(file_path)
-        except (WorkspaceAccessError, OSError) as error:
+            data, mode = diff_ops._read_worktree_node(self.workspace, file_path)
+        except (ValueError, OSError) as error:
             return {"is_text": False, "content": "", "diff": "", "error": str(error)}
-        if not diff_ops._is_text_file(data):
+        if mode != 0o120000 and not diff_ops._is_text_file(data):
             return {"is_text": False, "content": "", "diff": "",
                     "error": f"File '{file_path}' is not a text file"}
         return {"is_text": True, "content": data.decode("utf-8", errors="replace"),
@@ -63,13 +63,12 @@ class StageHistory:
 
     def current_file(self, file_path, *, suppress_diff=False):
         """Read current content and a history diff without changing either worktree."""
-        files = WorkspaceFiles(self.workspace)
         try:
-            target = files.path(file_path)
+            relative = self._relative_node_path(file_path)
         except WorkspaceAccessError as error:
             return {"is_text": False, "content": "", "diff": "", "error": str(error)}
-        relative = os.path.relpath(target, files.root)
-        if not os.path.exists(target):
+        target = os.path.join(self.workspace, relative)
+        if not os.path.lexists(target):
             payload = {"is_text": True, "content": "", "diff": "", "error": None,
                        "exists": False, "status": "deleted"}
         else:
@@ -90,9 +89,8 @@ class StageHistory:
 
     def historical_file(self, file_path, *, require_commit=False, suppress_diff=False):
         """Read a stage commit; saved views explicitly report unavailable history."""
-        files = WorkspaceFiles(self.workspace)
         try:
-            relative = os.path.relpath(files.path(file_path), files.root)
+            relative = self._relative_node_path(file_path)
         except WorkspaceAccessError as error:
             return {"is_text": False, "content": "", "diff": "", "error": str(error)}
         commit = self.commit_meta.get("hash")
@@ -109,9 +107,22 @@ class StageHistory:
             payload["diff"] = ""
         return payload
 
-    def workspace_changes(self):
-        """Compare current output bytes with history without synchronizing or committing."""
+    def _relative_node_path(self, file_path):
+        """Confine a history node's parent without resolving the node's own link text."""
         files = WorkspaceFiles(self.workspace)
+        target = os.path.abspath(os.path.join(files.root, file_path))
+        parent = os.path.dirname(target)
+        files.path(os.path.relpath(parent, files.root))
+        if os.path.realpath(parent) != parent:
+            raise WorkspaceAccessError("invalid_path", "History paths must not have symlink parents")
+        return os.path.relpath(target, files.root)
+
+    def workspace_changes(self):
+        """Compare output node identities with history without reading symlink targets."""
+        files = WorkspaceFiles(self.workspace)
+        source = os.path.abspath(os.path.join(files.root, self.hist_src_dir))
+        if os.path.realpath(source) != source:
+            raise ValueError("History source must be a real directory without symlink ancestors")
         src_path = files.path(self.hist_src_dir)
         if not os.path.isdir(src_path) or not os.path.isdir(self.hist_sav_dir):
             return {}
@@ -124,9 +135,10 @@ class StageHistory:
                 relative_root = os.path.relpath(root, src_path).replace(os.sep, "/")
                 if relative_root == ".":
                     relative_root = ""
+                filenames += [name for name in dirnames if os.path.islink(os.path.join(root, name))]
                 dirnames[:] = [
                     dirname for dirname in dirnames
-                    if not (
+                    if not os.path.islink(os.path.join(root, dirname)) and not (
                         fc.match_pattern_list(dirname, self.hist_ign_list)
                         or fc.match_pattern_list(
                             "/".join(
@@ -144,23 +156,22 @@ class StageHistory:
                         filename, self.hist_ign_list
                     ) or fc.match_pattern_list(relative_file, self.hist_ign_list):
                         continue
-                    relative = os.path.relpath(os.path.join(root, filename), files.root)
-                    abs_path = files.path(relative)
-                    rel_to_src = relative_file
-                    hist_file_path = os.path.join(self.hist_src_dir, rel_to_src).replace(os.sep, "/")
+                    hist_file_path = os.path.join(self.hist_src_dir, relative_file).replace(os.sep, "/")
                     seen_history_files.add(hist_file_path)
-                    with open(abs_path, "rb") as fh:
-                        workspace_content = fh.read()
+                    workspace_content, workspace_mode = diff_ops._read_worktree_node(src_path, relative_file)
                     if head_commit is None:
                         changed_files[hist_file_path] = "added"
                         continue
                     try:
                         blob = head_commit.tree / hist_file_path
+                        if blob.type != "blob":
+                            changed_files[hist_file_path] = "added"
+                            continue
                         history_content = blob.data_stream.read()
                     except KeyError:
                         changed_files[hist_file_path] = "added"
                         continue
-                    if workspace_content != history_content:
+                    if workspace_content != history_content or workspace_mode != blob.mode:
                         changed_files[hist_file_path] = "modified"
             if head_commit is not None:
                 prefix = self.hist_src_dir.strip("/").replace(os.sep, "/") + "/"

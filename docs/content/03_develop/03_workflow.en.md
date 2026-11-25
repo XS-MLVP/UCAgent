@@ -32,7 +32,7 @@ The default workflow is selected by `workflow` in `ucagent/core/locales/zh.yaml`
 | 18 | `verification_review_and_summary` | Executing |
 | 19 | `record_and_report_bugs` | Executing |
 
-In the default configuration, `human_check_env_specification`, `human_check_env_implementation`, and `line_coverage_analysis_and_improvement` use `skip: true`; whether they actually execute is also subject to environment variables and project override configurations. Formal, Vibe, and Increment are independent configurations with different stage counts and names, and cannot be applied using the table above.
+In the default configuration, `human_check_env_specification`, `human_check_env_implementation`, and `line_coverage_analysis_and_improvement` use `skip: true`; whether they actually execute is also subject to environment variables and project override configurations. Formal, Vibe, and Increment are plugin workflows selected with `--plugin-workflow formal:formal`, `unittest:vibe`, and `unittest:incremental`, respectively. Their stage counts and names differ, so the table above does not apply to them.
 
 ## 2. Stage Fields
 

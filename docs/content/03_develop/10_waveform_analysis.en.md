@@ -140,7 +140,7 @@ Historical receipts independently sign semantic snapshots. Ordinary Check does n
 
 ## Viewers and Xpra configuration
 
-The resolved `cmd_api.waveform_viewers` mapping defaults to:
+`ucagent/setting.yaml` provides the default `cmd_api.waveform_viewers` mapping, which can be overridden through the resolved workspace configuration:
 
 ```yaml
 cmd_api:

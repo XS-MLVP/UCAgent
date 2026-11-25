@@ -11,7 +11,8 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 import pytest
 
-from ucagent.server.api_cmd import PdbCmdApiServer
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.runtime.control.controller import Controller
 from ucagent.util.config import Config
 from test_waveform_routes import Sessions
 
@@ -40,9 +41,9 @@ def application(root, simulator="vcs"):
 @pytest.mark.parametrize("simulator", ["vcs", "uvs"])
 def test_provider_page_uses_generic_authenticated_xpra_api(tmp_path, simulator):
     """Coverage needs no special request schema, routes, config or resolver."""
-    server = PdbCmdApiServer(SimpleNamespace(
-        agent=SimpleNamespace(workspace=str(tmp_path), cfg=Config({"cmd_api": {"xpra": {}}})),
-        stdout=None), sock="", password="coverage-password")
+    server = ControlApiServer(Controller(SimpleNamespace(
+        workspace=str(tmp_path), cfg=Config({"cmd_api": {"xpra": {}}}))),
+        sock="", password="coverage-password")
     server._xpra = Sessions()
     client = TestClient(server._app)
     client.auth = ("user", server.password)

@@ -129,6 +129,12 @@ The list must be nonempty and contain unique names. Only configured simulators a
 
 The selection applies to single and batch compilation. A running batch keeps its selected simulator for every compile and launch request. Changing the simulator requires recompilation before launch. Launch and Relaunch reuse an existing compiled package's recorded simulator without repeating compiler availability detection. Single-task YAML imports use a top-level `simulator: vcs`, and compile API requests use a string `simulator` field. Omitting it selects the first available candidate by configured priority. Batch tasks use the shared form selection. Extra `picker_args` may specify other options, but cannot override `--sim`, `--rw` / `--access-mode`, or `-w` / `--wave_file_name`.
 
+Launch defaults to `mcp_server: true` and `mcp_server_no_file_tools: false`, starting MCP with file tools for new tasks. The actual tools remain subject to workflow registration, `tools.ignore_tools` / `tools.selected_tools`, and file permissions. Switching backends, generating command previews, and submitting single or batch tasks preserve the current file-tool setting.
+
+Task workflows can declare required MCP tool names in `runtime_options.required_mcp_tools`; the default empty list adds no requirements. Before MCP starts, the final tool set is checked, and missing tools produce a diagnostic with recovery instructions. UnitTest's unittest, incremental, and vibe workflows require `ReadTextFile`, `EditTextFile`, `ReplaceStringInFile`, and `DeleteTextLines`, so they cannot use MCP with file tools disabled. Multi-agent supervisor MCP endpoints expose tools according to delegation permissions and do not apply this task-workflow list.
+
+These defaults affect newly launched tasks only. For an existing task, pause execution, stop MCP in that task's own Console, and restart it with `start_mcp_server` on the original host/port without `--no-file-ops`. Confirm that `mcp_server_status` reports `no_file_ops` as false, then reconnect the client and rediscover tools before continuing. Refreshing the Launch page alone does not update a running task's tool list.
+
 ### 4.2 Best Practices
 
 1. Recompile after every adjustment to the main module
