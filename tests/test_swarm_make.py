@@ -153,7 +153,7 @@ def test_colima_uses_localhost_unless_host_is_explicit(swarm_make, host):
 ])
 def test_image_refresh_and_child_image_override(swarm_make, image, present, pulls):
     """Refresh tags, reuse cached digests, and preserve the image through CLI parsing."""
-    from ucagent.cli import get_override_dict
+    from ucagent.interfaces.cli.arguments import get_override_dict
     from ucagent.util.config import Config
 
     result, calls = swarm_make(config={"image_present": present}, SWARM_IMAGE=image)

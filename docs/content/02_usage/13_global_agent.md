@@ -54,6 +54,18 @@ global_agent:
 - 项目目录默认为启动时当前目录，可用位置参数或 `MULTI_WORKSPACE` 指定；它是 DUT 搜索范围，不是某个任务工作区。额外目录通过 `workspace_roots` 显式配置，相对路径按项目目录解析。
 - Global 自身运行文件位于 `<project>/.ucagent/global/sessions/<session>/global/`；项目 `.ucagent/setting.yaml` 仍参与启动配置。各 Super 的任务目录位于同会话的 `agents/<id>/attempt-N/workspace/`。
 
+### 运行目录与自动退出
+
+`global_agent.root` 设置运行状态根目录，默认 `<project>/.ucagent/global`；相对路径按项目目录解析，不是相对某个 Super 的任务工作区。例如在项目目录运行：
+
+```bash
+make multi MULTI_BACKEND=codex MULTI_OVERRIDES='--override global_agent.root=output'
+```
+
+会话位于 `<project>/output/sessions/<session>/`。这个 `output` 是会话容器，不是业务产物的 `{OUT}`，也不改变 `source_workspace`。以启动状态返回的实际路径为准；运行目录不能作为后续 DUT 输入。
+
+`--exit-on-completion` 等待已接收请求和结果通知处理结束、所有 Super 进入终态、Global 没有活动模型操作后才退出，并根据请求处理与任务结果设置退出码。Sub 提交或某个 Super 结束不会直接结束 Global。未启用时，完成后继续等待用户消息；挂起且仍存活的任务需要先按恢复规则处理。
+
 ## DUT 选择与工作区准备
 
 `ListDUTs` 有界扫描项目和额外来源根目录（最多三层子目录、2000 个目录、返回 200 个候选），识别原始 RTL 与 `<DUT>_RTL` 工作区；不会扫描隐藏运行目录。更深层或非 RTL 任务可显式提供 `dut_name` 和 `source_workspace`。路径必须在允许范围内；禁止使用 Global 运行状态目录作为输入。
@@ -90,7 +102,7 @@ Super 页面可直接输入 `status`、`task_status` 等已注册 Console 命令
 
 ## 从另一终端查看
 
-会话目录由 ListAgents 和 Global 启动状态提供，也可在工作区的 `.ucagent/global/sessions/` 中找到。
+会话目录由 ListAgents 和 Global 启动状态提供，默认在项目 `.ucagent/global/sessions/`，自定义时在 `global_agent.root` 下的 `sessions/`。
 
 ```bash
 ucagent attach /absolute/path/to/session_dir --agent super-xxxxxxxxxxxx
@@ -122,6 +134,22 @@ Super 成功需要正常退出、有效的运行回执、正确的任务/尝试�
 ReadAgentArtifact 默认返回最多 64 KiB，单次上限 1 MiB。输入复制和产物读取会复核摘要，验收后被修改的文件不能继续作为有效产物使用。完成通知只携带有界产物摘要；完整索引保存在会话记录中，并可通过 AgentStatus 查询。
 
 每个会话保存状态、事件、各 Agent 的尝试、业务工作区、运行回执和日志。重试使用新的 attempt，历史保留。消息日志只用于展示，不作为任务成功证据。最终文件保留在各任务工作区，没有自动打包为统一交付目录。
+
+### 状态与证据索引
+
+| 位置（相对会话目录） | 用途与边界 |
+| --- | --- |
+| `session.json` | Global 保存的任务、attempt、路径和调度状态；不是独立的进程存活探针 |
+| `events.jsonl` / `inbox.json` | 会话事件与用户输入/结果通知的处理记录；不是业务成功凭据 |
+| `agents/<id>/attempt-N/preparation.log` | 工作区准备过程，准备失败时优先检查 |
+| `agents/<id>/attempt-N/super.stdout.log` / `super.stderr.log` | 对应 Super 进程的输出和错误 |
+| `agents/<id>/attempt-N/view_snapshot.json` | Super 保存的阶段、执行、恢复与 Sub 视图；异常终止后可能只反映最后一次写入 |
+| `agents/<id>/attempt-N/run_result.json` | 框架生成的运行回执；Global 还需检查退出结果、身份、阶段与产物摘要 |
+| `agents/<id>/attempt-N/workspace/` | 该次业务工作区和最终产物 |
+
+上表文件随生命周期产生，准备失败时不一定有运行回执或视图。Super 进程尚未退出时，Global 的调度状态可能仍是 running，而其执行视图已经是暂停或失败；两个字段回答不同问题。优先查询存活实例的 `AgentStatus` 和恢复详情，再结合相同 Agent/attempt 的进程输出及回执，不从一个 JSON 字段推断“模型断线”。详细定位流程见 [运行排障](14_troubleshooting.md)。
+
+不同层级可能都有 `session.json`：根目录表示 Global 调度状态，命令行后端私有会话中的同名文件可能只保存客户端 session ID。不要混用。`connection.json` 和后端生成配置可能包含连接凭据，不应完整粘贴到问题报告中。
 
 
 ## 待处理任务与界面恢复

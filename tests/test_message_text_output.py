@@ -485,6 +485,12 @@ def test_real_multi_messages_keep_protocol_in_model_and_render_readable_bodies(t
             assert json.loads(messages[-1].content.rsplit("\n", 1)[1])["step_token"]
             return AIMessage(content="", tool_calls=[{"name": "EditTextFile", "id": "write", "args": {
                 "path": "out/result.md", "content": "validated evidence"}}])
+        if turn == 4:
+            return AIMessage(content="", tool_calls=[{"name": "Check", "id": "check", "args": {}}])
+        if turn == 5:
+            assert json.loads(messages[-1].content)["check_pass"] is True
+            return AIMessage(content="", tool_calls=[{"name": "SetCurrentStageJournal", "id": "journal", "args": {
+                "journal": "Checked out/result.md"}}])
         return AIMessage(content="", tool_calls=[{"name": "SubmitTaskResult", "id": "finish", "args": {
             "summary": "Wrote out/result.md"}}])
 
@@ -506,7 +512,7 @@ def test_real_multi_messages_keep_protocol_in_model_and_render_readable_bodies(t
         agent.one_loop("Please verify the artifact.")
         assert agent.multi_agent.workflow_state == "completed", agent.multi_agent.status()
         rendered = output.getvalue()
-        assert rendered.count(" AI Message · ") == 7
+        assert rendered.count(" AI Message · ") == 9
         assert " Human Message · Sub:DUT/task ".center(80, "=") + "\n\n" + instruction in rendered
         assert "Please verify the artifact." in rendered
         assert "Previous result:\nworkflow: running" in rendered

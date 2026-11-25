@@ -58,7 +58,7 @@ ucagent <workspace> <dut_name> [options]
 | --max-subagents | | int | Unset | Per-Super limit for concurrently running Sub agents in multi mode (1–128) |
 | --backend | | str | None | Specify backend (overrides configuration file settings) |
 | --icmd | | str (repeatable) | [] | Initial commands to execute at startup, can be used multiple times |
-| --exit-on-completion | -eoc | flag | Off | Automatically exit the agent after task completion (after successful Exit tool call) |
+| --exit-on-completion | -eoc | flag | Off | Exit when the current mode's task finalization conditions are met; see [Global Agent](13_global_agent.md) for multi |
 
 ### Interface and display
 
@@ -120,7 +120,7 @@ The ToDo tool is used to record plans and does not replace stage verification. S
 | Option | Short | Value/Type | Default | Description |
 | --- | --- | --- | --- | --- |
 | --mcp-server               |      | flag      | No        | Starts the MCP Server (including file tools)     |
-| --mcp-server-no-file-tools |      | flag      | No        | Starts the MCP Server, omitting the file operation tool group; retains basic `ReadTextFile` |
+| --mcp-server-no-file-tools |      | flag      | No        | Start MCP without the file operation group; [workflow-required tools](../01_start/03_mcp_mode.md) must still be available |
 | --mcp-server-host          |      | host      | 127.0.0.1 | Server listening address                   |
 | --mcp-server-port          |      | int       | 5000      | Server port; use -1 to automatically select an available port |
 | --export-cmd-api    |      | [ip[:port]][ passwd] | Off | Starts a CMD API server, default `127.0.0.1:8765`; a password can be specified to enable HTTP Basic Auth |
@@ -167,7 +167,7 @@ ucagent ./output Adder -s -hm --tui --loop
 Use the command-line backend to invoke verification tools via MCP:
 
 ```bash
-ucagent ./output Adder --mcp-server-no-file-tools \
+ucagent ./output Adder --mcp-server \
   --backend opencode -s -hm --tui --loop
 ```
 

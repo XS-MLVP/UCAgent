@@ -197,6 +197,7 @@ def test_model_can_wait_for_stage_tool_on_another_thread(runtime, tool_class):
 def test_blocked_check_rejects_conflicts_but_allows_queries(runtime, operation):
     """One stage mutation owns admission while its actual Checker remains blocked."""
     manager, control, owner = runtime.manager, runtime.control, runtime.owner
+    manager.set_current_stage_journal("Evidence ready for validation")
     runtime.gate.entered, runtime.gate.release = threading.Event(), threading.Event()
     with ThreadPoolExecutor(max_workers=2) as pool:
         checking = pool.submit(getattr(manager, operation), 1)
@@ -277,12 +278,17 @@ def test_human_approval_cannot_bypass_checker_or_journal_gates(runtime):
     """Approval never replaces Checker's evidence validation or the stage journal gate."""
     control, manager = runtime.control, runtime.manager
     control.review_stage(0, control.stage_state()["control_revision"], True, "Human approved")
+    missing_journal = manager.complete(1)
+    assert missing_journal["complete"] is False
+    assert "SetCurrentStageJournal" in missing_journal["error"]
+    assert runtime.gate.calls == 0
+    assert manager.stage_index == 0 and not manager.stages[0].is_completed()
+    manager.set_current_stage_journal("Actual evidence recorded")
     runtime.gate.passed = False
     assert manager.complete(1)["check_pass"] is False
+    assert runtime.gate.calls == 1
     assert manager.stage_index == 0 and not manager.stages[0].is_completed()
     runtime.gate.passed = True
-    assert manager.complete(1)["complete"] is False
-    manager.set_current_stage_journal("Actual evidence recorded")
     assert manager.complete(1)["complete"] is True
     assert manager.stage_index == 1 and manager.stages[0].is_completed()
 

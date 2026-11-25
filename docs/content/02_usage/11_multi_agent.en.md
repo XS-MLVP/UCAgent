@@ -118,6 +118,20 @@ See [multi-agent.yaml](../../examples/multi-agent.yaml) for a minimal three-tier
 
 ## Planning, Continuous Execution, and Acceptance
 
+<a id="role-tool-matrix"></a>
+
+### Role Tool Matrix
+
+| Caller | `Check` | `Complete` | `CompleteSubStage` | `SubmitTaskResult` |
+| --- | --- | --- | --- | --- |
+| single Agent | Check the current stage and advance batches | Final acceptance and stage advancement | Not exposed | Not exposed |
+| multi Global / Super | Not exposed as a model business tool | Not exposed as a model business tool | Not exposed | Not exposed |
+| multi single-stage Sub | One Sub checks all batches continuously | Not exposed | Not exposed | Explicit submission after checks and closing evidence are ready |
+| multi subtree Sub | Check the authorized current descendant | Not exposed | Accept and advance the descendant using the latest `step_token` | Explicit submission after all authorized descendants complete |
+| multi file-task Sub | Not exposed | Not exposed | Not exposed | Submit against the input/output contract |
+
+`Check` does not submit automatically. Successful `SubmitTaskResult` means submitted and awaiting execution teardown and acceptance, not stage completion. Once all writers stop, the framework rechecks artifacts and applies any root-stage gates; pure groups do not add a parent Checker. See [Multi-Agent Development Architecture](../03_develop/12_multi_agent_architecture.md) for state transitions and ownership.
+
 Super must actually call the model and submit a plan through `SubAgentTool`. The framework does not analyze the task and generate a substitute plan. After submission, the current execution settles and waits for task acceptance events before waking Super; the model is not polled while waiting. A plain text reply continues in the same session and budget rather than counting as task completion. `PauseWorkflow` pauses by issue category; recovery actions and budget rules are described below. Ordinary chat does not re-enter the planning loop.
 
 ```json

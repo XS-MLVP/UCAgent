@@ -43,9 +43,10 @@ def test_documented_policy_loads_unittest_catalog(backend, external):
     ("multi", False, "--tui"), ("multi_tui", False, "--tui"),
     ("multi_interactive", False, "--human"), ("multi_unit", True, "--tui"),
 ])
-def test_make_entry_contract(target, prompt, interface, tmp_path):
+def test_make_entry_contract(target, prompt, interface, tmp_path, monkeypatch):
     """Normal launch targets preserve idle startup and their selected interface."""
-    result = subprocess.run(["make", "-n", target, "MULTI_WORKSPACE=" + str(tmp_path)],
+    monkeypatch.setenv("MAKELEVEL", "1")
+    result = subprocess.run(["make", "--no-print-directory", "-n", target, "MULTI_WORKSPACE=" + str(tmp_path)],
                             cwd=ROOT, capture_output=True, text=True, check=True)
     launch = result.stdout.strip().splitlines()[-1]
     assert "--agent-mode multi" in launch
@@ -57,10 +58,11 @@ def test_make_entry_contract(target, prompt, interface, tmp_path):
     assert "global_agent.allowed_workflows" not in launch
 
 
-def test_make_accepts_codex_and_headless_request(tmp_path):
+def test_make_accepts_codex_and_headless_request(tmp_path, monkeypatch):
     """The ordinary entry supports both backend scopes and one-shot requests."""
+    monkeypatch.setenv("MAKELEVEL", "1")
     result = subprocess.run([
-        "make", "-n", "multi", "MULTI_WORKSPACE=" + str(tmp_path), "MULTI_UI=",
+        "make", "--no-print-directory", "-n", "multi", "MULTI_WORKSPACE=" + str(tmp_path), "MULTI_UI=",
         "MULTI_PROMPT=Verify the DUT", "MULTI_BACKEND=codex",
         "MULTI_ARGS=--backend codex --exit-on-completion",
     ], cwd=ROOT, capture_output=True, text=True, check=True)

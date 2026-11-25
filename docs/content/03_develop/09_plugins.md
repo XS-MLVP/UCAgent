@@ -630,6 +630,8 @@ python3 -m venv /tmp/design-with-ppa-verify
 
 ## 运行工作流的开放契约
 
+以下要求分为通用原则和 UnitTest 领域示例。资源准备、后端权限及清理边界适用于插件开发；FG/FC/CK、行映射、coverage predicate、Bug 文档和 toffee 报告规则属于 UnitTest 及显式复用它的工作流，不是所有插件的必选协议。通用批次引擎是 `BatchTask`，见 [自定义 Checker](07_checkers.md)；复用领域实现时应声明插件依赖，而不是从核心包寻找这些类。
+
 插件工作流必须把 LLM 实际需要遵守的规范文件列入当前阶段的 `reference_files`，不能
 只依赖失败后的错误提示。例如使用行映射 Checker 时，阶段必须同时提供
 `Guide_Doc/dut_line_func_map.md` 和当前生成的功能合同；任务提示还应明确单行物理范围也
@@ -664,7 +666,7 @@ AST 或等价源码证据区分占位与非恒定 predicate，只允许替换 `C
 callable、提前实现未来批次、已完成项回退为占位都必须拒绝。源码门禁只能证明条件已编写；
 predicate 是否可达以及是否与真实刺激匹配，仍要由随后隔离执行的 pytest coverage hit 证明。
 
-复用核心批处理 Checker 时，先确认它的“报告通过”语义是否与插件工作流一致。验证工作流
+复用 UnitTest 插件的批处理 Checker 时，先确认它的“报告通过”语义是否与插件工作流一致。验证工作流
 可以保留由正确测试暴露的 DUT Bug，而设计生成工作流通常要求当前测试全部 Pass；两者不能
 共用同一个最终报告判定。需要不同语义时，应继承
 `UnityChipCheckerBatchTestsImplementation`，通过 `_validate_current_batch_report(report)`

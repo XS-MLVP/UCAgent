@@ -72,9 +72,11 @@ CK stands for functional check point, and TC stands for test case. Dynamic Bug e
 
 ### How to troubleshoot MCP connection failures?
 
+If no model call started or a task stopped, first use [Runtime Troubleshooting](14_troubleshooting.md) to distinguish configuration preflight, backend execution, and business acceptance failures rather than assuming a network disconnection.
+
 Confirm:
 
-1. UCAgent is using `--mcp-server` or `--mcp-server-no-file-tools`;
+1. MCP started successfully; UnitTest requires `--mcp-server`, not `--mcp-server-no-file-tools`. See [MCP Integration](../01_start/03_mcp_mode.md) for required-tool validation;
 2. The client address is `http://<host>:<port>/mcp`;
 3. The client port matches `--mcp-server-port`;
 4. For remote scenarios, `--mcp-server-host`, firewall, and permissions allow the connection.

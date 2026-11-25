@@ -16,6 +16,8 @@
 | 要解决的问题 | 文档 |
 | --- | --- |
 | 理解组件职责和执行过程 | [架构与工作原理](02_architecture.md) |
+| 修改多 Agent 调度、授权和最终验收 | [多 Agent 开发架构](12_multi_agent_architecture.md) |
+| 定位未调用模型、执行暂停或收尾失败 | [运行排障](../02_usage/14_troubleshooting.md) |
 | 配置阶段、模板变量、跳过和人工审核 | [工作流配置](03_workflow.md) |
 | 编写运行时指导文档和初始文件 | [模板文件与生成产物](04_template.md) |
 | 增加计算、文件或外部服务能力 | [定制工具](05_customize.md) |

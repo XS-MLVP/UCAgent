@@ -1,14 +1,20 @@
 
 # UCAgent Execution Modes Overview
 
-Normal mode executes a single task, while Master mode manages multiple tasks. Both modes utilize the same stage and Checker mechanism; the specific workflow and artifacts are determined by the selected workflow.
+Distinguish execution organization, task management, interfaces, and backends; these are not mutually exclusive modes. The workflow determines stages and accepted artifacts.
 
-|  | Normal Mode | Master Mode |
+| Dimension | Choices | Meaning |
 | --- | --- | --- |
-| Positioning | A single Agent process completes one verification task | Multi-task management process |
-| Execution Method | The current Agent executes the verification task | Creates, launches, and monitors multiple sub-Agents |
-| Interaction Interface | Terminal (Console/TUI); the Web entry point for the normal Agent can also be enabled | Browser Web panel (default `http://127.0.0.1:8800`) |
-| Use Cases | Single-module verification, local debugging | Parallel multi-task execution, centralized scheduling, team collaboration |
+| Execution organization | `--agent-mode single` / `--agent-mode multi` | One Agent executes, or Global→Super→Sub cooperate |
+| Task management | Ordinary launch / Master | Master provides task creation, launch, and monitoring; it is not another name for multi |
+| Interfaces | Console / TUI / HTTP / MCP | Local interaction, visualization, or network access; MCP is a tool protocol, not an execution role |
+| Execution backend | `--backend` | Select LangChain or a command-line backend without changing Checker requirements |
+
+- For a known workspace and DUT, start with normal mode below; the default is `single`.
+- For natural-language workflow orchestration and delegation, read [Global Agent](../02_usage/13_global_agent.md) and [Multi-Agent](../02_usage/11_multi_agent.md).
+- For browser-based task management, read [Master Mode](04_master_mode.md). Managing several tasks does not imply that those tasks execute in multi mode.
+
+These dimensions do not imply that every combination is supported: the public `multi` entry cannot currently be combined with Master.
 
 ## Normal Mode
 
@@ -38,7 +44,7 @@ Normal mode uses `--backend=<name>` to select the large language model backend t
 - `codex`, `opencode`, `claude`, `copilot`, `qwen`, `iflow`, `kilo`: Command-line Code Agent backends. UCAgent starts an MCP Server, renders the configuration file for the corresponding client, and invokes that client; the specific configuration file name and command are determined by the backend entries in `ucagent/setting.yaml`.
 - For currently unsupported backends, you can add them yourself in `ucagent/setting.yaml` by referring to the same format.
 
-> Note: The command-line Code Agent backends listed above must be launched with `--mcp-server-no-file-tools` or `--mcp-server` (UCAgent provides MCP services externally via this), otherwise the CLI will directly report an error and refuse to start.
+> These single-task command-line backends require MCP. The UnitTest examples on this page use `--mcp-server`; do not disable workflow-required file tools. See [MCP Integration](03_mcp_mode.md).
 
 For example, the same command as the README Quick Start, using the opencode backend and immediately executing automatically:
 
@@ -49,7 +55,7 @@ make mcp_Adder ARGS="--loop --backend=opencode"
 The expanded full command is:
 
 ```bash
-python3 ucagent.py output/workspace_Adder/ Adder --config config.yaml -s -hm --tui --mcp-server-no-file-tools --loop --backend=opencode
+python3 ucagent.py output/workspace_Adder/ Adder --config config.yaml -s -hm --tui --mcp-server --loop --backend=opencode
 ```
 
 In the interactive launches above, `--loop` (`-l`) submits the automatic execution loop during initialization. Without it or another startup task command, the instance waits for manual `loop` input. See [Runtime Control](../02_usage/10_runtime_control.md) for defaults when launching services without a local interface.

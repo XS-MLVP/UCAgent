@@ -58,7 +58,7 @@ ucagent <workspace> <dut_name> [options]
 | --max-subagents | | int | 未指定 | 每个 Super 的 Sub 并发上限，范围 1—128 |
 | --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
 | --icmd               |      | str（可多次）              | []       | 启动时执行的初始命令，可多次使用                              |
-| --exit-on-completion | -eoc | flag                       | 关闭     | 任务完成后自动退出代理（Exit 工具调用成功后）                 |
+| --exit-on-completion | -eoc | flag                       | 关闭     | 在当前模式的任务收尾条件满足后自动退出；multi 条件见 [Global Agent](13_global_agent.md) |
 
 ### 界面与显示
 
@@ -120,7 +120,7 @@ ToDo 工具用于记录计划，不替代阶段验收。步骤索引从 1 开始
 | 选项 | 简写 | 取值/类型 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | --mcp-server               |      | flag      | 否        | 启动 MCP Server（含文件工具）     |
-| --mcp-server-no-file-tools |      | flag      | 否        | 启动 MCP Server，省略文件操作工具组；保留基础 `ReadTextFile` |
+| --mcp-server-no-file-tools |      | flag      | 否        | 启动 MCP Server 并省略文件操作工具组；仍须满足[工作流必需工具](../01_start/03_mcp_mode.md) |
 | --mcp-server-host          |      | host      | 127.0.0.1 | Server 监听地址                   |
 | --mcp-server-port          |      | int       | 5000      | Server 端口；使用 -1 自动选择可用端口 |
 | --export-cmd-api    |      | [ip[:port]][ passwd] | 关闭 | 启动 CMD API 服务器，默认 `127.0.0.1:8765`，可指定密码启用 HTTP Basic Auth |
@@ -167,7 +167,7 @@ ucagent ./output Adder -s -hm --tui --loop
 使用命令行后端，通过 MCP 调用验证工具：
 
 ```bash
-ucagent ./output Adder --mcp-server-no-file-tools \
+ucagent ./output Adder --mcp-server \
   --backend opencode -s -hm --tui --loop
 ```
 

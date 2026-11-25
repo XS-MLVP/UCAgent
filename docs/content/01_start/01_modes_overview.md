@@ -1,14 +1,20 @@
 
 # UCAgent 运行模式总览
 
-普通模式执行单个任务，Master 模式管理多个任务。两者使用同一套阶段与 Checker 机制；具体流程和产物由所选工作流决定。
+先区分执行组织、任务管理、接入界面和后端；它们不是一组互斥的“模式”。具体阶段和验收产物由工作流决定。
 
-|  | 普通模式 | Master 模式 |
+| 维度 | 选择 | 含义 |
 | --- | --- | --- |
-| 定位 | 单个 Agent 进程完成一个验证任务 | 多任务管理进程 |
-| 执行方式 | 当前 Agent 执行验证任务 | 创建、启动并监控多个子 Agent |
-| 交互载体 | 终端（Console/TUI），也可开启普通 Agent 的 Web 入口 | 浏览器 Web 面板（默认 `http://127.0.0.1:8800`） |
-| 适用场景 | 单模块验证、本地调试 | 多任务并行、集中调度、团队协作 |
+| 执行组织 | `--agent-mode single` / `--agent-mode multi` | 单 Agent 执行，或 Global→Super→Sub 分层协作 |
+| 任务管理 | 普通启动 / Master | Master 提供多任务创建、启动与监控面板，不是 multi 的别名 |
+| 接入与展示 | Console / TUI / HTTP / MCP | 本地交互、可视化或网络接入；MCP 提供工具协议，不是执行角色 |
+| 执行后端 | `--backend` | 选择 LangChain 或命令行后端，不改变 Checker 验收要求 |
+
+- 已知工作区和 DUT，调试单个工作流：从下面的普通模式开始，默认 `single`。
+- 需要自然语言编排工作流和委派执行：阅读 [Global Agent](../02_usage/13_global_agent.md) 与 [多 Agent](../02_usage/11_multi_agent.md)。
+- 需要浏览器管理多个任务：阅读 [Master 模式](04_master_mode.md)。不能仅因 Master 管理多个任务，就推断子任务使用 multi。
+
+这些维度不代表任意组合都受支持；当前公开 `multi` 入口不能与 Master 组合。
 
 ## 普通模式
 
@@ -38,7 +44,7 @@ ucagent <workspace> <DUT> -s -hm --tui
 - `codex`、`opencode`、`claude`、`copilot`、`qwen`、`iflow`、`kilo`：命令行 Code Agent 后端。UCAgent 启动 MCP Server，渲染对应客户端的配置文件，并调用该客户端；具体配置文件名和命令由 `ucagent/setting.yaml` 的 backend 条目决定。
 - 当前不支持的后端，可参照相同格式在 `ucagent/setting.yaml` 中自行添加。
 
-> 注意：上面列出的命令行 Code Agent 后端必须搭配 `--mcp-server-no-file-tools` 或 `--mcp-server` 启动（UCAgent 由此对外提供 MCP 服务），否则 CLI 会直接报错拒绝启动。
+> 上述单任务命令行后端需要 MCP 服务。本页的 UnitTest 示例使用 `--mcp-server`；不要关闭工作流必需的文件工具。配置要求见 [MCP 接入](03_mcp_mode.md)。
 
 例如 README 快速开始同款命令，使用 opencode 后端并立即自动执行：
 
@@ -49,7 +55,7 @@ make mcp_Adder ARGS="--loop --backend=opencode"
 展开后的完整命令为：
 
 ```bash
-python3 ucagent.py output/workspace_Adder/ Adder --config config.yaml -s -hm --tui --mcp-server-no-file-tools --loop --backend=opencode
+python3 ucagent.py output/workspace_Adder/ Adder --config config.yaml -s -hm --tui --mcp-server --loop --backend=opencode
 ```
 
 在上述交互启动命令中，`--loop`（`-l`）在初始化时提交自动执行循环；省略它且没有其他启动任务命令时，等待手动输入 `loop`。无本地界面的服务启动默认行为见[运行控制](../02_usage/10_runtime_control.md)。

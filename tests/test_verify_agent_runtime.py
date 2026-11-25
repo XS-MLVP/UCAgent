@@ -5,12 +5,14 @@ import types
 from types import SimpleNamespace
 import pytest
 from ucagent import VerifyAgent
+from ucagent.core.backends.base import AgentBackendBase
 from ucagent.util.config import Config, load_yaml_with_env_vars
 current_dir = os.path.dirname(__file__)
 
 def test_do_work_recovers_pending_tool_calls_before_reraising():
-    class _Backend:
+    class _Backend(AgentBackendBase):
         def __init__(self):
+            super().__init__(None, Config({}))
             self.errors = []
 
         def recover_pending_tool_calls(self, error):

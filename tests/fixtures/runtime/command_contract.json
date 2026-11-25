@@ -4285,7 +4285,7 @@
       "review_scope": "inspect_command_usage"
     },
     {
-      "path": "ucagent/plugins/DesignWithPPA/src/design_with_ppa/ppa.py",
+      "path": "ucagent/plugins/DesignWithPPA/src/design_with_ppa/ppa/tool.py",
       "markers": [
         "business_command"
       ],
@@ -5251,6 +5251,150 @@
       ],
       "kind": "source_or_configuration",
       "review_scope": "inspect_command_usage"
+    },
+    {
+      "path": "tests/benchmark_loop_retry.py",
+      "markers": [
+        "pdb_type"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage",
+      "review_note": "Historical benchmark imports the retired debugger; not an active runtime consumer."
+    },
+    {
+      "path": "tests/test_task_panel.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B07"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage",
+      "review_note": "Task panel tests query current Controller projections."
+    },
+    {
+      "path": "tests/test_verify_pdb_mission_info.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B01"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage",
+      "review_note": "Retained filename tests Controller mission and file queries."
+    },
+    {
+      "path": "tests/test_verify_pdb_tool_invoke.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B02"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage",
+      "review_note": "Retained filename tests registry tool invocation and owned operations."
+    },
+    {
+      "path": "ucagent/api.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage",
+      "review_note": "Lazy public exports include the template renderer, not a debugger command."
+    },
+    {
+      "path": "ucagent/plugins/DesignWithPPA/src/design_with_ppa/checkers/ppa_iteration.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B08"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage",
+      "review_note": "changed_files describes plugin iteration evidence, not a runtime command."
+    },
+    {
+      "path": "ucagent/plugins/DesignWithPPA/src/design_with_ppa/optimization_log.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B08"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage",
+      "review_note": "changed_files is an optimization log data field."
+    },
+    {
+      "path": "ucagent/plugins/DesignWithPPA/src/design_with_ppa/ppa/dashboard.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B08"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage",
+      "review_note": "Dashboard documentation references the current tool_invoke command."
+    },
+    {
+      "path": "ucagent/plugins/DesignWithPPA/src/design_with_ppa/repo/validation.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B08"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage",
+      "review_note": "changed_files represents repository validation evidence."
+    },
+    {
+      "path": "ucagent/plugins/DesignWithPPA/tests/test_optimization_log.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B08"
+      ],
+      "kind": "test",
+      "review_scope": "inspect_command_usage",
+      "review_note": "Tests validate the changed_files optimization log data field."
+    },
+    {
+      "path": "ucagent/plugins/RTL2Spec/docs/reference.md",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B09"
+      ],
+      "kind": "documentation",
+      "review_scope": "inspect_command_usage",
+      "review_note": "cmd_timeout is a shared downstream configuration key, not debugger control."
+    },
+    {
+      "path": "ucagent/plugins/RTL2Spec/src/rtl2spec/unitytest.py",
+      "markers": [
+        "business_command"
+      ],
+      "batches": [
+        "B08"
+      ],
+      "kind": "source_or_configuration",
+      "review_scope": "inspect_command_usage",
+      "review_note": "cmd_timeout is forwarded in resolved downstream launch configuration."
     }
   ],
   "test_migrations": [
@@ -5539,7 +5683,7 @@
             "test_repeated_idle_timeouts_pause_after_failure_limit",
             "test_process_bash_cmd_uses_configured_cmd_timeout",
             "test_render_config_files_uses_context_and_creates_parent_dir",
-            "test_opencode_template_denies_shell_and_external_workspace_access",
+            "test_opencode_template_denies_shell_and_runtime_state_edits",
             "test_codex_template_includes_env_key_only_when_openai_api_key_exists",
             "test_backend_templates_declare_context_size_when_set",
             "test_backend_templates_declare_output_size_with_context_size",
@@ -5922,6 +6066,19 @@
             "test_set_current_stage_journal_without_current_stage",
             "test_set_current_stage_journal_tool_contract",
             "test_new_tools_expose_journal_tool"
+          ]
+        },
+        {
+          "disposition": "retain",
+          "batch": "B03",
+          "target_file": "tests/test_stage_manager.py",
+          "contract": "Retain journal-before-validation ordering, human approval, skill readiness diagnostics and distinct checker failure identities.",
+          "tests": [
+            "test_complete_missing_journal_skips_validation_and_preserves_state",
+            "test_complete_with_journal_still_requires_human_approval",
+            "test_check_success_prompts_for_missing_journal",
+            "test_skill_readiness_diagnostic_keeps_successful_check_intact",
+            "test_checker_failure_key_distinguishes_errors_at_the_same_location"
           ]
         }
       ]

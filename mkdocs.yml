@@ -73,6 +73,7 @@ nav:
       - 多 Agent: content/02_usage/11_multi_agent.md
       - 工作流接力: content/02_usage/12_workflow_handoff.md
       - Global Agent: content/02_usage/13_global_agent.md
+      - 运行排障: content/02_usage/14_troubleshooting.md
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
       - Web Master 使用指南: content/02_usage/07_web_master.md
@@ -84,6 +85,7 @@ nav:
       - 概览: content/03_develop/00_index.md
       - 定制开发入门: content/03_develop/01_quick_start.md
       - 架构与工作原理: content/03_develop/02_architecture.md
+      - 多 Agent 开发架构: content/03_develop/12_multi_agent_architecture.md
       - 工作流: content/03_develop/03_workflow.md
       - 模板文件: content/03_develop/04_template.md
       - 定制工具: content/03_develop/05_customize.md
@@ -176,6 +178,7 @@ plugins:
             运行控制: Runtime Control
             多 Agent: Multi-Agent
             工作流接力: Workflow Handoff
+            运行排障: Runtime Troubleshooting
             Web Master 使用指南: Web Master Guide
             Docker Swarm 部署: Docker Swarm Deployment
             技能 SKILL: Skills
@@ -185,6 +188,7 @@ plugins:
             概览: Overview
             定制开发入门: Development Quick Start
             架构与工作原理: Architecture
+            多 Agent 开发架构: Multi-Agent Development Architecture
             工作流: Workflows
             模板文件: Templates
             定制工具: Custom Tools

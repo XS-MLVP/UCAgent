@@ -53,6 +53,18 @@ global_agent:
 - The project directory defaults to the startup current directory and can be set with a positional argument or `MULTI_WORKSPACE`. It defines the DUT search scope, not an individual task workspace. Configure additional directories explicitly through `workspace_roots`; relative paths resolve against the project directory.
 - Global's own runtime files live in `<project>/.ucagent/global/sessions/<session>/global/`. The project's `.ucagent/setting.yaml` still participates in startup configuration. Each Super's task directory is under `agents/<id>/attempt-N/workspace/` in the same session.
 
+### Runtime Directory and Automatic Exit
+
+`global_agent.root` selects the runtime-state root, defaulting to `<project>/.ucagent/global`. Relative paths resolve against the project directory, not a Super task workspace. For example, run from the project directory:
+
+```bash
+make multi MULTI_BACKEND=codex MULTI_OVERRIDES='--override global_agent.root=output'
+```
+
+The session lives under `<project>/output/sessions/<session>/`. This `output` is a session container, not the business artifact `{OUT}`, and does not change `source_workspace`. Use the actual path reported at startup; runtime directories cannot serve as subsequent DUT inputs.
+
+`--exit-on-completion` waits until accepted requests and result notifications have finished processing, all Supers are terminal, and Global has no active model operation, then selects an exit code from request-processing and task outcomes. A Sub submission or one Super finishing does not directly exit Global. Without the flag, Global keeps waiting for user messages; paused live tasks must first be handled through their recovery actions.
+
 ## DUT Selection and Workspace Preparation
 
 `ListDUTs` performs a bounded scan of the project and additional source roots: at most three subdirectory levels and 2,000 directories, returning up to 200 candidates. It recognizes raw RTL and `<DUT>_RTL` workspaces and does not scan hidden runtime directories. For deeper sources or non-RTL tasks, explicitly provide `dut_name` and `source_workspace`. Paths must be within allowed roots; Global's runtime-state directories cannot be inputs.
@@ -89,7 +101,7 @@ The Super page accepts registered Console commands such as `status` and `task_st
 
 ## Viewing from Another Terminal
 
-ListAgents and Global startup status provide the session directory. You can also find it under the workspace's `.ucagent/global/sessions/`.
+ListAgents and Global startup status provide the session directory. The default is the project's `.ucagent/global/sessions/`; a custom `global_agent.root` places sessions under its `sessions/` directory.
 
 ```bash
 ucagent attach /absolute/path/to/session_dir --agent super-xxxxxxxxxxxx
@@ -121,6 +133,22 @@ A successful Super requires normal exit, a valid run receipt, correct task/attem
 ReadAgentArtifact returns up to 64 KiB by default, with a 1 MiB per-call maximum. Input copying and artifact reading recheck digests; files modified after acceptance cannot remain valid artifacts. Completion notifications carry only bounded artifact summaries. The full index stays in session records and is queryable through AgentStatus.
 
 Each session saves state, events, Agent attempts, task workspaces, run receipts, and logs. Retries use new attempts and preserve history. Message logs are for display, not evidence of success. Final files remain in their task workspaces; no unified delivery directory is packaged automatically.
+
+### State and Evidence Index
+
+| Location relative to the session directory | Purpose and boundary |
+| --- | --- |
+| `session.json` | Global's saved tasks, attempts, paths, and scheduling state; not an independent process-liveness probe |
+| `events.jsonl` / `inbox.json` | Session events and user-input/result-notification processing; not business acceptance evidence |
+| `agents/<id>/attempt-N/preparation.log` | Workspace preparation; inspect first for preparation failures |
+| `agents/<id>/attempt-N/super.stdout.log` / `super.stderr.log` | Output and errors from this Super process |
+| `agents/<id>/attempt-N/view_snapshot.json` | Saved Super stages, execution, recovery, and Sub views; after abnormal termination it may reflect only the last write |
+| `agents/<id>/attempt-N/run_result.json` | Runtime-authored receipt; Global still checks process exit, identity, stages, and artifact digests |
+| `agents/<id>/attempt-N/workspace/` | This attempt's business workspace and final artifacts |
+
+Files appear during the lifecycle; preparation failure may leave no receipt or view. While a Super process remains alive, Global scheduling may still say running even when its execution view is paused or failed; these fields answer different questions. Query live `AgentStatus` and recovery details first, then correlate process output and receipts for the same Agent/attempt. Do not infer a model disconnection from one JSON field. See [Runtime Troubleshooting](14_troubleshooting.md).
+
+Several layers can contain `session.json`: the root file holds Global scheduling state, whereas a command-line backend's private file may contain only its client session ID. Do not confuse them. `connection.json` and generated backend configuration may contain credentials; never paste their full contents into an issue report.
 
 ## Pending Tasks and Interface Recovery
 

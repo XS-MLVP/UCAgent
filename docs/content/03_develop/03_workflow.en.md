@@ -1,6 +1,8 @@
 
 # Workflow Configuration
 
+Stage configuration on this page applies to the shared acceptance engine; examples where the model directly calls `Check` / `Complete` assume single mode. For multi callers and submission boundaries, see the [role tool matrix](../02_usage/11_multi_agent.md#role-tool-matrix).
+
 A workflow consists of a set of stages executed in sequence. Each stage describes tasks, reference files, expected outputs, and a Checker; the Agent can call `Check` to view feedback, then use `Complete` to perform final acceptance and proceed. If a stage fails, it should first be fixed according to the Checker's diagnosis before retrying.
 
 Before completing a stage, use `SetCurrentStageJournal` to record the work summary, artifacts, check results, and unresolved issues. A successful `Check` prompts for a missing journal; `Complete` returns immediately without running Checkers when the journal is missing. Record it and call `Complete` again to run final validation and applicable gates.
@@ -128,7 +130,7 @@ The index is the flattened runtime index; do not continue using old numbers afte
 
 ## 5. Checker Configuration
 
-Checker classes are specified via `clss`, short names are imported from `ucagent.core.checkers`, and full paths can point to custom modules:
+Checker classes are specified via `clss`. Short names first resolve through the loaded plugins' Checker registry, then fall back to `ucagent.core.checkers`; full paths can point to custom modules. Load the providing plugin before using its short names: UnitTest domain Checkers are not generic core exports:
 
 ```yaml
 checker:
@@ -146,12 +148,12 @@ See [Custom Checker](07_checkers.md) for full implementation, lifecycle, and str
 
 ## 6. Batch Stages
 
-Stages for feature coverage, test templates, test cases, and line mapping use `UnityChipBatchTask` to manage progress. When configuring batch tasks:
+Stages for feature coverage, test templates, test cases, and line mapping use `BatchTask` to manage progress. When configuring batch tasks:
 
-- Set `batch_size` before constructing `UnityChipBatchTask`;
+- Set `batch_size` before constructing `BatchTask`;
 - Use the current source document and test files as the source of truth; checkpoints are only for recovery;
 - Resynchronize source/generated tasks after source file changes, delete or mark expired tasks;
-- Complete the current batch with `Check` and expose the next batch; `Complete` is used only after all batches pass;
+- Use `Check` to finish the current batch and expose the next one; in single the Agent calls `Complete`, while multi completes authorized substages and submits for framework finalization, without creating a new Sub for each batch;
 - Failure diagnosis returns only a bounded missing range and the next step; do not dump the entire source or logs into the prompt.
 
 The functional line mapping stage has additional constraints: `file_list` is the authoritative input; do not treat `Guide_Doc` as a mapping target; every non-empty physical line must have FG/FC/CK or a justified `IGNORE`; an interval can have at most 100 lines. See `Guide_Doc/dut_line_func_map.md` and `functional_line_mapping_gap_analysis` in the default configuration.

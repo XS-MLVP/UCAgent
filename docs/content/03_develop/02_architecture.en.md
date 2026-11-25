@@ -12,6 +12,8 @@ UCAgent defines tasks through workflows, executes them through an Agent and its 
 | `core/interaction/` | Enhanced execution, reflection and adaptive tool orchestration |
 | `core/stage/` | Stage progression, Check/Complete, history, human/model review |
 | `core/checkers/` | Checker lifecycle, diagnostics and BatchTask |
+| `core/multi_agent/` | Global/Super/Sub contracts, delegation, authorization and acceptance coordination |
+| `core/workflow/` | Embedded workflow handoff contracts and chain state; not the public multi Global orchestration entry |
 | `core/tools/` | Complete generic file, shell, planning, memory, context and Skill tools |
 | `core/workspace/` | Task documents/templates/skills, instruction generation and permission restoration |
 | `core/plugins.py` | Plugin declarations, discovery, validation and capability registries |
@@ -66,6 +68,8 @@ LangChain prepares models on first model work. Command-line backends prepare aga
 
 ## Stage Execution Loop
 
+This diagram describes public tool calls in single mode. Multi reuses stage acceptance, but Sub checks/submits and the framework finalizes; see the [role tool matrix](../02_usage/11_multi_agent.md#role-tool-matrix) and [Multi-Agent Development Architecture](12_multi_agent_architecture.md) for permissions and ownership.
+
 ```mermaid
 flowchart TD
     A[Enter Current Stage] --> B[Read Tasks and Reference Files]
@@ -104,6 +108,12 @@ Checkers do not automatically pass just because the Agent claims "completed." Cu
 - Stage state, history, and tool evidence retain their existing persistence mechanisms. Operation records and output buffers are primarily in memory. Long-operation recovery across process restarts, unified decision-event replay, and remote TUI reattachment are not implemented.
 
 Plugins explicitly contribute tools, Checkers, resources, stage hooks, and commands; see [Runtime Commands](09_plugins.md#runtime-commands). Backends still load classes from configuration and service assembly retains dedicated entry points; the current implementation does not place every capability behind one plugin contribution contract.
+
+## Public API and Role Assembly
+
+`PUBLIC_API_NAMES` in `ucagent/api.py` defines the stable public subset; `_EXPORTS` also contains lazy forwarding targets used internally. Being importable from the root package does not make a name a stable extension interface. Dependency checks must resolve root aliases to their defining modules, not merely inspect the `ucagent` import spelling.
+
+Ordinary assembly selects services and tools by role during Agent construction: single retains business tools; Global exposes discovery, launch, and result tools; Super exposes delegation tools and assigns business tools to authorized Subs. The application injects process launchers, MCP endpoints, and presentation capabilities, without reverse imports from core. Global owns public multi workflow orchestration; see [Workflow Handoff](../02_usage/12_workflow_handoff.md) for the optional internal handoff startup branch.
 
 ## Boundaries of Configuration and Resources
 

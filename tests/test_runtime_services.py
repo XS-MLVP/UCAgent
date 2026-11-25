@@ -240,8 +240,6 @@ def test_backend_waits_for_ready_mcp_and_renders_allocated_port(services, tmp_pa
 
 def test_starting_mcp_is_not_exposed_to_backend_and_close_retains_owner(services, monkeypatch):
     """A worker held in startup stays owned through a shutdown deadline."""
-    from ucagent.interfaces.server import mcp_http
-
     entered, release = threading.Event(), threading.Event()
     native = SimpleNamespace(started=False, should_exit=False)
 
@@ -250,8 +248,8 @@ def test_starting_mcp_is_not_exposed_to_backend_and_close_retains_owner(services
         entered.set()
         assert release.wait(5)
 
-    monkeypatch.setattr(mcp_http, "create_verify_mcps", lambda *args, **kwargs: native)
-    monkeypatch.setattr(mcp_http, "start_verify_mcps", serve)
+    monkeypatch.setattr("ucagent.create_verify_mcps", lambda *args, **kwargs: native)
+    monkeypatch.setattr("ucagent.start_verify_mcps", serve)
     with ThreadPoolExecutor(max_workers=1) as pool:
         starting = pool.submit(services.start_mcp, timeout=0.02)
         try:

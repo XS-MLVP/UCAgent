@@ -31,15 +31,15 @@ test_multi_%: init_% ## Run Global/Super/Sub verification; MAX_SUBAGENTS caps ea
 test_with_master_%: init_% ## Run verification connected to MASTER_IP
 	$(WORKSPACE_CMD) -l --master ${MASTER_IP} --export-cmd-api  ${ARGS}
 
-mcp_%: init_% ## Start MCP mode without file tools
-	$(WORKSPACE_CMD) --mcp-server-no-file-tools ${ARGS}
+mcp_%: init_% ## Start MCP mode with workflow-required file tools
+	$(WORKSPACE_CMD) --mcp-server ${ARGS}
 
 mcp_multi_%: BACKEND ?= codex
 mcp_multi_%: init_% ## Run Global/Super/Sub verification and expose Global MCP tools
 	$(WORKSPACE_CMD) -l --mcp-server --agent-mode multi --plugin-workflow $(or $(MULTI_WORKFLOW),unittest:unittest) --backend $(BACKEND) --max-subagents $(MAX_SUBAGENTS) --no-embed-tools --log ${ARGS}
 
 mcp_with_master_%: init_% ## Start MCP mode connected to MASTER_IP
-	$(WORKSPACE_CMD) --mcp-server-no-file-tools --master ${MASTER_IP} --export-cmd-api ${ARGS}
+	$(WORKSPACE_CMD) --mcp-server --master ${MASTER_IP} --export-cmd-api ${ARGS}
 
 mcp_all_tools_%: init_% ## Start MCP mode with all tools
 	$(WORKSPACE_CMD) --mcp-server ${ARGS}

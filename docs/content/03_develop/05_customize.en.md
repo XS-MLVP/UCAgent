@@ -111,7 +111,7 @@ The `to_mcp_tool` function requires `args_schema` to be a Pydantic `BaseModel` a
 - `--mcp-server-no-file-tools`: Omits this group; the basic `ReadTextFile` and external tools are still exposed, so custom tools must adhere to permissions themselves.
 - Default endpoint: `http://127.0.0.1:5000/mcp`, where the address is controlled by the MCP host/port parameters.
 
-The console can also execute `start_mcp_server [host] [port]` or `start_mcp_server --no-file-ops [host] [port]`.
+The console can also execute `start_mcp_server [host] [port]`. Use `--mcp-server-no-file-tools` or `start_mcp_server --no-file-ops [host] [port]` only when the workflow does not require the omitted tools; see [MCP Integration](../01_start/03_mcp_mode.md) for validation rules.
 
 The following example uses the MCP SDK installed as a dependency of UCAgent, without needing to install the `fastmcp` client package separately:
 

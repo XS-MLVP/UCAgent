@@ -256,8 +256,6 @@ def test_lifecycle_rejects_invalid_timeouts(timeout):
 
 def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch):
     """A startup timeout cannot orphan its thread or allow a competing restart."""
-    from ucagent.interfaces.server import mcp_http
-
     release = threading.Event()
     native = SimpleNamespace(started=False, should_exit=False)
 
@@ -269,8 +267,8 @@ def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch):
         """Remain alive through startup cleanup until explicitly released."""
         release.wait(timeout=3)
 
-    monkeypatch.setattr(mcp_http, 'create_verify_mcps', create)
-    monkeypatch.setattr(mcp_http, 'start_verify_mcps', serve)
+    monkeypatch.setattr("ucagent.create_verify_mcps", create)
+    monkeypatch.setattr("ucagent.start_verify_mcps", serve)
     server = McpServer(**_mcp_options(), port=_available_port())
     try:
         ok, message = server.start(timeout=0.01)
@@ -291,7 +289,6 @@ def test_startup_timeout_preserves_live_thread_until_it_exits(monkeypatch):
 
 def test_services_retain_wrapper_when_failed_start_is_still_stopping(monkeypatch, tmp_path):
     """The current frontend delegates ownership of a pending wrapper to ServiceManager."""
-    from ucagent.interfaces.server import api_mcp
     from ucagent.runtime.services import ServiceManager
 
     pending = SimpleNamespace(
@@ -299,8 +296,8 @@ def test_services_retain_wrapper_when_failed_start_is_still_stopping(monkeypatch
         started_at=None, url=lambda: "http://127.0.0.1:5000",
         start=lambda timeout: (False, "shutdown pending"), stop=lambda timeout: (False, "shutdown pending"),
     )
-    monkeypatch.setattr(api_mcp, "McpServer", lambda *args, **kwargs: pending)
-    agent = SimpleNamespace(workspace=str(tmp_path), cfg=Config({}), tool_list_base=[],
+    monkeypatch.setattr("ucagent.McpServer", lambda *args, **kwargs: pending)
+    agent = SimpleNamespace(workspace=str(tmp_path), cfg=_mcp_options()["cfg"], tool_list_base=[],
                             tool_list_task=[], tool_list_ext=[], tool_list_file=[])
     services = ServiceManager(agent)
     configure_services(services)

@@ -111,7 +111,7 @@ class TextLength(UCTool, BaseReadWrite):
 - `--mcp-server-no-file-tools`：省略该组；基础 `ReadTextFile` 和外部工具仍会暴露，因此自定义工具必须自行遵守权限。
 - 默认端点：`http://127.0.0.1:5000/mcp`，地址由 MCP host/port 参数控制。
 
-控制台也可以执行 `start_mcp_server [host] [port]`，或 `start_mcp_server --no-file-ops [host] [port]`。
+控制台也可以执行 `start_mcp_server [host] [port]`。只有工作流不要求被省略的工具时，才能使用 `--mcp-server-no-file-tools` 或 `start_mcp_server --no-file-ops [host] [port]`；校验规则见 [MCP 接入](../01_start/03_mcp_mode.md)。
 
 下面使用随 UCAgent 依赖安装的 MCP SDK，无需另装 `fastmcp` 客户端包：
 

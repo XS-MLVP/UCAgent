@@ -77,7 +77,7 @@ class FileExistsChecker(Checker):
 ## 配置 Checker
 
 阶段配置通过 `clss` 指定类，`args` 传给构造函数，`extra_args` 在实例化后通过
-`set_extra` 设置。短名从 `ucagent.core.checkers` 导出；自定义类使用完整导入路径：
+`set_extra` 设置。短名优先匹配已加载插件的 Checker 注册表，再查找 `ucagent.core.checkers`；插件短名依赖提供方已加载。自定义类也可以使用完整导入路径：
 
 ~~~yaml
 stage:

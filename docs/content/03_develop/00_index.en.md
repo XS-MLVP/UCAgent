@@ -16,6 +16,8 @@ When customizing a workflow, first define tasks and acceptance criteria, then ad
 | Problem to Solve | Documentation |
 | --- | --- |
 | Understand component responsibilities and execution process | [Architecture and How It Works](02_architecture.md) |
+| Modify multi-agent scheduling, authorization, and final acceptance | [Multi-Agent Development Architecture](12_multi_agent_architecture.md) |
+| Diagnose missing model calls, pauses, or finalization failures | [Runtime Troubleshooting](../02_usage/14_troubleshooting.md) |
 | Configure stages, template variables, skip, and human review | [Workflow Configuration](03_workflow.md) |
 | Write runtime guidance documents and initial files | [Template Files and Generated Artifacts](04_template.md) |
 | Add computation, file, or external service capabilities | [Custom Tools](05_customize.md) |

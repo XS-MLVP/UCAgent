@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import unit_test
 
 from ucagent.util.waveform_formats.read_usdb import UsdbReader
 from ucagent.util.waveform_formats import open_waveform_reader, WaveformBackendArgumentError
@@ -28,6 +29,9 @@ assert sys.modules['wavekit'] is None
     subprocess.run(
         [sys.executable, "-c", script],
         cwd=Path(__file__).resolve().parents[1], check=True,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [
+            str(Path(unit_test.__file__).resolve().parent.parent), os.environ.get("PYTHONPATH"),
+        ]))},
     )
 
 
@@ -839,9 +843,9 @@ def test_default_formats_include_usdb_and_respect_overrides(tmp_path, priority):
 
     defaults = ["fst", "vcd", "fsdb", "usdb"]
     assert list(DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY) == defaults
-    settings = load_yaml_with_env_vars(Path(__file__).resolve().parents[1] / "ucagent" / "setting.yaml")
+    settings = load_yaml_with_env_vars(Path(unit_test.__file__).parent / "workflows" / "unittest.yaml")
     assert settings["runtime_options"]["waveform_analysis_format_priority"] == defaults
-    options = {"need_ref_model": False, "mock_components_enabled": False}
+    options = dict(settings["runtime_options"])
     if priority is not None:
         options["waveform_analysis_format_priority"] = priority
     cfg = Config({"runtime_options": options, "tools": {"RunTestCases": {"test_dir": "tests"}}})

@@ -1,6 +1,6 @@
 # Console、TUI 与 HTTP 运行控制
 
-一个 UCAgent 进程管理一个 Agent 实例。Console 是普通终端命令行，TUI 是可视化终端界面，HTTP 提供网页和控制 API；它们可以操作同一个实例。任务和服务由运行层管理，打开 Console 或 TUI 不会另建一个验证任务。
+本页以 single 任务实例为例：Console 是普通终端命令行，TUI 是可视化终端界面，HTTP 提供网页和控制 API；它们可以操作同一个实例。任务和服务由运行层管理，打开 Console 或 TUI 不会另建一个验证任务。multi 的 Global 管理 Super 子进程，Super 内还有 Sub 执行会话；角色导航和控制范围见 [Global Agent](13_global_agent.md)，不能把“一个进程一个 Agent”推广到所有角色。
 
 MCP 是供外部 Agent 调用工具的协议入口；它共享当前实例的工具和阶段状态，但不等同于 Console 命令接口。不要同时让自动循环和手动 MCP 客户端推进同一阶段；接管前先暂停并确认当前操作结束。Master 管理多个实例和任务，使用方法见 [Web Master](07_web_master.md)。
 
@@ -134,4 +134,4 @@ Web 文件管理使用人工操作权限：受 HTTP 认证、选定工作区的�
 
 同一进程内切换 Console/TUI 会保留本地交互上下文，HTTP 服务继续操作同一实例。阶段状态、历史及部分工具证据按现有机制保存到工作区；进程重启后可以据此恢复阶段工作。
 
-长操作记录和输出缓冲主要保存在内存中，不能在进程重启后继续查询旧操作 ID，也不保证恢复完整模型会话或执行中的调用。当前没有远程 TUI attach 或自动守护进程功能。重启流程见[人机协同验证](02_assit.md#8-恢复原则)。
+长操作记录和输出缓冲主要保存在内存中，不能在进程重启后继续查询旧操作 ID，也不保证恢复完整模型会话或执行中的调用。当前没有远程 TUI attach 或自动守护进程功能。single 重启流程见[人机协同验证](02_assit.md#8-恢复原则)；multi 的本机 attach、存活任务恢复与新 attempt 重试见 [Global Agent](13_global_agent.md)。无响应或运行停止时，按[运行排障](14_troubleshooting.md)先定位失败层次。

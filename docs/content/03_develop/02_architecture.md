@@ -12,6 +12,8 @@ UCAgent 通过工作流定义任务，由 Agent 和工具执行，通过阶段�
 | `core/interaction/` | 增强执行、反思与自适应工具编排 |
 | `core/stage/` | 阶段推进、Check/Complete、历史、人工及模型审核 |
 | `core/checkers/` | Checker 生命周期、诊断与 BatchTask |
+| `core/multi_agent/` | Global/Super/Sub 角色契约、委派、授权及验收协调 |
+| `core/workflow/` | 嵌入式工作流接力契约与链状态；不是公开 multi 的 Global 编排入口 |
 | `core/tools/` | 完整的通用文件、Shell、规划、记忆、上下文和技能工具 |
 | `core/workspace/` | 任务文档、模板、技能、指令文件与权限恢复 |
 | `core/plugins.py` | 插件声明、发现、校验与能力注册 |
@@ -66,6 +68,8 @@ LangChain 在首次模型工作前准备模型；命令行后端根据已就绪�
 
 ## 阶段执行循环
 
+下图描述 single 的公开工具调用。multi 复用同一阶段验收引擎，但由 Sub 检查/提交、框架收尾；工具权限见 [角色工具矩阵](../02_usage/11_multi_agent.md#role-tool-matrix)，实现所有权见 [多 Agent 开发架构](12_multi_agent_architecture.md)。
+
 ```mermaid
 flowchart TD
     A[进入当前阶段] --> B[读取任务与参考文件]
@@ -104,6 +108,12 @@ Checker 不会因为 Agent 声称“已完成”而自动通过。自定义 Chec
 - 阶段状态、历史与工具证据沿用各自保存机制。操作记录、输出缓冲主要在内存中；当前不提供进程重启后的长操作恢复、统一决策事件回放或远程 TUI 重新连接。
 
 插件通过显式贡献接口提供工具、Checker、资源、阶段 hook 和命令；命令扩展见[插件开发](09_plugins.md#运行控制命令)。backend 仍按配置加载类，服务装配也保留专门入口，不能把当前实现描述为所有能力均已使用同一种插件契约。
+
+## 公开 API 与角色装配
+
+`ucagent/api.py` 的 `PUBLIC_API_NAMES` 定义稳定公开子集；`_EXPORTS` 还包含框架内部使用的延迟转发。一个名称可以从根包导入，不代表它属于稳定扩展接口。依赖边界检查需要把根包转发解析到真实定义模块，而不只检查导入语句中的 `ucagent`。
+
+普通装配路径在构造 Agent 时按角色选择工具和服务：single 保留业务工具；Global 使用目录、启动和结果工具；Super 使用委派工具，业务工具交给授权 Sub。应用层再注入进程启动、MCP 端点和界面能力，核心不反向导入这些接入实现。公开 multi 的跨工作流编排由 Global 负责；可选的内部接力启动分支见 [工作流接力](../02_usage/12_workflow_handoff.md)。
 
 ## 配置和资源的边界
 

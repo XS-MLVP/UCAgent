@@ -75,6 +75,11 @@ def test_super_and_worker_correct_json_in_the_same_session(tmp_path, monkeypatch
             assert messages[-1].tool_call_id == "bad-write"
             assert not (tmp_path / "out/result.md").exists()
             return call("EditTextFile", path="out/result.md", content=expected)
+        if len(model.seen) == 3:
+            return call("Check")
+        if len(model.seen) == 4:
+            assert json.loads(messages[-1].content)["check_pass"] is True
+            return call("SetCurrentStageJournal", journal="Checked the required artifact")
         return call("SubmitTaskResult", summary="Wrote the required artifact")
 
     def factory(*args, **kwargs):
@@ -94,7 +99,10 @@ def test_super_and_worker_correct_json_in_the_same_session(tmp_path, monkeypatch
         assert (tmp_path / "out/result.md").read_text().strip() == expected
         assert value.get_tool_by_name("SubAgentTool").call_count == 1
         record = value.multi_agent.records["recover/write"]
-        assert record.attempt == 1 and record.calls == 2
+        assert record.attempt == 1 and record.calls == 4
+        worker = next(model for model in models if "EditTextFile" in model.names and model.seen)
+        assert sum(message.name == "EditTextFile" for message in worker.seen[-1]
+                   if isinstance(message, ToolMessage) and message.status != "error") == 1
         assert value.multi_agent.status()["metrics"]["worker_starts"] == 1
         assert len([model for model in models if model.seen]) == 2
         assert "INVALID_TOOL_ARGUMENTS" in "".join(rendered)

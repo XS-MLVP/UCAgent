@@ -1,6 +1,8 @@
 
 # 工作流配置
 
+本页的阶段配置适用于共用的验收引擎；模型直接调用 `Check` / `Complete` 的示例以 single 为前提。multi 的工具调用者与提交边界见 [角色工具矩阵](../02_usage/11_multi_agent.md#role-tool-matrix)。
+
 工作流由一组按顺序执行的阶段组成。每个阶段描述任务、参考文件、预期产物和 Checker；Agent 可调用 `Check` 查看反馈，再用 `Complete` 执行最终验收并推进。阶段失败时应先按 Checker 的诊断修复，再重试。
 
 完成阶段前须用 `SetCurrentStageJournal` 记录工作摘要、产物、检查结果及未解决事项。`Check` 通过但尚无 journal 时会提示先填写；`Complete` 缺少 journal 时直接返回，不运行 Checker。补齐后再调用 `Complete`，继续执行最终验收和适用门禁。
@@ -127,7 +129,7 @@ hmcheck_set <runtime_stage_index> true
 
 ## 5. Checker 配置
 
-Checker 类通过 `clss` 指定，短名从 `ucagent.core.checkers` 导入，完整路径可指向自定义模块：
+Checker 类通过 `clss` 指定。短名优先从已加载插件的 Checker 注册表解析，未命中时再从 `ucagent.core.checkers` 查找；完整路径可指向自定义模块。使用插件短名必须先加载提供方，不能假定 UnitTest 的领域 Checker 属于通用核心：
 
 ```yaml
 checker:
@@ -150,7 +152,7 @@ checker:
 - 在构造 `BatchTask` 前设置 `batch_size`；
 - 以当前源文档和测试文件为事实来源，checkpoint 只用于恢复；
 - 源文件变化后重新同步 source/generated task，删除或标记过期任务；
-- 用 `Check` 完成当前批次并暴露下一批，所有批次通过后才用 `Complete`；
+- 用 `Check` 完成当前批次并暴露下一批；single 由 Agent 调用 `Complete`，multi 按授权范围完成子阶段并提交，由框架收尾，不为每批重新创建 Sub；
 - 失败诊断只返回有界的缺失范围和下一步，不要把整个源码或日志塞入提示。
 
 功能行映射阶段另有约束：`file_list` 是唯一权威输入；不把 `Guide_Doc` 当作映射目标；每个非空物理行都要有 FG/FC/CK 或有理由的 `IGNORE`；一个区间最多 100 行。详见 `Guide_Doc/dut_line_func_map.md` 及默认配置中的 `functional_line_mapping_gap_analysis`。

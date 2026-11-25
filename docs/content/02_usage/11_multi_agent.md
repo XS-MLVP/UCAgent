@@ -119,6 +119,20 @@ multi_agent:
 
 ## 规划、连续执行与验收
 
+<a id="role-tool-matrix"></a>
+
+### 角色工具矩阵
+
+| 调用者 | `Check` | `Complete` | `CompleteSubStage` | `SubmitTaskResult` |
+| --- | --- | --- | --- | --- |
+| single Agent | 检查当前阶段，可推进批次 | 最终验收并推进阶段 | 不提供 | 不提供 |
+| multi Global / Super | 不作为模型业务工具提供 | 不作为模型业务工具提供 | 不提供 | 不提供 |
+| multi 单阶段 Sub | 同一 Sub 连续检查所有批次 | 不提供 | 不提供 | 检查及收尾证据就绪后显式提交 |
+| multi 子树 Sub | 检查授权的当前子阶段 | 不提供 | 用最新 `step_token` 验收并推进当前子阶段 | 授权子阶段全部完成后显式提交 |
+| multi 文件任务 Sub | 不提供 | 不提供 | 不提供 | 按输入/输出契约提交 |
+
+`Check` 不自动提交。`SubmitTaskResult` 成功只表示已提交、等待执行退出和验收，不表示阶段完成。框架在所有写入者停止后复核产物，再执行适用的根阶段门禁；纯分组节点不追加父 Checker。开发者状态机与所有权见 [多 Agent 开发架构](../03_develop/12_multi_agent_architecture.md)。
+
 Super 必须真实调用模型，通过 `SubAgentTool` 提交计划。框架不会自行分析生成替代计划。提交后收拢当前执行，等待任务验收事件再唤醒 Super；等待期间不轮询模型。普通文字回复会在同一会话与原预算内续跑，不能当作业务完成。`PauseWorkflow` 按问题类别暂停；恢复动作与预算规则见下文。普通聊天不会重新进入规划循环。
 
 ```json

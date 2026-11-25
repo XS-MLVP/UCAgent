@@ -141,7 +141,7 @@ def test_startup_modes_preserve_initial_command_order(tmp_path, cli_runtime, opt
         run()
     assert cli_runtime.startup.start.call_args.args[0] == ["logo_and_version", "pwd", "status", "config-tail"]
     factory.return_value.pre_run.assert_called_once()
-    from ucagent.runtime.host import RuntimeHost
+    from ucagent import RuntimeHost
     assert RuntimeHost.call_args.kwargs["mode"] == mode
 
 
@@ -174,7 +174,7 @@ def test_management_does_not_construct_agent(option):
     """Task-free management succeeds without a workspace or Agent constructor."""
     with mock.patch("sys.argv", ["ucagent", option]), \
          mock.patch("ucagent.VerifyAgent") as factory, \
-         mock.patch("ucagent.core.plugins.available_plugin_names", return_value=[]):
+         mock.patch("ucagent.available_plugin_names", return_value=[]):
         if option == "--version":
             with pytest.raises(SystemExit) as error:
                 run()

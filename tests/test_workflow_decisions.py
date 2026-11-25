@@ -5,7 +5,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from multi_agent_fakes import install_planner
-from test_multi_agent import make_agent, tool
+from test_multi_agent import make_agent, tool, submit_ready
 from test_workflow_contracts import catalog
 from ucagent.core.tools.delegation import supervisor_tools
 from ucagent.core.tools.uctool import to_mcp_tool
@@ -45,7 +45,7 @@ def setup_agent(tmp_path, monkeypatch, action="next"):
         """Pass the real stage checker and ensure workers have no handoff authority."""
         assert not {"RequestNextWorkflow", "CompleteWorkflowChain"} & {t.name for t in worker.test_tools}
         tool(worker, "EditTextFile", path="out/result.md", content="evidence")
-        tool(worker, "SubmitTaskResult", summary="Evidence created")
+        submit_ready(worker, summary="Evidence created")
 
     value.multi_agent.runner_factory = worker_run
     return value, chain, planner

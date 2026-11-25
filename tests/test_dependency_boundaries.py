@@ -9,6 +9,12 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+FACADE_EXPORTS = next(
+    ast.literal_eval(node.value)
+    for node in ast.parse((ROOT / "ucagent/api.py").read_text()).body
+    if isinstance(node, ast.Assign)
+    and any(isinstance(target, ast.Name) and target.id == "_EXPORTS" for target in node.targets)
+)
 
 
 def internal_imports(path):
@@ -24,9 +30,25 @@ def internal_imports(path):
             yield target, node.lineno
             for alias in node.names:
                 imported = target + "." + alias.name
-                if imported == "ucagent.VerifyAgent":
-                    imported = "ucagent.core.agent.execution"
+                if target == "ucagent" and alias.name in FACADE_EXPORTS:
+                    imported = FACADE_EXPORTS[alias.name][0]
                 yield imported, node.lineno
+
+
+@pytest.mark.parametrize("statement", [
+    "from ucagent import RuntimeHost as Host",
+    "from .. import RuntimeHost as Host",
+    "def construct():\n    from ucagent import RuntimeHost as Host",
+])
+def test_root_facade_imports_resolve_to_defining_layer(tmp_path, monkeypatch, statement):
+    """Absolute, relative, and deferred facade aliases retain their real layer."""
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    source = tmp_path / "ucagent/core/probe.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(statement, encoding="utf-8")
+    assert FACADE_EXPORTS["RuntimeHost"][0] in {
+        target for target, line in internal_imports(source)
+    }
 
 
 @pytest.mark.parametrize("folder, forbidden", [

@@ -1,6 +1,6 @@
 # Console, TUI, and HTTP Runtime Control
 
-One UCAgent process manages one Agent instance. Console is the ordinary terminal command line, TUI is the visual terminal interface, and HTTP provides a dashboard and control API. These interfaces can operate the same instance. The runtime owns tasks and services; opening Console or TUI does not create another verification task.
+This page uses a single-mode task instance: Console is the ordinary terminal command line, TUI is the visual terminal interface, and HTTP provides a dashboard and control API. These interfaces can operate the same instance. The runtime owns tasks and services; opening Console or TUI does not create another verification task. In multi, Global manages Super child processes, and Super contains Sub execution sessions. See [Global Agent](13_global_agent.md) for role navigation and control scope; do not generalize one-process/one-Agent to every role.
 
 MCP is a tool protocol for external Agents. It shares the instance's tools and stage state, but is not the Console command interface. Do not let an automatic loop and a manual MCP client advance the same stage concurrently; pause and wait for current work to end before taking over. Master manages multiple instances and tasks; see the [Web Master guide](07_web_master.md).
 
@@ -134,4 +134,4 @@ Viewing stage artifacts, historical files, and diffs does not synchronize histor
 
 Switching Console/TUI within one process preserves local interaction context, and HTTP continues to operate the same instance. Existing mechanisms persist stage state, history, and some tool evidence in the workspace so stage work can resume after restart.
 
-Long-operation records and output buffers are primarily in memory. Old operation IDs cannot be queried after process restart, and complete model sessions or in-flight calls are not guaranteed to resume. Remote TUI attachment and automatic daemon supervision are not implemented. See [Recovery Principles](02_assit.md#8-recovery-principles) for restarting safely.
+Long-operation records and output buffers are primarily in memory. Old operation IDs cannot be queried after process restart, and complete model sessions or in-flight calls are not guaranteed to resume. Remote TUI attachment and automatic daemon supervision are not implemented. See [Recovery Principles](02_assit.md#8-recovery-principles) for single restarts, and [Global Agent](13_global_agent.md) for local multi attach, live-task recovery, and new-attempt retries. For an unresponsive or stopped run, first identify the failure layer using [Runtime Troubleshooting](14_troubleshooting.md).

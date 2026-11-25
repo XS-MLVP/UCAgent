@@ -72,9 +72,11 @@ CK 表示功能检测点，TC 表示测试用例。动态 Bug 条目应同时关
 
 ### MCP 连接失败怎么排查？
 
+若尚未调用模型或任务已经停止，先按[运行排障](14_troubleshooting.md)区分配置预检、后端执行和业务验收失败，不要直接归因为网络中断。
+
 确认：
 
-1. UCAgent 使用了 `--mcp-server` 或 `--mcp-server-no-file-tools`；
+1. MCP 已成功启动；UnitTest 使用 `--mcp-server`，不能使用 `--mcp-server-no-file-tools`。必需工具校验见 [MCP 接入](../01_start/03_mcp_mode.md)；
 2. 客户端地址是 `http://<host>:<port>/mcp`；
 3. 客户端端口和 `--mcp-server-port` 一致；
 4. 远程场景的 `--mcp-server-host`、防火墙和权限允许连接。
