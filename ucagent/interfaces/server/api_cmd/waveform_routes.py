@@ -15,15 +15,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, TypeAdapter, ValidationError
 
 import ucagent
-from ucagent.util.config import Config
-from ucagent.util import config as config_module
-from ucagent.util.file_policy import is_file_writeable
-from ucagent.util.waveform_viewer import (
+from ucagent import Config
+from ucagent import config as config_module
+from ucagent import is_file_writeable
+from ucagent import (
     WAVEFORM_METADATA_LOCK, WaveformMetadataIntegrityError, build_waveform_metadata, build_waveform_viewer_url,
-    load_waveform_metadata, resolve_workspace_path, write_waveform_metadata,
+    load_waveform_metadata, WaveformResolveWorkspacePath as resolve_workspace_path, write_waveform_metadata,
 )
-from ucagent.interfaces.server.api_cmd.xpra import XpraError
-from ucagent.interfaces.server.api_cmd.xpra_routes import _XpraRoute
+from ucagent import XpraError
+from ucagent import _XpraRoute
 
 
 class _WebViewer(BaseModel):

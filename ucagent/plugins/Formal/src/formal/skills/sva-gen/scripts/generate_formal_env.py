@@ -27,7 +27,7 @@ from lib.formal_tools import (
     build_whitebox_signal_context,
     build_clock_reset_alias_context,
 )
-from ucagent.util.log import str_error, str_info
+from ucagent import str_error, str_info
 import ucagent.util.functions as fc
 
 from typing import List, Optional, Tuple, Any

@@ -3,10 +3,10 @@
 from pathlib import Path
 
 from ucagent import VerifyAgent
-from ucagent.application.launch import configure_services
-from ucagent.core.agent.configuration import resolve_task_configuration
-from ucagent.core.workflow.contracts import execution_overrides, configuration_fingerprint, workflow_fingerprint
-from ucagent.runtime.host import RuntimeHost
+from ucagent import configure_services
+from ucagent import resolve_task_configuration
+from ucagent import execution_overrides, configuration_fingerprint, workflow_fingerprint
+from ucagent import RuntimeHost
 
 
 class WorkflowInstanceFactory:
@@ -41,7 +41,7 @@ class WorkflowInstanceFactory:
                 raise ValueError("Successor write directories must remain inside its workspace")
         for item in run["input_manifest"]:
             import hashlib
-            from ucagent.core.workflow.contracts import source_file
+            from ucagent import source_file
             data = source_file(run["workspace"], item["target"]).read_bytes()
             if hashlib.sha256(data).hexdigest() != item["sha256"]:
                 raise ValueError("Successor input snapshot changed; restore its recorded bytes before recovery")
@@ -79,16 +79,16 @@ def run_workflow_application(request, prepared, plan, agent_options):
     import os
     import threading
     from uuid import uuid4
-    from ucagent.core.workflow.contracts import WorkflowCatalog, load_handoff_settings
-    from ucagent.core.workflow.chain import WorkflowChain
-    from ucagent.runtime.workflow_checkpoint import WorkflowCheckpoint, policy_fingerprint
-    from ucagent.runtime.workflow_handoff import WorkflowHandoff
-    from ucagent.runtime.workflow_control import WorkflowApplication
-    from ucagent.runtime.session import RuntimeSession
-    from ucagent.interfaces.terminal.presentation import format_result, format_operation
-    from ucagent.interfaces.terminal.console import Console
-    from ucagent.interfaces.terminal.tui import enter_tui
-    from ucagent.interfaces.server.api_cmd import ControlApiServer
+    from ucagent import WorkflowCatalog, load_handoff_settings
+    from ucagent import WorkflowChain
+    from ucagent import WorkflowCheckpoint, policy_fingerprint
+    from ucagent import WorkflowHandoff
+    from ucagent import WorkflowApplication
+    from ucagent import RuntimeSession
+    from ucagent import format_result, format_operation
+    from ucagent import Console
+    from ucagent import enter_tui
+    from ucagent import ControlApiServer
 
     settings = load_handoff_settings(prepared.cfg)
     catalog = WorkflowCatalog(settings, prepared.plugins)

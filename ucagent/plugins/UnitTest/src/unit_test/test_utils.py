@@ -15,7 +15,7 @@ import random
 import time
 from collections import OrderedDict
 
-from ucagent.util.log import warning
+from ucagent import warning
 
 
 # Add simulator defaults here so fixture path helpers need no simulator branches.

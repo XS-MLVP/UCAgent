@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ucagent.core.plugins import (
+from ucagent import (
     create_plugin_checker_registry,
     create_plugin_manager_tools_registry,
     create_plugin_runtime_hooks,
@@ -15,7 +15,7 @@ from ucagent.core.plugins import (
     load_pointer_workflow_plugin,
     resolve_plugin_workflow,
 )
-from ucagent.util.config import (
+from ucagent import (
     Config,
     get_config,
     resolve_default_task_workflow,

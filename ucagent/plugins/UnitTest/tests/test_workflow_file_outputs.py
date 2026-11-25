@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from ucagent.core.plugins import create_plugin_checker_registry, load_plugin
-from ucagent.core.stage.vstage import parse_vstage
-from ucagent.util.config import get_config
+from ucagent import create_plugin_checker_registry, load_plugin
+from ucagent import parse_vstage
+from ucagent import get_config
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]

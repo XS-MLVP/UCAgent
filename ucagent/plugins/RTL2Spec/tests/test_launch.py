@@ -30,8 +30,8 @@ def test_readme_configuration_matches_bundled_template(profile):
 @pytest.mark.parametrize("profile", ["generic", "xiangshan"])
 def test_bundled_config_resolves_with_the_real_cli(tmp_path, monkeypatch, profile):
     """A copied profile selects the existing workflow and overrides environment defaults."""
-    from ucagent.interfaces.cli.arguments import get_args
-    from ucagent.util.config import get_config
+    from ucagent import get_args
+    from ucagent import get_config
     from rtl2spec.plugin import get_plugin
 
     config_file = tmp_path / "rtl2spec.yaml"
@@ -202,7 +202,7 @@ def test_launcher_and_templates_are_declared_for_installation():
 def test_yaml_launch_initializes_a_real_agent(workspace, tmp_path, monkeypatch, profile):
     """Startup config reaches actual stages and tools without relying on environment defaults."""
     from conftest import RTL
-    from ucagent.core.plugins import collect_plugin_resources, load_plugin, resolve_plugin_workflow
+    from ucagent import collect_plugin_resources, load_plugin, resolve_plugin_workflow
     from ucagent import VerifyAgent
 
     config_file = tmp_path / "rtl2spec.yaml"

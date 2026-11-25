@@ -14,15 +14,15 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT))
 
 from unit_test.report_store import TestProtocolRuntimeHook
-from ucagent.util.config import (
+from ucagent import (
     Config,
     get_config,
     load_runtime_config,
     load_yaml_with_env_vars,
     save_runtime_config,
 )
-from ucagent.core.stage.vstage import VerifyStage, parse_vstage
-from ucagent.core.tools.skill import (
+from ucagent import VerifyStage, parse_vstage
+from ucagent import (
     ArgsRunSkillScript,
     ListSkill,
     RunSkillScript,
@@ -30,7 +30,7 @@ from ucagent.core.tools.skill import (
     _get_skill_script_env,
     _scan_skills,
 )
-from ucagent.util.functions import copytree_incremental
+from ucagent import copytree_incremental
 
 
 CREATE_SCRIPT = (
@@ -258,7 +258,7 @@ def test_agent_runtime_config_rejects_non_boolean_options(tmp_path, invalid_key)
     cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
 
     with pytest.raises(ValueError, match=rf"{invalid_key}.*boolean"):
-        save_runtime_config(str(tmp_path), cfg)
+        save_runtime_config(str(tmp_path), cfg, snapshot_hooks=[TestProtocolRuntimeHook()])
 
 
 @pytest.mark.parametrize("priority", [["fst", "vcd", "fsdb", "usdb"], ["usdb"], ["vcd"], ["fsdb", "vcd", "fst"]])
@@ -709,9 +709,16 @@ def test_runtime_options_stay_internal_and_update_checker_contracts(monkeypatch)
     stages = _stage_map(config)
 
     assert config["runtime_options"] == {
+        "required_mcp_tools": ["ReadTextFile", "EditTextFile", "ReplaceStringInFile", "DeleteTextLines"],
         "need_ref_model": True,
         "mock_components_enabled": True,
-        "waveform_analysis_format_priority": ["fst", "vcd", "fsdb"],
+        "waveform_analysis_format_priority": ["fst", "vcd", "fsdb", "usdb"],
+        "waveform_analysis_backend_priority": {
+            "fst": ["pywellen", "wavekit"],
+            "vcd": ["pywellen", "wavekit"],
+            "fsdb": ["wavekit"],
+            "usdb": ["uvd"],
+        },
     }
 
     for stage in _iter_stages(config["stage"]):

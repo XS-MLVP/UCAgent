@@ -13,7 +13,7 @@ import sys
 
 import pytest
 
-from ucagent.util.config import Config
+from ucagent import Config
 from design_with_ppa.contracts import atomic_json, atomic_text, atomic_yaml, sha256_file
 from design_with_ppa.repo.common import RepoPaths, git_read, run_command
 from design_with_ppa.repo.delivery import deliver

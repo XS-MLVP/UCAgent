@@ -6,7 +6,7 @@ import os
 import stat
 
 import ucagent.util.functions as fc
-from ucagent.util.file_policy import write_entry_has_wildcards
+from ucagent import write_entry_has_wildcards
 
 @dataclass
 class PermissionChanges:

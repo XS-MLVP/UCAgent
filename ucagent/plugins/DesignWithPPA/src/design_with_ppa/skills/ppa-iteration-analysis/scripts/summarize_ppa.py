@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 
 
 def _inside_workspace(workspace: Path, value: str) -> Path:

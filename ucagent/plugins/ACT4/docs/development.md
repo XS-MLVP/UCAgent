@@ -205,8 +205,8 @@ make package
 也可在 UCAgent 根目录直接加载源码：
 
 ```bash
-python3 ucagent.py --validate-plugin ./plugins/ACT4
-PYTHONPATH=plugins/ACT4/src python3 -m pytest -q plugins/ACT4/tests
+python3 ucagent.py --validate-plugin ./ucagent/plugins/ACT4
+PYTHONPATH=ucagent/plugins/ACT4/src python3 -m pytest -q ucagent/plugins/ACT4/tests
 ```
 
 `make test` 使用临时工作区和合成资产，检查成功与失败边界，不联网生成真实 suite。

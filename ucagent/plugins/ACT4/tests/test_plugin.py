@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from act4_privileged_suite.plugin import get_plugin
-from ucagent.core.plugins import (
+from ucagent import (
     LoadedPlugin,
     collect_plugin_resources,
     configured_plugin_search_paths,
@@ -19,7 +19,7 @@ from ucagent.core.plugins import (
     validate_plugin,
     validate_workflow_dependencies,
 )
-from ucagent.util.config import Config
+from ucagent import Config
 from ucagent import VerifyAgent
 
 
@@ -143,6 +143,7 @@ def test_registry_rejects_conflicts_without_global_mutation(monkeypatch, checker
 def test_ucagent_compatibility_matches_verified_baseline(monkeypatch, version, compatible) -> None:
     """Require the core release exercised by the plugin's lifecycle tests."""
     monkeypatch.setattr("ucagent.core.plugins.__version__", version)
+    monkeypatch.setattr("ucagent.core.plugins.SOURCE_TREE_RUNTIME", False)
     if compatible:
         validate_plugin(get_plugin(), check_dependencies=False)
     else:
@@ -176,7 +177,6 @@ def test_workflow_startup_allows_environment_stage_to_prepare_tools(monkeypatch)
         preparation_index = 1 if workflow.name == "xiangshan-v3-handoff" else 0
         assert config["stage"][preparation_index]["name"] == "prepare_environment"
 
-
 def test_distribution_and_source_manifest_share_plugin_identity() -> None:
     """Require source loading and installed entry points to select one provider."""
     project_root = Path(__file__).resolve().parents[1]
@@ -184,7 +184,7 @@ def test_distribution_and_source_manifest_share_plugin_identity() -> None:
     manifest = tomllib.loads((project_root / "ucagent-plugin.toml").read_text())
     plugin = get_plugin()
     assert plugin.name == manifest["name"]
-    assert project["entry-points"]["ucagent.core.plugins"][plugin.name] == manifest["entry"]
+    assert project["entry-points"]["ucagent.plugins"][plugin.name] == manifest["entry"]
     assert project["version"] == plugin.version
     assert f"UCAgent{plugin.requires_ucagent}" in project["dependencies"]
     assert set(plugin.python_requirements) <= set(project["dependencies"])
@@ -253,7 +253,7 @@ def test_agent_starts_with_complete_workflow(
         assert not (workspace / "act4_assets/tests").exists()
         assert agent.cfg.skill.use_skill is skill_enabled
     finally:
-        agent.exit()
+        agent._startup_cleanup.close()
 
 
 @pytest.mark.parametrize(
@@ -306,4 +306,3 @@ def test_separate_output_and_readonly_manual_are_allowed(tmp_path, manual) -> No
     assert get_plugin().workflows[0].template_context_factory(
         config, {"WORKSPACE": str(workspace), "OUT": "generated/act4_assets"}
     ) == {}
-

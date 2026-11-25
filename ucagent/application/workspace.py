@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-from ucagent.version import __version__
+from ucagent import __version__
 
 class WorkspaceArchiveError(ValueError):
     """Raised when a workspace archive cannot be downloaded, extracted, or validated."""

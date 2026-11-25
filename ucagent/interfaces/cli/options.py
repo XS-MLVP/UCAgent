@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any, List, Optional
 import yaml
 
-from ucagent.interfaces.cli.arguments import OverrideDict, OverrideValues, get_list_from_str, parse_reference_files
-from ucagent.util.functions import append_python_path
-from ucagent.util.config import get_config, discovery_overrides
-from ucagent.core.multi_agent.mode import agent_role
+from ucagent import OverrideDict, OverrideValues, get_list_from_str, parse_reference_files
+from ucagent import append_python_path
+from ucagent import get_config, discovery_overrides
+from ucagent import agent_role
 
 
 def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) -> List[OverrideDict]:
@@ -113,7 +113,7 @@ def parse_launch_options(args) -> dict:
     if role == "global":
         child_no_embed_tools = args.no_embed_tools
         # Global's CLI backend needs its tools even when the first task comes later.
-        from ucagent.core.backends import get_backend_class
+        from ucagent import get_backend_class
         backend_cfg = get_config(args.config, _append_override(args.override, "backend.key_name", args.backend)
                                  if args.backend else args.override, args.workspace)
         backend_class = get_backend_class(backend_cfg)
@@ -123,7 +123,7 @@ def parse_launch_options(args) -> dict:
                 args.mcp_server_port = 0
         if not backend_class.capabilities.model_rounds:
             args.no_embed_tools = True
-        from ucagent.core.multi_agent.global_agent.session_contracts import PROTECTED_OVERRIDES
+        from ucagent import PROTECTED_OVERRIDES
         inherited = {key: value for item in task_overrides for key, value in item.items()
                      if key not in PROTECTED_OVERRIDES and not key.startswith(("global_agent", "agent_run.", "mcp_server."))}
         if args.output is not None:

@@ -6,16 +6,16 @@ import signal
 import threading
 import time
 
-from ucagent.runtime.control.commands import create_registry, SessionCommands
-from ucagent.runtime.control.controller import Controller, ControlError, public_data
-from ucagent.runtime.operations import OperationExecutor, TERMINAL_STATES
-from ucagent.runtime.output import OutputBuffer, MessageHandler, OUTPUT_OWNER
-from ucagent.runtime.events import EventBuffer
-from ucagent.util.output import OUTPUT_METADATA, OUTPUT_RECORDED
-from ucagent.runtime.startup import StartupCommands
-from ucagent.util.log import message
-from ucagent.runtime.services import ServiceManager, lifecycle_timeout
-from ucagent.util.functions import chmode_rw
+from ucagent import create_registry, SessionCommands
+from ucagent import Controller, ControlError, public_data
+from ucagent import OperationExecutor, RuntimeTerminalStates as TERMINAL_STATES
+from ucagent import OutputBuffer, MessageHandler, OUTPUT_OWNER
+from ucagent import EventBuffer
+from ucagent import OUTPUT_METADATA, OUTPUT_RECORDED
+from ucagent import StartupCommands
+from ucagent import message
+from ucagent import ServiceManager, lifecycle_timeout
+from ucagent import chmode_rw
 
 
 class RuntimeHost:
@@ -72,7 +72,7 @@ class RuntimeHost:
         self.registry = create_registry(self.controller, executors={
             "operations": self.operations, "stages": self.operations.stages,
             "services": self.services, "host": self, "session": SessionCommands()})
-        from ucagent.runtime.control.commands import register_plugin_commands
+        from ucagent import register_plugin_commands
         register_plugin_commands(self.registry, getattr(agent, "plugins", []))
         agent.runtime_host = self
         agent.runtime_status_provider = self.snapshot
@@ -138,7 +138,7 @@ class RuntimeHost:
 
     def service_message(self, text):
         """Retain MCP diagnostics as system output instead of model messages."""
-        from ucagent.util.output import output_context
+        from ucagent import output_context
         owner = OUTPUT_OWNER.set(self.output)
         try:
             with output_context(source="service", kind="log"):

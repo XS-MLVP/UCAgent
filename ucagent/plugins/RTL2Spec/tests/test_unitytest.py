@@ -263,7 +263,7 @@ def test_missing_parameter_template_fails_closed(tmp_path, monkeypatch):
 @pytest.mark.parametrize("mode,exit_code,completed", [("reuse", 0, False), ("run", 0, True), ("run", 1, True), ("run", 1, False), ("run", 3, True)])
 def test_two_missions_default_workflow_isolation(tmp_path, monkeypatch, mode, exit_code, completed):
     """Reuse skips upstream; fresh requires explicit new completion, not any exit code one."""
-    from ucagent.util.config import get_config
+    from ucagent.util.config import get_config, resolve_default_task_workflow
     from rtl2spec import unitytest
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -298,13 +298,17 @@ def test_two_missions_default_workflow_isolation(tmp_path, monkeypatch, mode, ex
         """Load the real default workflow through the exact downstream configuration."""
         events.append("downstream")
         execs.append(command)
+        assert command[:4] == [sys.executable, "-P", "-m", "ucagent"]
         assert "--plugin" not in command and "--plugin-workflow" not in command
         assert command[command.index("--mcp-server-port") + 1] == "-1"
         selected_config = Path(command[command.index("--config") + 1])
         data = yaml.safe_load(selected_config.read_text())
         assert not {"mission", "tools", "stage", "template", "template_overwrite", "fmagent"}.intersection(data)
-        cfg = get_config(str(selected_config), workspace=command[4])
-        baseline = get_config(str(selected_config), workspace=str(tmp_path / "unused"))
+        workflow = resolve_default_task_workflow(str(selected_config), workspace=command[4])
+        cfg = get_config(str(selected_config), workspace=command[4], workflow_config_file=workflow)
+        baseline_workspace = str(tmp_path / "unused")
+        baseline_workflow = resolve_default_task_workflow(str(selected_config), workspace=baseline_workspace)
+        baseline = get_config(str(selected_config), workspace=baseline_workspace, workflow_config_file=baseline_workflow)
         assert [stage.as_dict() for stage in cfg.stage] == [stage.as_dict() for stage in baseline.stage]
         assert cfg.mission.as_dict() == baseline.mission.as_dict()
         assert cfg.tools.as_dict() == baseline.tools.as_dict()
@@ -312,7 +316,7 @@ def test_two_missions_default_workflow_isolation(tmp_path, monkeypatch, mode, ex
         assert cfg.un_write_dirs == baseline.un_write_dirs
         assert cfg.mission.name != "DOCUMENT_ONLY"
         assert len(cfg.stage) > 4
-        assert cfg.template == "unity_test"
+        assert cfg.template == "unit_test"
         assert cfg.backend.key_name == "blank"
         assert selected_config.stat().st_mode & 0o077 == 0
         assert (Path(command[4]) / "Block_Doc/Block_design_document_zh.md").read_bytes() == b"\xef\xbb\xbfdesign\r\n"
@@ -419,7 +423,7 @@ def test_failed_reuse_generator_not_retried(tmp_path, monkeypatch):
     assert (tmp_path / "generation.log").read_bytes() == b"generator failed\n"
 
 
-@pytest.mark.parametrize("state", ["Block", ".ucagent", "unity_test", "uc_test_report", ".rtl2spec-unitytest", ".rtl2spec-preparation"])
+@pytest.mark.parametrize("state", ["Block", ".ucagent", "unit_test", "uc_test_report", ".rtl2spec-unitytest", ".rtl2spec-preparation"])
 def test_existing_verification_state_is_preserved(tmp_path, monkeypatch, state):
     """Never overwrite existing packages or verification state even before upstream starts."""
     config = launch_config(tmp_path, mode="run")
@@ -527,7 +531,7 @@ def test_xiangshan_fresh_chain_never_regenerates_downstream(tmp_path, monkeypatc
 
     def run(command, **kwargs):
         """Publish one actual-shaped generation result, then let preparation consume it."""
-        if "ucagent.cli" in command:
+        if "ucagent" in command:
             upstream_generations.append(command)
             split = workspace / ".cache/current/split"
             split.mkdir(parents=True)

@@ -18,7 +18,7 @@ if _skill_root not in sys.path:
 
 from lib.formal_paths import FormalPaths
 from lib.formal_tools import load_records, save_records
-from ucagent.util.log import str_error, str_info
+from ucagent import str_error, str_info
 
 def update_sva_body(ck_id: str, body: str) -> bool:
     paths = FormalPaths()

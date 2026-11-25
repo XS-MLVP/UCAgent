@@ -5,10 +5,10 @@ import os
 import sys
 import json
 from typing import Tuple
-from ucagent.util.config import Config
-from ucagent.util.functions import render_template, rm_workspace_prefix, fill_template
+from ucagent import Config
+from ucagent import render_template, rm_workspace_prefix, fill_template
 import ucagent.util.functions as fc
-from ucagent.util.log import info, error, warning
+from ucagent import info, error, warning
 import time
 import traceback
 import hashlib

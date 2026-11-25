@@ -19,8 +19,8 @@ from act4_privileged_suite import environment
 from act4_privileged_suite.checkers.act4_xiangshan_checker import ACT4XiangShanChecker, TARGET_TOPICS
 from act4_privileged_suite.plugin import get_plugin
 from act4_privileged_suite.workspace import validate_xiangshan_paths
-from ucagent.plugins import PluginError, load_plugin
-from ucagent.verify_agent import VerifyAgent
+from ucagent import PluginError, load_plugin
+from ucagent import VerifyAgent
 
 
 def elf_bytes() -> bytes:
@@ -478,7 +478,7 @@ def test_workflow_initializes_with_optional_skills_and_environment(tmp_path, mon
             assert not checker.do_check()[0]
         assert "ACT4ReviewDocument" not in [tool.name for tool in agent.tool_list_plugin]
     finally:
-        agent.exit()
+        agent._startup_cleanup.close()
 
 
 def test_generation_and_review_registration_stay_separate():

@@ -6,11 +6,11 @@ from contextvars import ContextVar
 import signal
 import threading
 
-from ucagent.runtime.control.commands import CommandResult, CommandSession
-from ucagent.runtime.control.controller import ControlError
-from ucagent.runtime.events import EventBuffer
-from ucagent.runtime.output import OutputBuffer
-from ucagent.runtime.services import ServiceManager
+from ucagent import CommandResult, CommandSession
+from ucagent import ControlError
+from ucagent import EventBuffer
+from ucagent import OutputBuffer
+from ucagent import ServiceManager
 
 
 EXPECTED_RUN = ContextVar("workflow_control_expected_run", default=None)

@@ -13,7 +13,7 @@ endif
 ## Development
 all: clean test
 
-.PHONY: help unittest
+.PHONY: help unittest unitytest
 help: ## Show grouped targets, common variables, and examples
 	@awk 'BEGIN { FS = ":.*## "; print "Usage: make <target> [VARIABLE=value ...]"; \
 		print "Replace % with the DUT name, e.g. test_Adder." } \
@@ -31,6 +31,8 @@ help: ## Show grouped targets, common variables, and examples
 unittest: ## Run the Python and JavaScript test suites
 	$(PYTHON) -m pytest -q -ra tests
 	$(NODE) --test tests/test_*.js
+
+unitytest: unittest
 
 init: ## Install project dependencies
 	pip3 install -r requirements.txt

@@ -1,7 +1,7 @@
 """Agent page adapters over live transport and persisted run history."""
 import json
 from pathlib import Path
-from ucagent.interfaces.server.agent_session import RemoteAgentView, SavedAgentView
+from ucagent import RemoteAgentView, SavedAgentView
 
 class SuperAgentView:
     def __init__(self, run_provider, agent_id):

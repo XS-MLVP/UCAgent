@@ -2,8 +2,8 @@
 
 import json
 
-from ucagent.util.log import L_BLUE, L_GREEN, L_RED, L_YELLOW, RESET
-from ucagent.version import banner
+from ucagent import L_BLUE, L_GREEN, L_RED, L_YELLOW, RESET
+from ucagent import banner
 
 
 def format_status(stats):

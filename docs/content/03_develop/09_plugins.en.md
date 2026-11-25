@@ -194,12 +194,12 @@ The configuration list is processed according to UCAgent's overall replacement s
 
 ## Provider and Runtime Context
 
-A Provider returns `ucagent.core.plugins.Plugin`:
+A provider returns a `Plugin` descriptor:
 
 ```python
 from pathlib import Path
 
-from ucagent.core.plugins import CommandRequirement, Plugin, PluginContext
+from ucagent import CommandRequirement, Plugin, PluginContext
 
 from .checkers import TimingBudgetChecker
 from .my_tool import MyTool
@@ -272,7 +272,7 @@ Plugins can register interaction commands through `Plugin.command_factories` wit
 This read-only command reuses an existing stage query without creating tasks or threads:
 
 ```python
-from ucagent.runtime.control.commands import Argument, CommandSpec
+from ucagent import Argument, CommandSpec
 
 
 def create_commands(controller):
@@ -384,7 +384,7 @@ All three fields must be present. `default_action` and explicit actions can only
 Plugins can declare `PluginWorkflow` to bind future workflows and packages:
 
 ```python
-from ucagent.core.plugins import CommandRequirement, PluginWorkflow
+from ucagent import CommandRequirement, PluginWorkflow
 
 workflow = PluginWorkflow(
     name="unit-design-tdd",

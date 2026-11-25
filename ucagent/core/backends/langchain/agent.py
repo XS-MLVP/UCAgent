@@ -3,22 +3,22 @@
 
 import threading
 from concurrent.futures import CancelledError
-from ucagent.util.output import output_source, output_context
+from ucagent import output_source, output_context
 
-from ucagent.core.backends.base import AgentBackendBase, BackendCapabilities
-from ucagent.core.backends.langchain.cancellation import AsyncModelView, CancellableModelCalls, ModelRequests
-from ucagent.core.backends.langchain.content import content_text, format_message, new_messages
-from ucagent.util.log import info, warning
-from ucagent.core.backends.langchain.middleware import (
+from ucagent import AgentBackendBase, BackendCapabilities
+from ucagent import AsyncModelView, CancellableModelCalls, ModelRequests
+from ucagent import content_text, format_message, new_messages
+from ucagent import info, warning
+from ucagent import (
     MessageStatistic,
     TokenSpeedCallbackHandler,
     TrimAndSummaryMiddleware,
 )
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
-from ucagent.util.models import get_chat_model, negotiate_openai_api_mode
+from ucagent import get_chat_model, negotiate_openai_api_mode
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from ucagent.util.functions import get_ai_message_tool_call
+from ucagent import get_ai_message_tool_call
 
 
 class UCAgentLangChainBackend(AgentBackendBase):
@@ -314,8 +314,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return len(recovery_messages)
 
     def should_retry_loop_error(self, error: Exception, recovered_tool_calls: int = 0) -> bool:
-        """Stop permanent HTTP rejections unless missing tool results were actually repaired."""
-        # A recorded tool failure lets the model continue, including when the tool raised HTTP 4xx.
+        """Stop permanent HTTP rejections unless failed tool calls were repaired."""
         if recovered_tool_calls > 0:
             return True
         seen = set()

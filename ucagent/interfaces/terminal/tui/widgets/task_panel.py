@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 import time
 
-from textual import work
 from rich.text import Text
+from textual import work
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.worker import Worker
 from textual.widgets import Static
 
-from ucagent.interfaces.terminal.presentation import format_mission, format_status
+from ucagent import format_mission, format_status
 
 
 class TaskPanel(VerticalScroll):
@@ -63,7 +63,6 @@ class TaskPanel(VerticalScroll):
             Text.from_ansi("\n".join(task_lines))
         )
 
-        # A slow scan must neither block the UI nor accumulate on timer ticks.
         if self._changed_files_worker is None or self._changed_files_worker.is_finished:
             self._changed_files_worker = self._update_changed_files()
         self._update_tool_status()
@@ -79,12 +78,12 @@ class TaskPanel(VerticalScroll):
     @work(group="changed-files", exit_on_error=False)
     async def _update_changed_files(self) -> None:
         """Scan off the UI thread, then render results on the event loop."""
-        from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
+        from ucagent import fmt_time_stamp, fmt_time_deta
 
-        rows = await asyncio.to_thread(self.app.frontend.controller.changed_files)
+        rows = await asyncio.to_thread(self.app.frontend.controller.changed_files, 5)
         if not self.is_mounted:
             return
-        changed_files = [(row["age_seconds"], row["mtime"], row["path"]) for row in rows][:5]
+        changed_files = [(row["age_seconds"], row["mtime"], row["path"]) for row in rows]
         lines = []
         for delta, mtime, filename in changed_files:
             time_str = fmt_time_stamp(mtime)
@@ -119,7 +118,7 @@ class TaskPanel(VerticalScroll):
             self.query_one("#daemon-cmds", Static).update("")
             return
 
-        from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
+        from ucagent import fmt_time_stamp, fmt_time_deta
 
         ntime = time.time()
         lines = ["\nDaemon Commands"]

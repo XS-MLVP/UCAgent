@@ -47,7 +47,7 @@ _WAVEFORM_REPLAY_REGISTRY = {
     )
 }
 from unit_test.waveform import ApplyWaveInfoEvidence, ReviewWaveInfoEvidenceBatch, WaveInfo
-from ucagent.util.config import load_yaml_with_env_vars
+from ucagent import load_yaml_with_env_vars
 from unit_test.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
     dynamic_bug_anchor_id,
@@ -59,7 +59,7 @@ from unit_test.bug_analysis_contract import (
     waveform_record_tag,
     waveform_reference,
 )
-from ucagent.util.waveform_viewer import build_waveform_viewer_markdown_link
+from ucagent import build_waveform_viewer_markdown_link
 
 
 VCD_CONTENT = """$date
@@ -3530,6 +3530,7 @@ def test_plugin_waveform_replay_uses_real_classification_and_signed_evidence(
         cfg=SimpleNamespace(call_time_out=60), get_tool_by_name=tools.get,
         backend=object(), test_tools=[], is_work_busy=lambda: False,
         is_break=lambda: break_state[0], set_break=lambda value: break_state.__setitem__(0, value),
+        plugin_checker_registry=dict(_WAVEFORM_REPLAY_REGISTRY),
     )
     manager = SimpleNamespace(
         workspace=str(tmp_path), stages=[stage], stage_index=0, agent=agent
@@ -3783,6 +3784,7 @@ def test_plugin_waveform_reanalysis_preserves_supported_shared_findings(
         cfg=SimpleNamespace(call_time_out=60), backend=object(), test_tools=[],
         get_tool_by_name=tools.get, is_work_busy=lambda: False,
         is_break=lambda: False, set_break=lambda value: None,
+        plugin_checker_registry=dict(_WAVEFORM_REPLAY_REGISTRY),
     )
     manager = SimpleNamespace(workspace=str(tmp_path), stages=[stage], stage_index=0, agent=agent)
     agent.stage_manager = manager

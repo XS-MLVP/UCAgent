@@ -33,7 +33,7 @@ from lib.formal_tools import (
     strip_prop_prefix
 )
 from lib.models import FormalRecords, AnalysisEntry, AnalysisData
-from ucagent.util.log import str_error, str_info, warning
+from ucagent import str_error, str_info, warning
 
 VALID_TT_ROOT_CAUSES = {"ASSUME_TOO_STRONG", "SIGNAL_CONSTANT", "WRAPPER_ERROR", "DESIGN_EXPECTED"}
 VALID_TT_ACTIONS = {"FIXED", "ACCEPTED"}

@@ -8,13 +8,13 @@ import threading
 import time
 from uuid import uuid4
 
-from ucagent.core.multi_agent.global_agent.session_contracts import SuperRequest, SuperSpec, TERMINAL_STATES
-from ucagent.core.multi_agent.global_agent.result import sha256_file, verify_workflow_run_result, _artifact_path
-from ucagent.core.workflow.contracts import canonical_file
-from ucagent.core.multi_agent.global_agent.duts import DUTCatalog
-from ucagent.core.workspace.preparation import PreparationOptions
-from ucagent.runtime.workspace_preparation import PreparationJob
-from ucagent.runtime.agent_events import AgentEvents, GlobalInbox, atomic_json
+from ucagent import SuperRequest, SuperSpec, GlobalAgentTerminalStates as TERMINAL_STATES
+from ucagent import sha256_file, verify_workflow_run_result, _artifact_path
+from ucagent import canonical_file
+from ucagent import DUTCatalog
+from ucagent import PreparationOptions
+from ucagent import PreparationJob
+from ucagent import AgentEvents, GlobalInbox, atomic_json
 
 class AgentSessions:
     def __init__(self, service, workspace, *, launcher, host=None, root=None, session_dir=None):

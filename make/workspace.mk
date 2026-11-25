@@ -9,7 +9,6 @@ MAX_SUBAGENTS ?= 2
 SRC ?= examples
 # Select the picker simulator, for example: make init_Adder SIM=vcs.
 SIM ?= verilator
-
 # Keep stem-dependent values recursive for each DUT target.
 WORKSPACE_CMD = $(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui
 

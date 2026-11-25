@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 from typing import Any
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 from ..contracts import (
     atomic_json,
     diagnostic,

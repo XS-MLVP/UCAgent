@@ -39,7 +39,7 @@ def continue_to_unitytest(config_file: Path, settings: LaunchSettings,
         for protected in (workspace, project, output, source):
             if protected.is_relative_to(verification) or (verification.is_relative_to(protected) and protected != workspace):
                 raise ValueError(f"UnityTest workspace overlaps inputs/output: {verification}; {protected}")
-        for name in (".ucagent", "unity_test", "uc_test_report", settings.module, ".rtl2spec-unitytest", ".rtl2spec-preparation"):
+        for name in (".ucagent", "unit_test", "uc_test_report", settings.module, ".rtl2spec-unitytest", ".rtl2spec-preparation"):
             if (verification / name).exists() or (verification / name).is_symlink():
                 raise ValueError(f"Existing UnityTest state: {verification / name}; choose a new workspace")
 
@@ -82,7 +82,7 @@ def continue_to_unitytest(config_file: Path, settings: LaunchSettings,
     shared = {key: value.as_dict() if hasattr(value, "as_dict") else value for key, value in shared.items()}
     with open(downstream_config, "x", encoding="utf-8", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
         yaml.safe_dump(shared, stream)
-    command = [sys.executable, "-P", "-m", "ucagent.cli", str(verification), settings.module,
+    command = [sys.executable, "-P", "-m", "ucagent", str(verification), settings.module,
                "--config", str(downstream_config), "--no-history", "--mcp-server-no-file-tools",
                "--loop", "--exit-on-completion", "--mcp-server-port", "-1"]
     os.execv(sys.executable, command)

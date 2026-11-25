@@ -2,7 +2,7 @@ import argparse
 import re
 import os
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 
 project_root = os.getcwd()
 

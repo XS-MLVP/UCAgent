@@ -24,9 +24,8 @@ from unit_test.waveform import (
     WaveInfo,
 )
 from unit_test import waveform as waveform_module
-from unit_test import waveform_formats
 from unit_test.waveform_formats import registry as waveform_registry
-from ucagent.core.tools.uctool import to_mcp_tool
+from ucagent import to_mcp_tool
 from unit_test.bug_analysis_contract import (
     BUG_HEADING_COMPANIONS,
     BUG_TODO_MARKER,
@@ -35,9 +34,9 @@ from unit_test.bug_analysis_contract import (
     waveform_record_heading,
     waveform_reference,
 )
-from ucagent.util.functions import get_tools_from_cfg
-from ucagent.util.markdown import ensure_markdown_file_heading_spacing
-from ucagent.util.waveform_viewer import load_waveform_metadata, parse_waveform_viewer_markdown_link
+from ucagent import get_tools_from_cfg
+from ucagent import ensure_markdown_file_heading_spacing
+from ucagent import load_waveform_metadata, parse_waveform_viewer_markdown_link
 
 
 VCD_CONTENT = """$date

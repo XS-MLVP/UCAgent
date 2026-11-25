@@ -5,7 +5,7 @@ import atexit
 import os
 import re
 import threading
-from ucagent.runtime.services import start_http_listeners, stop_http_listeners
+from ucagent import start_http_listeners, stop_http_listeners
 import warnings
 from typing import List, Optional, Tuple
 
@@ -84,8 +84,8 @@ class ControlApiServer:
         password: str = "",
     ) -> None:
         """Bind explicit controls and owned operations while preserving HTTP authentication."""
-        from ucagent.runtime.control.commands import create_registry, SessionCommands
-        from ucagent.runtime.operations import OperationExecutor
+        from ucagent import create_registry, SessionCommands
+        from ucagent import OperationExecutor
 
         self.controller = controller
         self.agent = controller.agent
@@ -129,8 +129,8 @@ class ControlApiServer:
         # Unix socket listener state
         self._sock_server = None
         self._sock_thread: Optional[threading.Thread] = None
-        from ucagent.runtime.events import EventBuffer
-        from ucagent.runtime.output import OutputBuffer
+        from ucagent import EventBuffer
+        from ucagent import OutputBuffer
         self._console_capture = host_control.output if host_control else OutputBuffer(events=EventBuffer())
         self._owns_output = host_control is None
         self._app = self._build_app()
@@ -143,7 +143,7 @@ class ControlApiServer:
 
     def _new_xpra_manager(self):
         """Create an isolated manager from the agent's resolved server settings."""
-        from ucagent.interfaces.server.api_cmd.xpra import XpraSessionManager
+        from ucagent import XpraSessionManager
         return XpraSessionManager(self.agent.workspace, getattr(self.agent, "cfg", None),
                                   secrets=(self.password,))
 
@@ -162,7 +162,7 @@ class ControlApiServer:
             from fastapi.responses import FileResponse, HTMLResponse
         from pydantic import BaseModel, Field
         from uuid import uuid4
-        from ucagent.util.functions import list_files_by_mtime
+        from ucagent import list_files_by_mtime
 
         app = FastAPI(
             title="UCAgent Control API",
@@ -175,7 +175,7 @@ class ControlApiServer:
         )
 
         # ── auth middleware (HTTP Basic, skips /docs and /redoc) ──────────
-        from ucagent.interfaces.server.api_cmd.transport import basic_authorized
+        from ucagent import basic_authorized
         from starlette.middleware.base import BaseHTTPMiddleware
         from starlette.requests import Request as _Request
         from fastapi.responses import JSONResponse as _JSONResponse
@@ -198,7 +198,7 @@ class ControlApiServer:
 
         app.add_middleware(_AuthMiddleware)
 
-        from ucagent.runtime.control.controller import ControlError
+        from ucagent import ControlError
 
         @app.exception_handler(ControlError)
         async def control_error(request, error):
@@ -207,12 +207,12 @@ class ControlApiServer:
             return _JSONResponse(status_code=code, content={"status": "error", "error": error.as_dict()})
 
 
-        from ucagent.interfaces.server.api_cmd.xpra_routes import register_xpra_routes
+        from ucagent import register_xpra_routes
         register_xpra_routes(app, self)
 
         if getattr(self.host_control, "workflow_chain", None) is not None:
-            from ucagent.runtime.workflow_control import EXPECTED_RUN
-            from ucagent.runtime.control.controller import ControlError
+            from ucagent import EXPECTED_RUN
+            from ucagent import ControlError
 
             @app.middleware("http")
             async def workflow_identity(request, call_next):
@@ -243,7 +243,7 @@ class ControlApiServer:
         access = control.workspace_access
         queries = control.workspace_queries
 
-        from ucagent.core.workspace.files import WorkspaceAccessError
+        from ucagent import WorkspaceAccessError
 
         @app.exception_handler(WorkspaceAccessError)
         async def workspace_error(request, error):
@@ -302,8 +302,8 @@ class ControlApiServer:
             """Resolve the requested workspace through the runtime access owner."""
             return access.select(_query_sub_workspace(request))
 
-        from ucagent.interfaces.server.api_cmd.file_routes import register_file_routes
-        from ucagent.interfaces.server.api_cmd.stage_routes import register_stage_routes
+        from ucagent import register_file_routes
+        from ucagent import register_stage_routes
         register_file_routes(app, access, queries, _request_workspace,
                              dut_name=getattr(self.agent, "dut_name", "") or "workspace")
         register_stage_routes(app, control, queries, _request_workspace, _strip_ansi)
@@ -311,7 +311,7 @@ class ControlApiServer:
 
         def command_session(request, session_id, cwd=None, confirmed=False):
             """Keep directories scoped to a client and selected workspace, with traversal checks."""
-            from ucagent.runtime.control.commands import CommandSession
+            from ucagent import CommandSession
             from pathlib import Path
 
             workspace, relative, is_sub = _request_workspace(request)
@@ -328,7 +328,7 @@ class ControlApiServer:
 
         def submit_command(line, session, is_sub):
             """Record synchronous results and return existing IDs for real background operations."""
-            from ucagent.runtime.control.controller import ControlError
+            from ucagent import ControlError
 
             spec = self.registry.resolve(line.split(maxsplit=1)[0])
             if spec.owner == "view":
@@ -364,7 +364,7 @@ class ControlApiServer:
 
         @app.get("/api/ui-meta", summary="UI metadata")
         def get_ui_meta():
-            from ucagent.version import __version__
+            from ucagent import __version__
             import time as _time
 
             uptime_s = 0.0
@@ -436,7 +436,7 @@ class ControlApiServer:
             """Complete in the selected session and return both tokens and input-ready lines."""
             from pathlib import Path
             from shlex import quote
-            from ucagent.runtime.control.commands import CommandSession, completion_base
+            from ucagent import CommandSession, completion_base
 
             try:
                 workspace, _, _ = _request_workspace(request)
@@ -557,7 +557,7 @@ class ControlApiServer:
                 raise HTTPException(400, "Command cannot be empty")
             session, is_sub = command_session(request, body.session_id, body.cwd, body.confirmed)
             operation = submit_command(body.cmd.strip(), session, is_sub)
-            from ucagent.util.output import output_context
+            from ucagent import output_context
             with output_context(source="command", kind="input", operation_id=operation["id"], session_id=session.id):
                 if not is_sub:
                     _capture.inject(f"ucagent> {body.cmd}")
@@ -573,8 +573,8 @@ class ControlApiServer:
 
             def batch(context):
                 """Wait for child results without claiming the model reservation itself."""
-                from ucagent.runtime.control.controller import ControlError
-                from ucagent.runtime.operations import OperationFailure
+                from ucagent import ControlError
+                from ucagent import OperationFailure
                 results = []
                 for line in commands:
                     context.checkpoint()
@@ -625,7 +625,7 @@ class ControlApiServer:
                 raise HTTPException(status_code=500, detail=str(exc))
 
 
-        from ucagent.interfaces.server.api_cmd.waveform_routes import register_waveform_routes
+        from ucagent import register_waveform_routes
         register_waveform_routes(app, self, _request_workspace)
 
 

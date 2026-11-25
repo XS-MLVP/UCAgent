@@ -34,7 +34,7 @@ workspace 和 stage。Stage Manager 之后才会注入；因此：
 ~~~python
 from pathlib import Path
 
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 
 
 class FileExistsChecker(Checker):

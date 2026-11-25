@@ -133,6 +133,12 @@ def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None
         path = normalize_relative_path(path)
     except ValueError as exc:
         return False, str(exc)
+    if PurePosixPath(path).parts[0].casefold() == ".ucagent":
+        return False, (
+            "The workspace .ucagent/ directory is read-only to the agent. "
+            "Read it for diagnosis and use workflow tools for managed updates; "
+            "ask the operator to repair runtime configuration and restart UCAgent."
+        )
     if un_write_dirs is None and write_dirs is None:
         return True, "No write restrictions defined."
     if un_write_dirs is not None:

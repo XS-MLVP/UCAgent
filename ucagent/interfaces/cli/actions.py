@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 import ucagent
-from ucagent.version import __version__
-from ucagent.util.config import discovery_overrides
+from ucagent import __version__
+from ucagent import discovery_overrides
 
 current_dir = str(Path(ucagent.__file__).resolve().parent)
 
@@ -141,11 +141,11 @@ def run_management_commands(args):
         sys.exit(0)
 
     if args.list_plugins:
-        from ucagent.core.plugins import (
+        from ucagent import (
             available_plugin_names,
             configured_plugin_search_paths,
         )
-        from ucagent.util.config import get_config
+        from ucagent import get_config
 
         discovery_cfg = get_config(
             args.config,
@@ -165,12 +165,12 @@ def run_management_commands(args):
         return True
 
     if args.validate_plugin:
-        from ucagent.core.plugins import (
+        from ucagent import (
             configured_plugin_search_paths,
             load_plugins,
             plugin_summary,
         )
-        from ucagent.util.config import get_config
+        from ucagent import get_config
 
         discovery_cfg = get_config(
             args.config,

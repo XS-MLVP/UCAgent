@@ -15,15 +15,15 @@ from urllib.parse import quote
 
 import ucagent.util.functions as fc
 from unit_test.str_utils import list_str_abbr
-from ucagent.core.checkers.base import Checker, format_stage_args_examples
+from ucagent import Checker, format_stage_args_examples
 from .static_bug import (
     parse_confirmed_static_bug_links,
     parse_source_location,
 )
 from .toffee_report import parse_bug_label
-from ucagent.util.functions import import_class_from_str
-from ucagent.util.log import info, warning
-from ucagent.util.markdown import ensure_markdown_heading_spacing
+from ucagent import import_class_from_str
+from ucagent import info, warning
+from ucagent import ensure_markdown_heading_spacing
 from unit_test.doc_marks import get_doc_marks
 
 

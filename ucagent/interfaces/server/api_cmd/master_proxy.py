@@ -2,7 +2,7 @@
 
 from fastapi import WebSocket
 
-from ucagent.interfaces.server.api_cmd.transport import authorize_websocket, relay_websocket
+from ucagent import authorize_websocket, relay_websocket
 
 
 def register_master_xpra_routes(app, server, browser_access):

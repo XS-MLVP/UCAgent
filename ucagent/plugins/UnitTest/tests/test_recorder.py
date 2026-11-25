@@ -24,11 +24,11 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
 import ucagent.core.checkers as checkers
 from unit_test.checkers.recorder import Recorder, RecordType
 from unit_test.checkers.toffee_report import parse_bug_label
-from ucagent.core.plugins import create_plugin_checker_registry, load_plugin
-from ucagent.interfaces.server.api_master import MasterApiServer, MasterClient
-from ucagent.core.stage.vmanager import StageManager
-from ucagent.util.config import Config, load_yaml_with_env_vars
-from ucagent.util.markdown import markdown_heading_spacing_errors
+from ucagent import create_plugin_checker_registry, load_plugin
+from ucagent import MasterApiServer, MasterClient
+from ucagent import StageManager
+from ucagent import Config, load_yaml_with_env_vars
+from ucagent import markdown_heading_spacing_errors
 
 
 class _FakeStage:

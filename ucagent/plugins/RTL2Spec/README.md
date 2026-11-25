@@ -21,8 +21,8 @@ ucagent --validate-plugin rtl2spec
 已有源码时，可补装依赖；已有完整环境时，可直接指定解释器：
 
 ```bash
-bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --skip-fetch
-bash plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --fmagent-python /path/to/env/bin/python --skip-fetch --skip-install
+bash ucagent/plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --skip-fetch
+bash ucagent/plugins/RTL2Spec/scripts/install.sh --python python --fmagent-root /path/to/FM-Agent --fmagent-python /path/to/env/bin/python --skip-fetch --skip-install
 ```
 
 源码默认放在插件的 `third_party/FM-Agent`，路径选择保存在 `rtl2spec.local.toml`。安装后请保留 UCAgent 源码目录；当前采用源码安装方式。分步管理命令、路径覆盖和安装选项见 [FM-Agent 管理参考](docs/reference.md#fm-agent-管理)。

@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 
 
 def _sha256(path: Path) -> str:

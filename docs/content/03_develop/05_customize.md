@@ -11,7 +11,7 @@
 """Example tool that greets a named recipient."""
 
 from pydantic import BaseModel, Field
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 
 
 class HelloArgs(BaseModel):
@@ -51,7 +51,7 @@ ex_tools:
 
 ```python
 from my_tools import HelloTool
-from ucagent.core.tools.uctool import to_mcp_tool
+from ucagent import to_mcp_tool
 
 tool = HelloTool()
 assert tool.invoke({"who": "UCAgent"}) == {"greeting": "Hello, UCAgent!"}
@@ -70,8 +70,8 @@ assert mcp_tool.name == "Hello"
 
 from pathlib import Path
 from pydantic import BaseModel, Field
-from ucagent.core.tools.fileops import BaseReadWrite
-from ucagent.core.tools.uctool import UCTool
+from ucagent import BaseReadWrite
+from ucagent import UCTool
 
 
 class TextLengthArgs(BaseModel):

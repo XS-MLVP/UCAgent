@@ -11,13 +11,13 @@ publishes the current test report snapshot consumed by the stage checkers.
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
 
-from ucagent.util.test_tools import ucagent_lib_path
-from ucagent.util.log import debug, info, warning
+from ucagent import ucagent_lib_path
+from ucagent import debug, info, warning
 import os
 import psutil
 import shutil
@@ -613,6 +613,7 @@ class RunUnityChipTest(RunPyTest):
             "toffee-report": True,
             "report-dump-json": True,
             "report-name": "index.html",
+            "report-custom": ["coverage-gui-xpra"],
         })
         self.result_dir = report_dir
         if workspace is None:

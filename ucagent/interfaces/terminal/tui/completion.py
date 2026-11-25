@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 from shlex import quote
 
-from ucagent.runtime.control.commands import completion_base
+from ucagent import completion_base
 
 if TYPE_CHECKING:
-    from ucagent.interfaces.terminal.tui.handlers import KeyHandler
+    from ucagent import KeyHandler
 
 
 class CompletionSource(Protocol):

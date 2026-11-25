@@ -2,9 +2,9 @@
 
 import difflib
 import os
-from ucagent.core.workspace.files import WorkspaceFiles, WorkspaceAccessError
-from ucagent.runtime.workspace.access import is_under
-from ucagent.util import diff_ops
+from ucagent import WorkspaceFiles, WorkspaceAccessError
+from ucagent import is_under
+from ucagent import diff_ops
 
 
 def _workspace_git_not_repo_payload(workspace_root: str, message: str = "") -> dict:

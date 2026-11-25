@@ -56,7 +56,7 @@ generator testcase linkage 和 VM scope 之间的静态集合关系，是资产�
 
 ## 测试
 
-回归测试位于 `plugins/ACT4/tests/test_act4_asset_consistency.py`。核心和 UCAgent 适配层
+回归测试位于 `ucagent/plugins/ACT4/tests/test_act4_asset_consistency.py`。核心和 UCAgent 适配层
 应保持解耦，便于 CLI、单元测试和工作流共享同一套规则。
 
 ## 实现定位与判定示例

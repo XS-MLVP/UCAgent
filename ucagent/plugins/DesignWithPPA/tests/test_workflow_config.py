@@ -93,9 +93,9 @@ from design_with_ppa.rtl import (  # noqa: E402
     resolve_rtl_config,
     unregister_rtl_language,
 )
-from ucagent.core.stage.vstage import parse_vstage
-from ucagent.core.plugins import resolve_plugin_guide_doc_copy_policy
-from ucagent.util.config import (  # noqa: E402
+from ucagent import parse_vstage
+from ucagent import resolve_plugin_guide_doc_copy_policy
+from ucagent import (  # noqa: E402
     Config,
     build_runtime_config,
     get_config,

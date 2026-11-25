@@ -22,8 +22,8 @@ from design_with_ppa.repo.models import Candidate
 from design_with_ppa.ppa import AnalyzePPA
 from design_with_ppa.ppa.dashboard import refresh_dashboard_snapshot
 from design_with_ppa.repo.validation import validate_unit, validated_records, write_repo_optimization_log
-from ucagent.util.markdown import markdown_heading_spacing_errors
-from ucagent.util.config import save_runtime_config
+from ucagent import markdown_heading_spacing_errors
+from ucagent import save_runtime_config
 
 
 @pytest.mark.parametrize("skills_enabled", [False, True])

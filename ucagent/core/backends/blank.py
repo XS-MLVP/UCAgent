@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Backend implementation for runtimes that intentionally disable model work."""
 
-from ucagent.core.backends.base import AgentBackendBase
+from ucagent import AgentBackendBase
 
 
 class BlankBackend(AgentBackendBase):

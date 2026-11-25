@@ -4,9 +4,9 @@ import json
 import os
 import re
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 from unit_test.bug_analysis_contract import STATIC_BUG_DOCUMENT_PATH
-from ucagent.util.markdown import ensure_markdown_heading_spacing
+from ucagent import ensure_markdown_heading_spacing
 
 project_root = os.getcwd()
 script_dir = os.path.dirname(os.path.abspath(__file__))

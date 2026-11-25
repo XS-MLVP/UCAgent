@@ -5,25 +5,25 @@ import os
 import sys
 import shlex
 
-from ucagent.application.preparation import prepare_launch
-from ucagent.application.plan import LaunchRequest
-from ucagent.application.global_agent import configure_agent_sessions
+from ucagent import prepare_launch
+from ucagent import LaunchRequest
+from ucagent import configure_agent_sessions
 
 
 def run_application(request: LaunchRequest):
     """Prepare one task and retain startup cleanup until its host accepts ownership."""
     from ucagent import VerifyAgent
-    from ucagent.runtime.host import RuntimeHost
-    from ucagent.interfaces.terminal.console import Console
-    from ucagent.runtime.session import RuntimeSession
-    from ucagent.interfaces.terminal.presentation import format_result, format_operation
-    from ucagent.interfaces.server.api_cmd import ControlApiServer
-    from ucagent.interfaces.terminal.tui import enter_tui
+    from ucagent import RuntimeHost
+    from ucagent import Console
+    from ucagent import RuntimeSession
+    from ucagent import format_result, format_operation
+    from ucagent import ControlApiServer
+    from ucagent import enter_tui
 
     with ExitStack() as workspace_cleanup:
         prepared, plan, agent_options = prepare_launch(request, cleanup=workspace_cleanup)
         if prepared.cfg.get_value("runtime_options.workflow_handoff_enabled", False) and not request.emulate_config:
-            from ucagent.application.workflow_handoff import run_workflow_application
+            from ucagent import run_workflow_application
             return run_workflow_application(request, prepared, plan, agent_options)
         agent = VerifyAgent(**agent_options)
         # The workspace is released last, after backend and file-policy cleanup.
@@ -110,13 +110,13 @@ def run_application(request: LaunchRequest):
 
 def configure_services(services):
     """Bind concrete service constructors while runtime retains their lifetime ownership."""
-    from ucagent.interfaces.server.api_master.client import MasterClient
-    from ucagent.interfaces.server.api_master.server import MasterApiServer
-    from ucagent.interfaces.server.api_mcp import McpServer, _collect_mcp_tools
-    from ucagent.interfaces.server.api_terminal import WebTerminalServer
+    from ucagent import MasterClient
+    from ucagent import MasterApiServer
+    from ucagent import McpServer, _collect_mcp_tools
+    from ucagent import WebTerminalServer
 
     if getattr(services.agent, "multi_agent", None) is not None:
-        from ucagent.interfaces.server.worker_mcp import worker_endpoint
+        from ucagent import worker_endpoint
         services.agent.multi_agent.endpoint_factory = worker_endpoint
     services.client_factory = MasterClient
     services.master_factory = MasterApiServer

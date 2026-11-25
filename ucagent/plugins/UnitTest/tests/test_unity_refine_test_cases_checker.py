@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "src")))
 
 from unit_test.checkers import UnityChipCheckerRefineTestCases
 from unit_test.testops import RunUnityChipTest
-from ucagent.util.config import load_yaml_with_env_vars
+from ucagent import load_yaml_with_env_vars
 
 
 class _FakeStageManager:

@@ -10,7 +10,7 @@ from unit_test.checkers.file_linemap import (
     line_map_check_one_file,
 )
 from unit_test.checkers import UnityChipBatchCheckerFileLineMap
-from ucagent.util.config import load_yaml_with_env_vars
+from ucagent import load_yaml_with_env_vars
 
 
 class _Stage:
@@ -219,7 +219,7 @@ def test_batch_checker_reports_uncovered_ranges_and_numbered_content(tmp_path):
 
 
 def test_read_text_file_and_batch_checker_use_same_physical_line_numbers(tmp_path):
-    from ucagent.core.tools.fileops import ReadTextFile
+    from ucagent import ReadTextFile
 
     (tmp_path / "src").mkdir()
     (tmp_path / "out").mkdir()

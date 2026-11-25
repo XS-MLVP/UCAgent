@@ -12,9 +12,9 @@ import hashlib
 from typing import Dict, List, Optional, Tuple, Set, Union
 import psutil
 
-from ucagent.util.log import str_error, str_info, warning, info
-from ucagent.util import diff_ops, functions as fc
-from ucagent.util.markdown import ensure_markdown_heading_spacing
+from ucagent import str_error, str_info, warning, info
+from ucagent import diff_ops, functions as fc
+from ucagent import ensure_markdown_heading_spacing
 from .formal_paths import FormalPaths
 from .models import (
     FormalRecords, CheckPoint, FunctionGroup, FunctionPoint, 
@@ -540,7 +540,7 @@ def _render_to_file(template_name: str, context: dict, output_path: str) -> None
         tp = os.path.join(lib_dir, "templates", template_name + ".j2")
         
         if not os.path.exists(tp):
-            from ucagent.util.log import error
+            from ucagent import error
             error(f"Template not found at {tp}")
             return
 
@@ -565,7 +565,7 @@ def _render_to_file(template_name: str, context: dict, output_path: str) -> None
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(rendered)
     except Exception as e:
-        from ucagent.util.log import error
+        from ucagent import error
         error(f"Failed to render template {template_name}: {e}")
 
 def generate_spec_doc(records: FormalRecords, op: str) -> None:

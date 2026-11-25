@@ -10,8 +10,8 @@ from tempfile import NamedTemporaryFile
 import threading
 from uuid import uuid4
 
-from ucagent.runtime.control.commands import CommandSession, CommandResult
-from ucagent.runtime.operations import TERMINAL_STATES
+from ucagent import CommandSession, CommandResult
+from ucagent import RuntimeTerminalStates as TERMINAL_STATES
 
 
 @dataclass

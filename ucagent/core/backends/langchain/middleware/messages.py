@@ -22,8 +22,8 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from typing_extensions import override
 
-from ucagent.core.backends.langchain.content import content_text, text_message
-from ucagent.util.log import info, warning
+from ucagent import content_text, text_message
+from ucagent import info, warning
 
 
 class MessageStatistic:

@@ -3,8 +3,8 @@
 from pathlib import Path
 import json
 
-from ucagent.core.checkers.base import Checker
-from ucagent.util.file_policy import is_file_writeable
+from ucagent import Checker
+from ucagent import is_file_writeable
 
 from .tools import RTL2SpecCommandArgs
 from .validation import validate

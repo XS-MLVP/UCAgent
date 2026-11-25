@@ -29,7 +29,7 @@ Minimal structure:
 ~~~python
 from pathlib import Path
 
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 
 
 class FileExistsChecker(Checker):

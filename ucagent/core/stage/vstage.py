@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """Verification stage management for UCAgent."""
 
-from ucagent.util.functions import import_class_from_str, find_files_by_pattern
+from ucagent import import_class_from_str, find_files_by_pattern
 import ucagent.util.functions as fc
 import ucagent.util.diff_ops as diff_ops
-from ucagent.core.stage.history import StageHistory
-from ucagent.util.log import info, warning, message
-from ucagent.util.config import Config
+from ucagent import StageHistory
+from ucagent import info, warning, message
+from ucagent import Config
 import ucagent.core.checkers as checkers
 from collections import OrderedDict
-from ucagent.util.output import output_context
+from ucagent import output_context
 from contextlib import nullcontext
 from functools import wraps
 import copy
@@ -38,7 +38,7 @@ def coordinated_stage_mutation(kind, *, manager=False):
                 agent = getattr(owner, "agent", None)
                 if (manager and method.__name__ in {"check", "complete"}
                         and getattr(agent, "suppress_tool_result_messages", False)):
-                    from ucagent.core.stage.display import format_check_result
+                    from ucagent import format_check_result
                     sender = kwargs.get("actor") or getattr(agent, "message_sender", "Agent")
                     agent.message_echo(format_check_result(result, sender, tool=method.__name__.title()))
                 return result
@@ -489,7 +489,6 @@ class VerifyStage(object):
         if not preview:
             self._cached_stage_outcome = outcome
         return outcome
-
 
     def get_current_file_content_with_diff(self, file_path, sync_history=False):
         """Optionally synchronize explicitly, then use the shared read-only query."""

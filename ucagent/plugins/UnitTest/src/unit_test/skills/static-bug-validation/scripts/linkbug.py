@@ -9,9 +9,9 @@ from typing import List
 
 import yaml
 
-from ucagent.util.config import load_runtime_config
-from ucagent.util.waveform_viewer import parse_waveform_viewer_markdown_link
-from ucagent.util.markdown import ensure_markdown_heading_spacing
+from ucagent import load_runtime_config
+from ucagent import parse_waveform_viewer_markdown_link
+from ucagent import ensure_markdown_heading_spacing
 from unit_test.bug_analysis_contract import (
     DYNAMIC_BUG_DOCUMENT_PATH,
     RELATED_BUG_TAG_PREFIX,

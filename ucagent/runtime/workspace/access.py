@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import NamedTuple
 
-from ucagent.core.workspace.files import WorkspaceAccessError, WorkspaceFiles
+from ucagent import WorkspaceAccessError, WorkspaceFiles
 
 
 class WorkspaceTarget(NamedTuple):

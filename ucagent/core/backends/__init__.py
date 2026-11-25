@@ -2,10 +2,10 @@
 
 """Agent backend package."""
 
-from ucagent.core.backends.base import AgentBackendBase
-from ucagent.core.backends.blank import BlankBackend
-from ucagent.core.backends.cmdline import UCAgentCmdLineBackend
-from ucagent.util.config import Config
+from ucagent import AgentBackendBase
+from ucagent import BlankBackend
+from ucagent import UCAgentCmdLineBackend
+from ucagent import Config
 
 
 def get_backend_class(cfg: Config) -> type[AgentBackendBase]:

@@ -8,7 +8,7 @@ import sys
 from typing import Callable, Optional
 from datetime import datetime
 from contextvars import ContextVar
-from ucagent.util.output import output_source
+from ucagent import output_source
 
 RESET = "\033[0m"
 GREEN = "\033[32m"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 from unit_test.checkers.file_linemap import (
     _line_block_base,
     line_map_check_one_file,

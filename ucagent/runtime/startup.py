@@ -2,8 +2,8 @@
 
 import threading
 
-from ucagent.runtime.control.controller import ControlError
-from ucagent.runtime.operations import TERMINAL_STATES, OperationCancelled
+from ucagent import ControlError
+from ucagent import RuntimeTerminalStates as TERMINAL_STATES, OperationCancelled
 
 
 class StartupCommands:

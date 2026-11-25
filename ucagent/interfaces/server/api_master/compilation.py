@@ -12,7 +12,7 @@ import subprocess
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from ucagent.interfaces.server.api_master.common import (
+from ucagent import (
     _FILELIST_EXTS,
     _is_picker_f_file,
     _is_rtl_workspace_file,

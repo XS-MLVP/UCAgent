@@ -16,7 +16,7 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Input, Static
 
-from ucagent.interfaces.terminal.tui.completion import CompletionHandler
+from ucagent import CompletionHandler
 
 
 class BusyIndicator(Widget):

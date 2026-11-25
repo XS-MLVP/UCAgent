@@ -6,12 +6,12 @@ from pathlib import Path
 import threading
 import time
 
-from ucagent.util.output import AGENT_ACTOR
+from ucagent import AGENT_ACTOR
 
 
 def worker_actor(agent, record):
     """Keep logical Sub identity stable while identifying each execution attempt."""
-    from ucagent.util.config import Config
+    from ucagent import Config
     run = agent.cfg.get_value("agent_run", Config({}))
     parent = run.get_value("id", None) or "super"
     attempt = run.get_value("attempt", 1)

@@ -892,9 +892,9 @@ def _set_config_path_value(cfg, dotted_key, value):
 def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None, append_keys=None):
     """
     Merge a config file into cfg, honoring include directives and load dedup.
-    :param append_keys: Dotted keys whose str/list values from this file are
-        appended to the existing values instead of replacing them; include
-        directives never inherit this behavior.
+    :param append_keys: Dotted keys whose effective str/list values after this
+        file and its includes are appended to the original configuration.
+        Includes retain ordinary override semantics within that layer.
     """
     config_file = os.path.abspath(config_file)
     if config_file in loaded_configs:
@@ -912,11 +912,11 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None, app
         if not isinstance(data, dict):
             raise TypeError(f"Config file '{config_file}' must contain a YAML mapping.")
 
+        append_bases = _get_config_path_values(cfg, append_keys or ())
+
         for include_file in _normalize_include_value(data.get("include"), config_file):
             include_config_file = _resolve_include_file(include_file, config_file)
             _merge_config_file(cfg, include_config_file, loaded_configs, loading_stack)
-
-        append_bases = _get_config_path_values(cfg, append_keys or ())
 
         cfg.merge_from_dict(data, skip_include=True)
 
@@ -1074,7 +1074,7 @@ def get_config(
 
     # 5. load workspace config
     if workspace is not None:
-        cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")
+        cwd_setting_file = os.path.abspath(os.path.join(workspace, ".ucagent", "setting.yaml"))
         if os.path.isfile(cwd_setting_file):
             _merge_config_file(cfg, cwd_setting_file, loaded_configs)
         else:

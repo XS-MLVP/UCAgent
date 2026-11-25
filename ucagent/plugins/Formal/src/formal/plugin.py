@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ucagent.core.plugins import Plugin, PluginWorkflow
+from ucagent import Plugin, PluginWorkflow
 
 from .preparation import prepare_formal
 

@@ -7,7 +7,7 @@ import logging
 import sys
 import threading
 
-from ucagent.util.output import OUTPUT_METADATA, OUTPUT_RECORDED, output_context
+from ucagent import OUTPUT_METADATA, OUTPUT_RECORDED, output_context
 
 
 OUTPUT_OWNER = ContextVar("ucagent_output_owner", default=None)

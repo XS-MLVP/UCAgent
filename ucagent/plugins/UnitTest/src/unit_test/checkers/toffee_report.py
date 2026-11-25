@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Toffee report checker for UCAgent verification."""
 
-from ucagent.util.log import warning, info
+from ucagent import warning, info
 import ucagent.util.functions as fc
 from unit_test.str_utils import list_str_abbr
-from ucagent.util.waveform_viewer import (
+from ucagent import (
     WaveformViewerProtocolError,
     WAVEFORM_VIEWER_MARKER,
     build_waveform_viewer_url,
@@ -55,9 +55,9 @@ from unit_test.bug_analysis_contract import (
     waveform_record_tag as _waveform_record_tag,
     waveform_reference as _waveform_reference,
 )
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 from unit_test.bug_analysis_contract import test_case_parent
-from ucagent.util.functions import load_json_file
+from ucagent import load_json_file
 from .descriptions import (
     description_bug_doc,
     description_checkpoint_association_missing,
@@ -3494,56 +3494,6 @@ def check_all_documented_waveform_bug_analysis(
     )
 
 
-class UnityChipCheckerWaveformBugAnalysis(Checker):
-    """Independent analysis-and-waveform gate for the dynamic Bug document."""
-
-    def __init__(
-        self,
-        bug_file: str,
-        test_dir: str,
-        require_current_replay: bool = False,
-        **kwargs,
-    ):
-        super().__init__()
-        del kwargs
-        if type(require_current_replay) is not bool:
-            raise ValueError("require_current_replay must be a boolean")
-        self.bug_file = bug_file
-        self.test_dir = test_dir
-        self.require_current_replay = require_current_replay
-
-    def do_check(
-        self, progress_callback: Callable[[str], None] | None = None, **kwargs
-    ) -> tuple[bool, object]:
-        """Validate dynamic Bug analysis and safely refresh current WaveInfo evidence."""
-        del kwargs
-        waveform_tool = None
-        waveform_evidence_tool = None
-        if self.stage_manager is not None:
-            waveform_tool = self.get_tool_by_name("WaveInfo")
-            waveform_evidence_tool = self.get_tool_by_name("ApplyWaveInfoEvidence")
-        passed, message = check_all_documented_waveform_bug_analysis(
-            self.workspace,
-            self.bug_file,
-            waveform_tool=waveform_tool,
-            waveform_evidence_tool=waveform_evidence_tool,
-            waveform_test_dir=self.test_dir,
-            require_current_replay=self.require_current_replay,
-            progress_callback=progress_callback,
-        )
-        if passed:
-            return True, {"success": message}
-        if (
-            isinstance(message, dict)
-            and {"error_code", "error", "next_action"}.issubset(message)
-        ):
-            return False, {
-                "error": message["error"],
-                "diagnostic": copy.deepcopy(message),
-            }
-        return False, message
-
-
 def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_prefix:str):
     """Parse bug analysis documentation to extract marked bug analysis points."""
     try:
@@ -4628,6 +4578,16 @@ def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
                 type_match = re.match(r"([A-Za-z_][A-Za-z0-9_.]*)", exception)
                 if type_match:
                     phase_detail["exception_type"] = type_match.group(1)
+            failure = phase.get("exception")
+            if isinstance(failure, dict) and all(
+                isinstance(failure.get(key), str) and failure[key]
+                for key in ("phase", "type")
+            ) and isinstance(failure.get("message"), str):
+                # Plain exception fields survive pytest worker serialization;
+                # CallInfo does not exist in the parent with --forked/xdist.
+                phase_detail["phase"] = failure["phase"]
+                phase_detail["exception_type"] = failure["type"]
+                phase_detail["exception"] = f"{failure['type']}: {failure['message']}"[:1000]
             failure_phases.append(phase_detail)
 
         if failure_phases:

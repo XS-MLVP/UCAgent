@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from ucagent.core.workflow.contracts import canonical_file
+from ucagent import canonical_file
 
 ID_PATTERN = r"^[A-Za-z0-9_-]{1,80}$"
 TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
@@ -127,7 +127,7 @@ class AgentView(Protocol):
 
 def load_global_settings(cfg):
     """Resolve Global policy only for the root of a multi session."""
-    from ucagent.core.multi_agent.mode import agent_role
+    from ucagent import agent_role
     if agent_role(cfg) != "global":
         return None
     if cfg.get_value("runtime_options.workflow_handoff_enabled", False):

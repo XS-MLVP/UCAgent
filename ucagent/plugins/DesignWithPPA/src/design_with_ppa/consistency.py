@@ -7,8 +7,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from ucagent.core.tools.uctool import UCTool
-from ucagent.util.log import info
+from ucagent import UCTool
+from ucagent import info
 
 from .checkers import (
     DesignFinalDeliveryChecker,

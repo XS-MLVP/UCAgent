@@ -10,10 +10,10 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import HelpPanel
 
-from ucagent.interfaces.terminal.tui.handlers import KeyHandler
-from ucagent.interfaces.terminal.tui.screens import ThemePickerScreen
-from ucagent.interfaces.terminal.tui.widgets.splitter import _clamp_split_value
-from ucagent.interfaces.terminal.tui.widgets import TaskPanel, StatusBar, MessagesPanel, ConsoleWidget, ConsoleInput, VerticalSplitter, HorizontalSplitter
+from ucagent import KeyHandler
+from ucagent import ThemePickerScreen
+from ucagent import _clamp_split_value
+from ucagent import TaskPanel, StatusBar, MessagesPanel, ConsoleWidget, ConsoleInput, VerticalSplitter, HorizontalSplitter
 
 
 class VerifyApp(App):

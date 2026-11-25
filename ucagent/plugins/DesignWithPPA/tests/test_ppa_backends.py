@@ -27,7 +27,7 @@ from design_with_ppa.plugin import create_tools, get_plugin
 from helpers import _config
 from test_repo_module import repo_case  # noqa: F401
 from design_with_ppa.repo.validation import read_contract
-from ucagent.plugins import PluginContext
+from ucagent import PluginContext
 
 
 class IndependentBackend(PPABackend):

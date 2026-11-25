@@ -9,7 +9,7 @@ import math
 import re
 import shutil
 
-from ucagent.util.log import info
+from ucagent import info
 from ..backend import PPABackend, PPAContext, PPARequest, PPAResult
 from ..common import _diagnostic, _tail
 from ..activity import _port_bits, _convert_fst_to_vcd, _parse_vcd_activity, _aggregate_tc_activity

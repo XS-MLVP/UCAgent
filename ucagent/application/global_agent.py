@@ -1,8 +1,8 @@
 """Application assembly for persistent Global and child Super sessions."""
 from pathlib import Path
-from ucagent.interfaces.server.super_launcher import SubprocessSuperLauncher
-from ucagent.runtime.agent_sessions import AgentSessions
-from ucagent.runtime.agent_messages import AgentMessages
+from ucagent import SubprocessSuperLauncher
+from ucagent import AgentSessions
+from ucagent import AgentMessages
 
 def configure_agent_sessions(agent, prepared):
     host = agent.runtime_host
@@ -18,8 +18,8 @@ def configure_agent_sessions(agent, prepared):
             host.messages.unsubscribe(journal.write)
             journal.close()
         host.add_cleanup(close_journal)
-        from ucagent.runtime.agent_view import LocalAgentView
-        from ucagent.interfaces.server.agent_session import AgentSessionServer
+        from ucagent import LocalAgentView
+        from ucagent import AgentSessionServer
         view = LocalAgentView(host, result_path.parent, agent.cfg.get_value("agent_run.id"),
                               agent.cfg.get_value("agent_run.attempt", 1))
         host.add_cleanup(view.close)

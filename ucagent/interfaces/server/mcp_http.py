@@ -5,8 +5,8 @@ import secrets
 import threading
 
 import anyio
-from ucagent.core.tools.uctool import to_mcp_tool
-from ucagent.util.log import info
+from ucagent import to_mcp_tool
+from ucagent import info
 import uvicorn
 from starlette.responses import PlainTextResponse
 
@@ -154,8 +154,8 @@ def start_verify_mcps(server):
                     # A TUI may have exited while the server is still running.
                     pass
 
-    from ucagent.runtime.output import OUTPUT_OWNER
-    from ucagent.util.output import OUTPUT_SINK
+    from ucagent import OUTPUT_OWNER
+    from ucagent import OUTPUT_SINK
     output = getattr(server.ui_logger, "runtime_output", None)
     owner_token = OUTPUT_OWNER.set(output)
     sink_token = OUTPUT_SINK.set(output.events.append if output is not None else None)

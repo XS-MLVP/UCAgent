@@ -22,7 +22,7 @@ def refresh_dashboard_snapshot(workspace: str, output_dir: str, report: dict[str
     # The DUT-specific filename takes precedence when it exists.
     dut = ""
     try:
-        from ucagent.util.config import load_runtime_config
+        from ucagent import load_runtime_config
         runtime = load_runtime_config(str(workspace))
         dut = runtime.get("DUT", "")
     except Exception:
@@ -45,7 +45,7 @@ def refresh_dashboard_snapshot(workspace: str, output_dir: str, report: dict[str
         out = ""
         version = ""
         try:
-            from ucagent.util.config import load_runtime_config
+            from ucagent import load_runtime_config
             runtime_cfg = load_runtime_config(str(workspace))
             out = runtime_cfg.get("OUT", "")
         except Exception:

@@ -14,7 +14,7 @@ from unit_test.bug_analysis_contract import (
     DYNAMIC_BUG_DOCUMENT_PATH,
     TEST_CASE_SERIALIZATION,
 )
-from ucagent.util.config import Config, load_yaml_with_env_vars
+from ucagent import Config, load_yaml_with_env_vars
 
 
 def test_runtime_waveform_guidance_does_not_require_backend_or_format_knowledge():

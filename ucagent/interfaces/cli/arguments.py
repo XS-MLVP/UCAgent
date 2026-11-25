@@ -5,8 +5,8 @@ import ast
 import sys
 from typing import Any, Dict, List, Optional, Union
 
-from ucagent.interfaces.cli.actions import CheckAction, HookMessageAction
-from ucagent.version import __version__
+from ucagent import CheckAction, HookMessageAction
+from ucagent import __version__
 
 OverrideDict = Dict[str, Any]
 OverrideValues = Union[OverrideDict, List[OverrideDict]]

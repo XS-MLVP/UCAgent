@@ -14,31 +14,31 @@ from langfuse.langchain import CallbackHandler
 
 import ucagent.core.tools
 import ucagent.util.functions as fc
-from ucagent.core.backends import get_backend
-from ucagent.core.agent.configuration import resolve_task_configuration
-from ucagent.core.workspace.assets import prepare_resources
-from ucagent.core.workspace.permissions import apply_file_protection
-from ucagent.core.interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
-from ucagent.core.plugins import (
+from ucagent import get_backend
+from ucagent import resolve_task_configuration
+from ucagent import prepare_resources
+from ucagent import apply_file_protection
+from ucagent import EnhancedInteractionLogic, AdvancedInteractionLogic
+from ucagent import (
     PluginContext, create_plugin_checker_registry, create_plugin_manager_tools_registry,
     create_plugin_runtime_hooks, create_plugin_tools,
 )
-from ucagent.core.stage import StageManager
-from ucagent.core.tools import (
+from ucagent import StageManager
+from ucagent import (
     ReadTextFile, PathList, SearchText, RoleInfo, SemanticSearchInGuidDoc,
     MemoryPut, MemoryGet, GetFileInfo, FindFiles, DeleteFile, EditTextFile,
     DeleteTextLines, ReplaceStringInFile, CopyFile, MoveFile, CreateDirectory,
     WorkDiff, WorkCommit, RunBashCommand, RunSkillScript,
 )
-from ucagent.core.tools.context import ArbitContextSummary
-from ucagent.core.tools.planning import (
+from ucagent import ArbitContextSummary
+from ucagent import (
     ToDoPanel, CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo,
     GetToDoSummary, ToDoState,
 )
-from ucagent.core.tools.skill import ListSkill
-from ucagent.util.functions import import_and_instance_tools
-from ucagent.util.log import info, warning
-from ucagent.version import __version__
+from ucagent import ListSkill
+from ucagent import import_and_instance_tools
+from ucagent import info, warning
+from ucagent import __version__
 
 
 
@@ -101,11 +101,11 @@ def prepare_task(agent, options):
     )
     agent.cfg = prepared.cfg
     agent.global_catalog = prepared.global_catalog
-    from ucagent.core.multi_agent.super_agent.contracts import load_settings
+    from ucagent import load_settings
     agent.multi_agent_settings = load_settings(agent.cfg, agent.workspace)
-    from ucagent.core.workflow.contracts import load_handoff_settings
+    from ucagent import load_handoff_settings
     agent.workflow_handoff_settings = load_handoff_settings(agent.cfg)
-    from ucagent.core.multi_agent.global_agent.session_contracts import load_global_settings
+    from ucagent import load_global_settings
     agent.global_agent_settings = load_global_settings(agent.cfg)
     agent_run_id = agent.cfg.get_value("agent_run.id", None)
     if agent.global_agent_settings is not None:
@@ -194,7 +194,7 @@ def assemble_stage_tools(agent, options, history):
         )
     agent.tool_list_base = [agent.tool_read_text, RoleInfo(agent._default_system_prompt)]
     if not options.no_embed_tools:
-        from ucagent.core.backends import get_backend_class
+        from ucagent import get_backend_class
         if agent.multi_agent_settings is not None and not get_backend_class(agent.cfg).capabilities.model_rounds:
             raise ValueError("Managed external backends do not implement internal embedding tools; "
                              "pass --no-embed-tools to select an all-external execution path")
@@ -337,8 +337,8 @@ def assemble_backend(agent, options):
     langfuse_cfg = agent.cfg.get_value('langfuse', {})
     trace_models = agent.backend.capabilities.model_rounds
     if agent.multi_agent_settings is not None:
-        from ucagent.core.backends import get_backend_class
-        from ucagent.core.multi_agent.super_agent.contracts import role_backend_config
+        from ucagent import get_backend_class
+        from ucagent import role_backend_config
         trace_models = trace_models or any(
             get_backend_class(role_backend_config(agent.cfg, role)).capabilities.model_rounds
             for role in agent.multi_agent_settings.roles.values())
@@ -347,25 +347,25 @@ def assemble_backend(agent, options):
         public_key = langfuse_cfg.get_value('public_key', '')
         secret_key = langfuse_cfg.get_value('secret_key', '')
         base_url = langfuse_cfg.get_value('base_url', '')
-        from ucagent.core.agent.telemetry import acquire_trace_client
+        from ucagent import acquire_trace_client
         agent.langfuse, release_trace = acquire_trace_client(Langfuse, public_key=public_key, secret_key=secret_key, base_url=base_url)
         agent._startup_cleanup.callback(close_agent_resource, agent, "Langfuse shutdown", release_trace)
         agent.langfuse_handler = CallbackHandler(public_key=public_key)
 
     if getattr(agent, "global_agent_settings", None) is not None:
-        from ucagent.core.multi_agent.global_agent.service import GlobalAgentService
-        from ucagent.core.tools.global_agent import global_tools
+        from ucagent import GlobalAgentService
+        from ucagent import global_tools
         agent.global_service = GlobalAgentService(agent, agent.global_agent_settings, catalog=agent.global_catalog)
         agent.test_tools = global_tools(agent)
     elif agent.multi_agent_settings is not None:
-        from ucagent.core.multi_agent.super_agent.service import MultiAgentService
-        from ucagent.core.tools.delegation import supervisor_tools
+        from ucagent import MultiAgentService
+        from ucagent import supervisor_tools
         agent.multi_agent_business_tools = list(agent.test_tools)
         agent.multi_agent_business_names = {tool.name for tool in agent.test_tools}
         agent.multi_agent = MultiAgentService(agent, agent.multi_agent_settings)
         agent._startup_cleanup.callback(close_agent_resource, agent, "Sub-Agent shutdown", agent.multi_agent.drain)
         agent.test_tools = supervisor_tools(agent)
-        from ucagent.core.agent.session import AgentSession
+        from ucagent import AgentSession
         AgentSession(agent, directory=Path(agent.workspace) / ".ucagent" / "multi_agent" / agent.session_id.hex / "super",
                      before_turn=agent.multi_agent.before_backend_turn, before_model=agent.multi_agent.before_model,
                      yielded=agent.multi_agent.yielded, endpoint_factory=lambda: agent.multi_agent.endpoint_factory)

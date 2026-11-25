@@ -19,7 +19,7 @@ ACT4 测试资产。初学者可以按章节顺序阅读；熟悉 ACT4 的工程
 - [阶段设计模板](act4_template/README.md)：coverage、generator、VM/resource、验证与交付；
 - `workflows/privileged-suite-generation.yaml`；
 - 各 checker 的实现位于 `act4_privileged_suite/checkers/act4_*.py`，其单元测试位于
-  `plugins/ACT4/tests/test_act4_*.py`。
+  `ucagent/plugins/ACT4/tests/test_act4_*.py`。
 
 本文所说的“通过”始终是某个明确 gate 在其证据边界内通过，不是对完整 ISA
 certification、外部 DUT 或人工审批的统称。

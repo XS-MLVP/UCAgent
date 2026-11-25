@@ -7,7 +7,7 @@ import signal
 
 import yaml
 
-from ucagent.checkers.base import Checker
+from ucagent import Checker
 
 from ..environment import HOST_PROBES, prepare, prepared_environment, read_plan, state_key
 from ..xiangshan_bundle import execute, safe_path, sha256, write_json

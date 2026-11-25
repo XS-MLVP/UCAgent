@@ -10,8 +10,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from ucagent.util.config import load_runtime_config
-from ucagent.util.functions import load_json_file, save_json_file
+from ucagent import load_runtime_config
+from ucagent import load_json_file, save_json_file
 
 
 CURRENT_TEST_REPORT_FILENAME = "current_test_report.json"
@@ -116,7 +116,15 @@ class TestProtocolRuntimeHook:
         }
 
     def validate_runtime_snapshot(self, data: Dict[str, Any]) -> None:
-        """Validate this hook's contributed snapshot sections."""
+        """Validate this hook's sections and UnitTest's boolean runtime options."""
+        runtime_options = data.get("runtime_options", {})
+        if not isinstance(runtime_options, dict):
+            raise ValueError("Resolved runtime config runtime_options must be a mapping.")
+        for key in ("need_ref_model", "mock_components_enabled"):
+            if key in runtime_options and type(runtime_options[key]) is not bool:
+                raise ValueError(
+                    f"Resolved runtime option '{key}' must be a boolean."
+                )
         if "test_output_dir" in data:
             test_output_dir = data["test_output_dir"]
             if not isinstance(test_output_dir, str) or not test_output_dir.strip():

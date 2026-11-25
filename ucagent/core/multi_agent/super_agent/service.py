@@ -12,8 +12,8 @@ import threading
 import time
 from uuid import uuid4
 
-from ucagent.util.log import log_msg, warning
-from ucagent.util.file_policy import normalize_relative_path, is_file_writeable
+from ucagent import log_msg, warning
+from ucagent import normalize_relative_path, is_file_writeable
 from .contracts import TaskPlan
 from .supervisor import StageDriver
 from .recovery import RecoveryControl, BudgetExhausted, ExecutionCircuitOpen, ISSUE_POLICIES
@@ -70,6 +70,8 @@ class TaskRecord:
     tool_evidence: list = field(default_factory=list)
     available_tools: list = field(default_factory=list)
     capabilities: dict = field(default_factory=dict)
+    batch_advanced: bool = False
+    batch_progress: dict | None = None
 
     def budget_status(self, limits):
         """Report metrics and only show a limit when its optional fuse is enabled."""
@@ -256,6 +258,37 @@ class MultiAgentService(RecoveryControl):
         record.cancel.set()
         self.emit("execution_circuit_open", task_id=record.key, category="checker_repeat",
                   consecutive=count, threshold=threshold)
+        return True
+
+    def observe_batch_progress(self, record, result):
+        """Remember successful batch advancement so stale task instructions are never retried."""
+        def find(value):
+            if isinstance(value, dict):
+                summary = value.get("progress_summary")
+                if isinstance(summary, dict) and summary.get("status") == "batch_advanced":
+                    return summary
+                for child in value.values():
+                    found = find(child)
+                    if found is not None:
+                        return found
+            elif isinstance(value, (list, tuple)):
+                for child in value:
+                    found = find(child)
+                    if found is not None:
+                        return found
+            return None
+
+        summary = find(result)
+        if summary is None:
+            return False
+        record.batch_advanced = True
+        record.batch_progress = {
+            key: summary[key] for key in ("stage_index", "stage_name", "progress", "next_action")
+            if key in summary
+        }
+        self.emit("task_batch_advanced", task_id=record.key,
+                  stage_index=record.batch_progress.get("stage_index"),
+                  stage_name=record.batch_progress.get("stage_name"))
         return True
 
     def observe_supervisor_failure(self, category, *, error=None, phase=None):
@@ -463,6 +496,7 @@ class MultiAgentService(RecoveryControl):
                       "instruction": r.spec.instruction,
                       "summary": (r.result or {}).get("summary"), "artifacts": dict(r.artifacts),
                       "issue": (r.result or {}).get("issue"),
+                      "batch_progress": r.batch_progress,
                       "evidence": list(r.tool_evidence[-10:]),
                       "error": r.error, "role": r.spec.role or self.settings.default_role,
                       "budget": r.budget_status(self.settings.limits),
@@ -706,13 +740,21 @@ class MultiAgentService(RecoveryControl):
                     record.state = "cancelled"
                 elif (record.result or {}).get("status") == "needs_attention":
                     record.state = "needs_attention"
-                elif (state == "failed" and not getattr(self.agent, "_need_human", False)
+                elif (state == "failed" and not record.batch_advanced
+                      and not getattr(self.agent, "_need_human", False)
                       and (record.result or {}).get("status") != "needs_attention"
                       and record.attempt < self.worker_limit(record, "task_max_attempts")
                       and (record.deadline is None or time.monotonic() < record.deadline)):
 
                     record.feedback = error
                     record.state = "queued"
+                elif (state == "failed" and record.batch_advanced
+                      and not getattr(self.agent, "_need_human", False)
+                      and (record.result or {}).get("status") != "needs_attention"
+                      and record.attempt < self.worker_limit(record, "task_max_attempts")
+                      and (record.deadline is None or time.monotonic() < record.deadline)):
+                    self.emit("task_retry_suppressed", task_id=record.key,
+                              reason="batch_advanced", batch_progress=record.batch_progress)
                 record.worker = None
                 record.activity = None
                 self._running -= 1
@@ -736,6 +778,8 @@ class MultiAgentService(RecoveryControl):
                 result = self.driver.finish(lease, timeout,
                     summaries=[r.result["summary"] for r in records],
                     stage_args=records[0].result.get("stage_args") if len(records) == 1 else None)
+                for record in records:
+                    self.observe_batch_progress(record, result)
                 if (result.get("complete") and self.handoff is not None
                         and all(stage.is_completed() or stage.is_skipped() for stage in self.agent.stage_manager.stages)):
                     self.handoff.record_artifacts()
@@ -748,10 +792,11 @@ class MultiAgentService(RecoveryControl):
                 indices = {row["index"] for row in mission.get("stages", [])}
                 record.display_state = {**record.display_state, "mission": scope_mission(
                     self.agent.stage_manager, [stage for i, stage in enumerate(self.agent.stage_manager.stages) if i in indices])}
-            retry = (not result.get("complete") and not self._closed
-                     and not getattr(self.agent, "_need_human", False)
-                     and all(r.state == "verified" and r.attempt < self.worker_limit(r, "task_max_attempts")
-                             and (r.deadline is None or time.monotonic() < r.deadline) for r in records))
+            retry_eligible = (not result.get("complete") and not self._closed
+                              and not getattr(self.agent, "_need_human", False)
+                              and all(r.state == "verified" and r.attempt < self.worker_limit(r, "task_max_attempts")
+                                      and (r.deadline is None or time.monotonic() < r.deadline) for r in records))
+            retry = retry_eligible and not any(r.batch_advanced for r in records)
             if retry:
                 # Parent repair is a new bounded attempt on the same lease. The
                 # worker may repair the parent but still cannot complete it.
@@ -760,6 +805,9 @@ class MultiAgentService(RecoveryControl):
                 for r in records:
                     r.state, r.feedback = "queued", result
             else:
+                if retry_eligible and any(r.batch_advanced for r in records):
+                    self.emit("task_retry_suppressed", task_id=records[0].key,
+                              reason="batch_advanced", batch_progress=records[0].batch_progress)
                 for name in {r.plan_id for r in records}:
                     self.plans[name]["state"] = ("completed" if result.get("complete") else
                         "waiting_human" if getattr(self.agent, "_need_human", False) else
@@ -837,7 +885,7 @@ class MultiAgentService(RecoveryControl):
 
     def request_next_workflow(self, **arguments):
         """Accept a structured peer request and yield without starting a candidate inline."""
-        from ucagent.core.workflow.contracts import NextWorkflow
+        from ucagent import NextWorkflow
         request = NextWorkflow.model_validate(arguments)
         with self._cv:
             self.validate_handoff(request.transition_token)
@@ -847,7 +895,7 @@ class MultiAgentService(RecoveryControl):
 
     def complete_workflow_chain(self, **arguments):
         """Record a final Super decision after real business acceptance."""
-        from ucagent.core.workflow.contracts import EndChain
+        from ucagent import EndChain
         request = EndChain.model_validate(arguments)
         with self._cv:
             self.validate_handoff(request.transition_token)
@@ -952,7 +1000,7 @@ class MultiAgentService(RecoveryControl):
 
     def plan_turn(self, *, final=False, handoff=False, chat=None):
         """Run one real bounded Super model turn; only its tools may produce a plan."""
-        from ucagent.core.backends.blank import BlankBackend
+        from ucagent import BlankBackend
         if isinstance(self.agent.backend, BlankBackend):
             raise ValueError("Automatic multi-agent planning requires a non-blank Super backend; "
                              "an external MCP Super may submit plans through SubAgentTool instead")
@@ -1033,7 +1081,7 @@ class MultiAgentService(RecoveryControl):
 
     def start_workflow(self, instruction=None):
         """Start one managed Super loop; MCP clients need not poll to advance it."""
-        from ucagent.core.backends.blank import BlankBackend
+        from ucagent import BlankBackend
         with self._cv:
             if self._closed:
                 raise RuntimeError("Multi-agent service is closing")
@@ -1097,7 +1145,7 @@ class MultiAgentService(RecoveryControl):
                 self.set_issue("operator", "Execution was paused by the operator.", "Continue when ready.")
                 return self.status()
             try:
-                from ucagent.core.multi_agent.global_agent.result import write_workflow_run_result
+                from ucagent import write_workflow_run_result
                 write_workflow_run_result(self.agent, "failed", error=str(exc))
             except Exception:
                 pass
@@ -1179,7 +1227,7 @@ class MultiAgentService(RecoveryControl):
                     break
                 with self.driver.ownership():
                     result = self.agent.stage_manager.exit()
-                from ucagent.core.multi_agent.global_agent.result import write_workflow_run_result
+                from ucagent import write_workflow_run_result
                 write_workflow_run_result(
                     self.agent,
                     "succeeded" if result.get("exit") else "failed",

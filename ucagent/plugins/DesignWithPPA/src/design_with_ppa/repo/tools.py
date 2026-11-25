@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 
 from ..contracts import diagnostic
 from .common import RepoPaths
@@ -49,7 +49,7 @@ class RunRepoValidation(UCTool):
     def _run(self, action="validate", baseline=False, migration_script=False, **kwargs) -> dict:
         """Run the selected managed operation and return bounded actionable diagnostics."""
 
-        from ucagent.util.log import info
+        from ucagent import info
 
         try:
             args = RunRepoValidationArgs(action=action, baseline=baseline, migration_script=migration_script)

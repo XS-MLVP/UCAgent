@@ -8,7 +8,7 @@ import hashlib
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ucagent.core.plugins import load_plugins, validate_workflow_dependencies
+from ucagent import load_plugins, validate_workflow_dependencies
 
 
 class Contract(BaseModel):
@@ -110,7 +110,7 @@ def load_handoff_settings(cfg):
         raise ValueError("runtime_options.workflow_handoff_enabled must be boolean")
     if not enabled:
         return None
-    from ucagent.core.multi_agent.mode import agent_role
+    from ucagent import agent_role
     if agent_role(cfg) != "super" or cfg.get_value("backend.key_name") == "blank":
         raise ValueError("Workflow handoff requires an internal non-blank Super; multi workflow chaining belongs to Global")
     raw = cfg.get_value("workflow_handoff", {})

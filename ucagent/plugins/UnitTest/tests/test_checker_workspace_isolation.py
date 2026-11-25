@@ -132,7 +132,7 @@ def test_coverage_probe_inherits_active_source_import_roots(tmp_path, monkeypatc
     plugin_package.mkdir(parents=True)
     (plugin_package / "__init__.py").write_text(
         "import os\n"
-        "from ucagent.util.config import load_runtime_config\n"
+        "from ucagent import load_runtime_config\n"
         f"os.environ[{pollution_key!r}] = 'child-only'\n"
         "PROBE_VALUE = bool(load_runtime_config)\n",
         encoding="utf-8",

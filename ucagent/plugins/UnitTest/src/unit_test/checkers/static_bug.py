@@ -8,9 +8,9 @@ import re
 from typing import List, Tuple
 
 import ucagent.util.functions as fc
-from ucagent.core.checkers.base import Checker, BatchTask
+from ucagent import Checker, BatchTask
 from unit_test.bug_analysis_contract import STATIC_BUG_SECTION_MARKERS
-from ucagent.util.log import info, warning
+from ucagent import info, warning
 from unit_test.doc_marks import (
     get_doc_marks,
     nested_keys_as_list,

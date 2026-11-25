@@ -20,7 +20,7 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 import yaml
 
-from ucagent.version import SOURCE_TREE_RUNTIME, __version__
+from ucagent import SOURCE_TREE_RUNTIME, __version__
 
 
 PLUGIN_API_VERSION = 1
@@ -116,7 +116,7 @@ class PluginWorkflow:
             value = getattr(self, name)
             if not isinstance(value, Mapping) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
                 raise PluginError(f"Workflow {name} must map file paths to descriptions")
-        from ucagent.core.workspace.preparation import PreparationOptions
+        from ucagent import PreparationOptions
         if self.prepare_workspace is not None and not callable(self.prepare_workspace):
             raise PluginError("Workflow prepare_workspace must be callable")
         if self.preparation_schema is not None and (not isinstance(self.preparation_schema, type) or
@@ -693,7 +693,7 @@ def validate_plugin(plugin: Plugin, *, check_dependencies: bool = True) -> Plugi
     if any(not callable(factory) for factory in factories):
         raise PluginError(f"Plugin {plugin.name!r} tool_factories must be callable")
 
-    from ucagent.core.checkers.base import Checker
+    from ucagent import Checker
     import ucagent.core.checkers as core_checkers
 
     checker_classes = tuple(plugin.checkers)
@@ -1313,7 +1313,7 @@ def create_plugin_tools(
 ) -> list[Any]:
     """Instantiate selected plugin tools with resolved workspace policy and unique names."""
 
-    from ucagent.core.tools.uctool import UCTool
+    from ucagent import UCTool
 
     tools = []
     seen: dict[str, str] = {}

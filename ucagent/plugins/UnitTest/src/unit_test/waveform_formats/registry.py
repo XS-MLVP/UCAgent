@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from ucagent.util.log import log_msg
+from ucagent import log_msg
 from .protocols import WaveformReader, WaveformReaderFactory
 
 

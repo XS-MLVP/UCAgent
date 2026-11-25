@@ -26,7 +26,7 @@ if _skill_root not in sys.path:
 from lib.formal_paths import FormalPaths
 from lib.formal_tools import load_records, save_records, auto_scaffold_bug_entries
 from lib.models import FormalRecords, BugEntry
-from ucagent.util.log import str_error, str_info
+from ucagent import str_error, str_info
 
 VALID_SEVERITIES = {"HIGH", "MEDIUM", "LOW"}
 VALID_CONFIDENCES = {"HIGH", "MEDIUM", "LOW"}

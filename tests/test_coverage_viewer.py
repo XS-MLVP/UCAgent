@@ -102,7 +102,7 @@ setTimeout(() => {
 
 def test_test_tool_only_selects_gui_mode(tmp_path):
     """Source-tree and installed runs need only the public Toffee GUI option."""
-    from ucagent.tools.testops import RunUnityChipTest
+    from unit_test.testops import RunUnityChipTest
     tool = RunUnityChipTest(workspace=str(tmp_path))
     args = tool.get_pytest_args()
     assert "--report-custom=coverage-gui-xpra" in args
@@ -111,7 +111,7 @@ def test_test_tool_only_selects_gui_mode(tmp_path):
 
 def test_test_tool_serializes_list_options(tmp_path):
     """List-valued pytest options become repeated flags, not Python list strings."""
-    from ucagent.tools.testops import RunUnityChipTest
+    from unit_test.testops import RunUnityChipTest
     tool = RunUnityChipTest(workspace=str(tmp_path))
     tool.set_pytest_args({'report-custom': ['coverage-gui-xpra', 'future-option']})
     args = tool.get_pytest_args()

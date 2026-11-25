@@ -34,7 +34,7 @@ from unit_test.bug_analysis_contract import (
     WAVEFORM_REFERENCE_MARKER,
 )
 from unit_test.str_utils import list_str_abbr
-from ucagent.util.log import warning
+from ucagent import warning
 from unit_test.test_report import check_file_block, parse_test_case_name
 
 

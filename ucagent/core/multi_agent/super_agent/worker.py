@@ -13,9 +13,9 @@ from uuid import uuid4
 
 from pydantic import Field, model_validator
 
-from ucagent.core.tools.uctool import UCTool, EmptyArgs
-from ucagent.util.config import Config
-from ucagent.util.functions import get_tools_from_cfg
+from ucagent import UCTool, EmptyArgs
+from ucagent import Config
+from ucagent import get_tools_from_cfg
 from .contracts import StrictModel
 from .recovery import IssueReport, ISSUE_POLICIES, ExecutionCircuitOpen
 
@@ -57,15 +57,15 @@ class BoundTool(UCTool):
         """Project task-control replies without filtering delegated file or Checker text."""
         from .display import control_result, tool_body
         if self.action == "check":
-            from ucagent.core.stage.display import format_check_result
+            from ucagent import format_check_result
             return tool_body(format_check_result(content))
         return tool_body(control_result(self.action, content))
 
     def invoke(self, input, config=None, **kwargs):
         """Bind MCP calls to their Sub and expose CLI tool bodies only to its detail view."""
         from .view import worker_output
-        from ucagent.util.functions import format_message_value
-        from ucagent.util.output import output_context
+        from ucagent import format_message_value
+        from ucagent import output_context
         external = not self.worker.backend_class.capabilities.model_rounds
         started = time.monotonic()
         with worker_output(self.worker.parent, self.worker.record):
@@ -141,7 +141,7 @@ class WorkerSession:
         self.message_sender = f"Sub:{super_name}/{record.spec.id}"
         from .contracts import role_backend_config
         self.cfg = role_backend_config(self.parent.cfg, record.role)
-        from ucagent.core.backends import get_backend_class
+        from ucagent import get_backend_class
         self.backend_class = get_backend_class(self.cfg)
         record.model_rounds_available = self.backend_class.capabilities.model_rounds
         self.isolated = record.split and self.backend_class.requires_mcp
@@ -295,9 +295,9 @@ class WorkerSession:
 
     def build_tools(self):
         """Instantiate fresh business tools and attach only task-authorized lifecycle tools."""
-        from ucagent.core.tools import fileops
-        from ucagent.core.plugins import PluginContext, create_plugin_tools
-        from ucagent.core.stage.vmanager import ArgsDoCheck
+        from ucagent import fileops
+        from ucagent import PluginContext, create_plugin_tools
+        from ucagent import ArgsDoCheck
         r = self.record
         policy = self.file_access_policy()
         writes, readonly = policy["write_dirs"], policy["un_write_dirs"]
@@ -339,7 +339,7 @@ class WorkerSession:
                     if name in allowed:
                         tools.append(self.stage_manager.manager_tool_registry[name]().bind(self.stage_manager))
             if self.cfg.get_value("skill.use_skill", False):
-                from ucagent.core.tools.skill import ListSkill, RunSkillScript
+                from ucagent import ListSkill, RunSkillScript
                 tools.append(ListSkill(self.workspace).bind(self))
                 if "RunSkillScript" in allowed and "RunSkillScript" in parent_names:
                     tools.append(RunSkillScript(self.workspace).bind(self))
@@ -419,6 +419,7 @@ class WorkerSession:
                 self._checked_args = None
                 result = driver.check(r.lease, arguments.get("timeout") or self.cfg.get_value("call_time_out", 300),
                                      arguments.get("stage_args"), actor=self.message_sender)
+                self.service.observe_batch_progress(r, result)
                 if self.service.observe_checker_result(r, result):
                     raise ExecutionCircuitOpen("checker_repeat", r.key)
                 if result.get("check_pass") is True:
@@ -434,6 +435,7 @@ class WorkerSession:
                 result = driver.complete_substage(r.lease, arguments["step_token"],
                     arguments.get("timeout") or self.cfg.get_value("call_time_out", 300), arguments.get("stage_args"),
                     actor=self.message_sender)
+                self.service.observe_batch_progress(r, result)
                 if self.service.observe_checker_result(r, result):
                     raise ExecutionCircuitOpen("checker_repeat", r.key)
                 return {**result, "budget": r.budget_status(self.service.settings.limits)}
@@ -505,7 +507,7 @@ class WorkerSession:
 
     def run_backend(self):
         """Run and continue one independent backend session until accepted submission or cancellation."""
-        from ucagent.core.agent.session import AgentSession
+        from ucagent import AgentSession
         from .display import control_result
         self.cfg.set_value("backend.key_name", self.record.role.backend)
         session = AgentSession(self, directory=self.session_dir,

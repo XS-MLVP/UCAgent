@@ -95,7 +95,7 @@ from design_with_ppa.rtl import (  # noqa: E402
     resolve_rtl_config,
     unregister_rtl_language,
 )
-from ucagent.util.config import (  # noqa: E402
+from ucagent import (  # noqa: E402
     Config,
     build_runtime_config,
     get_config,

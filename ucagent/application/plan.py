@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from typing import Any
 import shlex
 
-from ucagent.core.backends import get_backend_class
-from ucagent.core.multi_agent.mode import agent_role
-from ucagent.runtime.control.commands import DEFERRED_COMMANDS
+from ucagent import get_backend_class
+from ucagent import agent_role
+from ucagent import DEFERRED_COMMANDS
 
 
 @dataclass(frozen=True)

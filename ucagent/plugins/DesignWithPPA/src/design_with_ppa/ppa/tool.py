@@ -13,10 +13,10 @@ import time
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools.base import ArgsSchema
 from pydantic import Field, PrivateAttr
-from ucagent.core.tools.uctool import UCTool
-from ucagent.util.file_policy import is_file_writeable
-from ucagent.util.functions import make_llm_tool_ret
-from ucagent.util.log import info
+from ucagent import UCTool
+from ucagent import is_file_writeable
+from ucagent import make_llm_tool_ret
+from ucagent import info
 
 from .models import AnalyzePPAArgs
 from .common import _diagnostic, _sha256_file, _json_safe, _redact_private_paths
@@ -553,7 +553,7 @@ class AnalyzePPA(UCTool):
         """
 
         import json as _json
-        from ucagent.util.functions import load_json_file
+        from ucagent import load_json_file
         workspace = Path(self.workspace).resolve()
         if not rtl_files or not top_module:
             manifest_path = workspace / ".ucagent" / "design_with_ppa" / "rtl_backend_manifest.json"

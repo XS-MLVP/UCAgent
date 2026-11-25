@@ -5,7 +5,7 @@ from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
 
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 from typing import Any, Optional

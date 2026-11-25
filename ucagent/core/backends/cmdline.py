@@ -2,13 +2,13 @@
 """External model commands with shared process cleanup and activity monitoring."""
 
 
-from ucagent.core.backends.base import AgentBackendBase, BackendCapabilities
+from ucagent import AgentBackendBase, BackendCapabilities
 from jinja2 import Environment, FileSystemLoader
-from ucagent.util.log import warning, info
-from ucagent.util.output import output_source
+from ucagent import warning, info
+from ucagent import output_source
 
 import ucagent.util.functions as fc
-from ucagent.util.functions import get_abs_path_cwd_ucagent, process_bash_cmd
+from ucagent import get_abs_path_cwd_ucagent, process_bash_cmd
 import os
 import ucagent
 

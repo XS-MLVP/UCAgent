@@ -45,7 +45,7 @@ CSV、人类 testplan、normative table 与 provenance 没有集合漂移。
 
 ## 测试
 
-回归测试位于 `plugins/ACT4/tests/test_act4_ctp_reference_checker.py`。修改 table 解析、
+回归测试位于 `ucagent/plugins/ACT4/tests/test_act4_ctp_reference_checker.py`。修改 table 解析、
 source boundary 或 Markdown contract 时应同步扩充 fixture。
 
 ## 实现定位与判定示例

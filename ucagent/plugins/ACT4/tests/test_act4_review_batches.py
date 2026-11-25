@@ -13,9 +13,9 @@ from act4_privileged_suite.checkers.act4_asset_checker import ACT4AssetChecker
 from act4_privileged_suite.checkers.act4_review_checker import ACT4ReviewChecker
 from act4_privileged_suite.plugin import get_plugin
 from act4_privileged_suite.review_tools import ACT4ReviewDocument, create_review_tools
-from ucagent.plugins import PluginContext
-from ucagent.tools.uctool import to_mcp_tool
-from ucagent.util.config import Config
+from ucagent import PluginContext
+from ucagent import to_mcp_tool
+from ucagent import Config
 
 from test_act4_review_checker import ReviewHarness
 from test_act4_review_checker import isolate_optional_simulators as isolate_optional_simulators

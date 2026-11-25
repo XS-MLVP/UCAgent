@@ -3,10 +3,10 @@
 from dataclasses import dataclass, field
 import os
 
-from ucagent.core.workspace.files import WorkspaceFiles, WorkspaceAccessError
-from ucagent.util import diff_ops
-from ucagent.util import functions as fc
-from ucagent.util.functions import find_files_by_pattern
+from ucagent import WorkspaceFiles, WorkspaceAccessError
+from ucagent import diff_ops
+from ucagent import functions as fc
+from ucagent import find_files_by_pattern
 
 
 @dataclass

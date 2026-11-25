@@ -20,6 +20,25 @@ def test_global_initial_prompt_is_one_turn(tmp_path):
     assert "chat 'do this'" in options["commands"]
     assert not any(c.startswith("loop") for c in options["commands"])
 
+def test_global_root_override_does_not_create_project_ucagent(tmp_path):
+    """Global session output honors global_agent.root without creating a project state directory."""
+    from ucagent.application.plan import LaunchRequest
+    from ucagent.application.preparation import prepare_launch
+
+    config = tmp_path / "config.yaml"
+    config.write_text("backend: {key_name: langchain}\n")
+    args = get_args([
+        str(tmp_path), "--agent-mode", "multi", "--config", str(config),
+        "--override", "global_agent.root=output",
+    ])
+    request = LaunchRequest(**parse_launch_options(args))
+
+    prepared, _, _ = prepare_launch(request)
+
+    assert prepared.cfg.get_value("global_agent.root") == str(tmp_path / "output")
+    assert Path(prepared.workspace).is_relative_to(tmp_path / "output" / "sessions")
+    assert not (tmp_path / ".ucagent").exists()
+
 @pytest.mark.parametrize("backend", ["langchain", "codex"])
 @pytest.mark.parametrize("external", [True, False])
 def test_documented_policy_loads_unittest_catalog(backend, external):

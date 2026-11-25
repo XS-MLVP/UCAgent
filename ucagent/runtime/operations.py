@@ -18,12 +18,13 @@ import time
 from typing import Callable
 from uuid import uuid4
 
-from ucagent.runtime.control.commands import CommandSession, COMMAND_ORIGIN
-from ucagent.core.stage.vmanager import StageManager
-from ucagent.runtime.control.controller import ControlError, Controller, public_data
-from ucagent.runtime.output import OUTPUT_OWNER
-from ucagent.util.output import OUTPUT_METADATA, OUTPUT_SINK, output_context
-from ucagent.util.functions import PROCESS_CANCELLATION, run_shell_process
+from ucagent import CommandSession, COMMAND_ORIGIN
+from ucagent import NonRetryableBackendError
+from ucagent import StageManager
+from ucagent import ControlError, Controller, public_data
+from ucagent import OUTPUT_OWNER
+from ucagent import OUTPUT_METADATA, OUTPUT_SINK, output_context
+from ucagent import PROCESS_CANCELLATION, run_shell_process
 
 
 OPERATION_PARENT = ContextVar("ucagent_operation_parent", default=None)
@@ -593,7 +594,7 @@ class OperationExecutor:
         if command not in {"continue", "continue_with_message", "loop", "next_round",
                            "next_round_with_message", "chat", "short_prompt"}:
             raise ControlError("unknown_command", f"Unknown operation '{command}'.")
-        from ucagent.core.backends.blank import BlankBackend
+        from ucagent import BlankBackend
         if isinstance(getattr(self.agent, "backend", None), BlankBackend):
             raise ControlError("unsupported_mode", "Model work is not supported by BlankBackend.")
         message = arguments.get("message", "")
@@ -686,7 +687,7 @@ class OperationExecutor:
                         return {"reason": "paused", "stop_reason": "checker_stall",
                                 "invoke_round": self.agent.invoke_round}
                 return {"reason": "completed", "invoke_round": self.agent.invoke_round}
-            except (OperationCancelled, OperationFailure):
+            except (OperationCancelled, OperationFailure, NonRetryableBackendError):
                 raise
             except Exception:
                 context.checkpoint()

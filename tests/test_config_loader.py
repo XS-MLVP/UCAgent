@@ -57,7 +57,7 @@ class TestConfigLoader(unittest.TestCase):
             "workflows",
         )
         simulator_write_dirs = [
-            "{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
+            "{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.vdb.lock", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
             "{DUT}/**/*.vpd", "{DUT}/**/*.usdb", "{DUT}/**/*.usdb.json",
         ]
         for name in ("unittest.yaml", "incremental.yaml", "vibe.yaml"):
@@ -125,8 +125,8 @@ class TestConfigLoader(unittest.TestCase):
             )
         )
         values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
-        protected = [entry.format(**values) for entry in config["un_write_dirs"]]
-        writable = [entry.format(**values) for entry in config["write_dirs"]]
+        protected = [entry.format(**values) for entry in framework["un_write_dirs"]]
+        writable = [entry.format(**values) for entry in workflow["write_dirs"]]
         with tempfile.TemporaryDirectory() as workspace:
             dut = Path(workspace) / "Adder"
             nested = dut / "tests"
@@ -314,6 +314,29 @@ class TestConfigLoader(unittest.TestCase):
 
             _merge_config_file(cfg, override_file, [])
             self.assertEqual(cfg.mission.prompt.system, "replacement\n")
+
+    def test_workflow_includes_preserve_framework_prompts_once(self):
+        """Included workflows extend the framework once while retaining local overrides."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_file = os.path.join(temp_dir, "base.yaml")
+            child_file = os.path.join(temp_dir, "child.yaml")
+            with open(base_file, "w", encoding="utf-8") as handle:
+                handle.write("mission:\n  prompt:\n    system: domain\n    tips:\n      always: [domain]\n")
+            for override in (False, True):
+                with self.subTest(override=override):
+                    with open(child_file, "w", encoding="utf-8") as handle:
+                        handle.write("include: base.yaml\n")
+                        if override:
+                            handle.write("mission:\n  prompt:\n    system: child\n    tips:\n      always: [child]\n")
+                    cfg = Config({"mission": {"prompt": {"system": "framework", "tips": {"always": ["framework"]}}}})
+                    loaded = []
+                    _merge_config_file(cfg, child_file, loaded, append_keys=WORKFLOW_APPEND_KEYS)
+                    expected = "child" if override else "domain"
+                    self.assertEqual(cfg.mission.prompt.system, f"framework\n\n{expected}\n")
+                    self.assertEqual(cfg.mission.prompt.tips.always, ["framework", expected])
+                    _merge_config_file(cfg, child_file, loaded, append_keys=WORKFLOW_APPEND_KEYS)
+                    self.assertEqual(cfg.mission.prompt.system, f"framework\n\n{expected}\n")
+                    self.assertEqual(cfg.mission.prompt.tips.always, ["framework", expected])
 
     def test_load_yaml_with_negated_bool_scalars(self):
         yaml_content = """

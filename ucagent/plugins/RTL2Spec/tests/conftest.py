@@ -51,7 +51,7 @@ def forbid_real_workflow_processes(monkeypatch):
     def guarded_popen(command, *args, **kwargs):
         """Allow local tools and CLI help, never an actual model-backed mission."""
         arguments = command if isinstance(command, (list, tuple)) else [str(command)]
-        agent_command = any(Path(str(argument)).name in {"codex", "opencode", "ucagent", "rtl2spec"} or str(argument) == "ucagent.cli" for argument in arguments)
+        agent_command = any(Path(str(argument)).name in {"codex", "opencode", "ucagent", "rtl2spec"} for argument in arguments)
         if agent_command and "--help" not in arguments:
             pytest.fail(f"Real agent process forbidden in tests: {arguments[:5]}")
         return original_popen(command, *args, **kwargs)

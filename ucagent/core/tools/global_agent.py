@@ -1,8 +1,8 @@
 """Direct tools for persistent Global sessions."""
 from typing import Any
 from pydantic import Field
-from ucagent.core.tools.uctool import UCTool, EmptyArgs
-from ucagent.core.multi_agent.global_agent.session_contracts import SuperRequest, StrictContract
+from ucagent import UCTool, EmptyArgs
+from ucagent import SuperRequest, StrictContract
 
 class DUTArgs(StrictContract):
     """Filter candidate DUT names without selecting a workflow."""
@@ -46,7 +46,7 @@ class GlobalTool(UCTool):
                     "next_action": "Inspect ListDUTs, ListWorkflows or AgentStatus and correct the request."}
 
     def display_result(self, content):
-        from ucagent.core.multi_agent.global_agent.display import session_summary
+        from ucagent import session_summary
         return session_summary(content)
 
 def global_tools(agent):

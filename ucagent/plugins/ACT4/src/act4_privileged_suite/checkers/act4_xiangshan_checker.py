@@ -18,7 +18,7 @@ import uuid
 
 import yaml
 
-from ucagent.checkers.base import Checker
+from ucagent import Checker
 
 from .. import xiangshan_bundle as bundle
 from .. import xiangshan_delivery

@@ -10,7 +10,7 @@ import tempfile
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from ucagent.util.waveform_viewer import load_waveform_metadata, resolve_workspace_path
+from ucagent import load_waveform_metadata, WaveformResolveWorkspacePath as resolve_workspace_path
 
 
 def tcl_word(value: str) -> str:

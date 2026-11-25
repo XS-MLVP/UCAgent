@@ -2,7 +2,7 @@
 
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
 
-from ucagent.util.functions import get_ai_message_tool_call
+from ucagent import get_ai_message_tool_call
 
 
 def content_text(content):

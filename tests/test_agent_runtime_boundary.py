@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ucagent.tools.fileops import (
+from ucagent.core.tools.fileops import (
     CopyFile,
     CreateDirectory,
     DeleteFile,
@@ -13,10 +13,10 @@ from ucagent.tools.fileops import (
     MoveFile,
     ReadTextFile,
     ReplaceStringInFile,
-    is_file_writeable,
 )
+from ucagent.util.file_policy import is_file_writeable
 from ucagent.util.config import Config, save_runtime_config
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
 
 
 @pytest.mark.parametrize("path", [".ucagent", ".ucagent/setting.yaml", ".UCAgent/skills/new.py"])

@@ -1,11 +1,11 @@
 """Prepare launch-wide workspace and logging, then resolve the Agent task contract."""
 
-from ucagent.core.agent.configuration import resolve_task_configuration
-from ucagent.application.plan import LaunchRequest, build_launch_plan
-from ucagent.application.workspace import prepare_workspace
-from ucagent.util.log import init_log_logger, init_msg_logger
-from ucagent.util.config import resolve_user_config_file, get_config, discovery_overrides
-from ucagent.core.multi_agent.mode import agent_role
+from ucagent import resolve_task_configuration
+from ucagent import LaunchRequest, build_launch_plan
+from ucagent import prepare_workspace
+from ucagent import init_log_logger, init_msg_logger
+from ucagent import resolve_user_config_file, get_config, discovery_overrides
+from ucagent import agent_role
 from pathlib import Path
 from uuid import uuid4
 import os

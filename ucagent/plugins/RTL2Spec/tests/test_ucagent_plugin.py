@@ -11,7 +11,7 @@ import pytest
 from rtl2spec.plugin import get_plugin
 from rtl2spec.checkers import RTL2SpecArtifactsChecker
 from rtl2spec.tools import RTL2SpecCommand, create_tools
-from ucagent.core.plugins import (
+from ucagent import (
     LoadedPlugin,
     PluginContext,
     PluginError,
@@ -22,9 +22,9 @@ from ucagent.core.plugins import (
     validate_workflow_dependencies,
     validate_plugin,
 )
-from ucagent.core.tools.uctool import to_mcp_tool
-from ucagent.util.file_policy import is_file_writeable
-from ucagent.util.functions import get_tools_from_cfg
+from ucagent import to_mcp_tool
+from ucagent import is_file_writeable
+from ucagent import get_tools_from_cfg
 
 
 def test_plugin_descriptor_validates() -> None:

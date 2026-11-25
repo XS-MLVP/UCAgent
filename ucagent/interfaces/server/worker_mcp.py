@@ -3,8 +3,8 @@
 from contextlib import contextmanager
 import secrets
 
-from ucagent.interfaces.server.api_mcp import McpServer
-from ucagent.util.config import Config
+from ucagent import McpServer
+from ucagent import Config
 
 
 @contextmanager

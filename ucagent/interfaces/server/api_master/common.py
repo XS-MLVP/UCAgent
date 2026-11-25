@@ -12,9 +12,9 @@ import shlex
 import socket
 import time
 from typing import Any, Deque, Dict, List, Optional, Tuple
-from ucagent.util.config import load_yaml_with_env_vars
-from ucagent.util.functions import find_available_port, is_port_free, replace_bash_var
-from ucagent.util.log import echo_g
+from ucagent import load_yaml_with_env_vars
+from ucagent import find_available_port, is_port_free, replace_bash_var
+from ucagent import echo_g
 
 
 try:

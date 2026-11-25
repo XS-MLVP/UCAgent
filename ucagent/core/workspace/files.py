@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import shutil
 
-from ucagent.util.file_policy import resolve_workspace_path
+from ucagent import FilePolicyResolveWorkspacePath as resolve_workspace_path
 
 
 class WorkspaceAccessError(ValueError):

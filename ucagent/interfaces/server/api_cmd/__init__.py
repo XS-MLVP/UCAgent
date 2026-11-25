@@ -1,8 +1,8 @@
 """CMD API server and its separately maintained feature routes."""
 
-from ucagent.interfaces.server.api_cmd.server import (
+from ucagent import (
     ControlApiServer,
-    _strip_ansi,
+    CommandApiStripAnsi,
 )
 
 __all__ = ["ControlApiServer"]

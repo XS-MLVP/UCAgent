@@ -7,9 +7,9 @@ import os
 import threading
 import time
 from uuid import uuid4
-from ucagent.core.multi_agent.global_agent.service import CURRENT_REQUEST
-from ucagent.runtime.control.controller import ControlError
-from ucagent.runtime.operations import TERMINAL_STATES
+from ucagent import CURRENT_REQUEST
+from ucagent import ControlError
+from ucagent import RuntimeTerminalStates as TERMINAL_STATES
 
 
 def atomic_json(path, value):

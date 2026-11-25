@@ -1,28 +1,54 @@
-"""Check that make init_<DUT> exports each simulator with the access mode it supports."""
+"""Check the UnitTest workspace preparer selects the correct Picker access mode."""
 
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
+from ucagent.core.workspace.preparation import WorkspacePreparation
+from unit_test.preparation import (
+    UnitTestPreparationOptions,
+    prepare_unittest,
+    simulator_rw_mode,
+)
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
-
-@pytest.mark.skipif(shutil.which("make") is None, reason="requires make")
-@pytest.mark.parametrize("simulator,suffix,access", [
-    ("verilator", "fst", "1"), ("gsim", "fst", "0"),
-    ("vcs", "fsdb", "0"), ("uvs", "usdb", "0"),
+@pytest.mark.parametrize("simulator,access", [
+    ("verilator", "1"),
+    ("gsim", "0"),
+    ("vcs", "0"),
+    ("uvs", "0"),
 ])
-def test_init_uses_the_same_access_mode_as_master(tmp_path, simulator, suffix, access):
-    """Only Verilator uses MEM_DIRECT; see test_api_master_compilation.py for Master."""
-    result = subprocess.run(
-        ["make", "-n", "init_Adder", f"SIM={simulator}", f"CWD={tmp_path}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+def test_prepare_unittest_uses_simulator_access_mode(tmp_path, simulator, access):
+    """Pass simulator-specific memory access through the real preparation command."""
+    source = tmp_path / "source"
+    workspace = tmp_path / "workspace"
+    source.mkdir()
+    workspace.mkdir()
+    (source / "Adder.v").write_text("module Adder; endmodule\n", encoding="utf-8")
+    calls = []
+
+    def run_command(argv):
+        args = [str(value) for value in argv]
+        calls.append(args)
+        if args[0] == "picker":
+            output = Path(args[args.index("--tdir") + 1]) / "Adder"
+            output.mkdir(parents=True, exist_ok=True)
+            (output / "example.py").write_text("# generated test stub\n", encoding="utf-8")
+
+    context = WorkspacePreparation(
+        source=source,
+        workspace=workspace,
+        dut_name="Adder",
+        options=UnitTestPreparationOptions(simulator=simulator),
+        progress=lambda _message: None,
+        check_cancelled=lambda: None,
+        run_command=run_command,
     )
-    exports = [line for line in result.stdout.splitlines() if "picker export" in line]
-    assert len(exports) == 2  # one branch for .v and one for .sv
-    for line in exports:
-        assert f"--sim {simulator} --rw {access} " in line
-        assert f"Adder.{suffix}" in line
+
+    prepare_unittest(context)
+
+    picker_calls = [args for args in calls if args[0] == "picker"]
+    assert len(picker_calls) == 1
+    assert picker_calls[0][picker_calls[0].index("--sim") + 1] == simulator
+    assert picker_calls[0][picker_calls[0].index("--rw") + 1] == access
+    assert simulator_rw_mode(simulator) == access

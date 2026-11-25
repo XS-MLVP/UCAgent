@@ -60,7 +60,7 @@
 
 Generic 参数覆盖使用 picker 的 `--sflag` 传给 slang；由于原生导出顶层包裹了 DUT，非空 parameters 还通过本次工作区内的模板副本向单个原生 DUT 实例写入确定性 `defparam`。模板由 picker `export --help` 广告的 `--sdir` 默认目录定位，要求原生 `lib/top.sv` 中保留唯一的 `{{__INNER_MODULES__}}` 标记；同时对副本 `lib/Makefile` 中唯一的原生 mem_direct `--source_dir` 模板参数补引号，以保留含空格路径。支持标记不满足时停止，不能静默使用默认参数。无参数时不复制或改写模板；安装模板和用户硬件均保持不变。
 
-验证目录包含 `{DUT}/`（Python DUT 包和导出示例）、`{DUT}_RTL/`（保持相对结构的分析源码）、`{DUT}_Doc/`（平铺文档）、`unity_test/`、`uc_test_report/` 和独立 `.ucagent/`。完整编译集合通过 filelist 传给 picker，不等于默认静态分析集合：Generic 仅列入配置明确列出的源文件；香山仅列入目标 RTL 及上游 evidence manifest 登记的相关源码，并从当前工程取文件。不新增依赖发现器。
+验证目录包含 `{DUT}/`（Python DUT 包和导出示例）、`{DUT}_RTL/`（保持相对结构的分析源码）、`{DUT}_Doc/`（平铺文档）、`unit_test/`、`uc_test_report/` 和独立 `.ucagent/`。完整编译集合通过 filelist 传给 picker，不等于默认静态分析集合：Generic 仅列入配置明确列出的源文件；香山仅列入目标 RTL 及上游 evidence manifest 登记的相关源码，并从当前工程取文件。不新增依赖发现器。
 
 准备使用 Verilator、原生 mem_direct 访问和 FST，编译后执行导出 `example.py` 检查基本可运行性。`{DUT}/README.md` 提供目标、配置和文档路径，保留原有说明和 Generic 输入 README。全部 specs 与设计文档按原字节交接，不复制 info、报告、日志或 JSON；无 spec 时仍可继续，设计文档缺失则停止。同名来源或已有目标内容冲突在复制前报告，不能覆盖。已有 DUT 包、准备记录或运行状态需更换验证工作区；失败保留 `.rtl2spec-preparation/` 日志和部分产物，不自动重试。
 

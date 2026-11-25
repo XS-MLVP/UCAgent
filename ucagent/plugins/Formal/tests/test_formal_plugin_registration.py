@@ -6,12 +6,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from ucagent.core.plugins import (
+from ucagent import (
     create_plugin_checker_registry,
     load_plugin,
     resolve_plugin_workflow,
 )
-from ucagent.util.config import get_config
+from ucagent import get_config
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PLUGIN_PATH = Path(__file__).resolve().parents[1]

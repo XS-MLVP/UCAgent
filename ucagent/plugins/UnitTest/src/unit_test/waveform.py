@@ -31,8 +31,8 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field, field_validator, model_validator
 import yaml
 
-from ucagent.util.functions import make_llm_tool_ret
-from ucagent.util.file_policy import deepest_matching_write_entry, write_entry_has_wildcards
+from ucagent import make_llm_tool_ret
+from ucagent import deepest_matching_write_entry, write_entry_has_wildcards
 from unit_test.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
     BUG_ANALYSIS_SECTION_TITLES,
@@ -61,8 +61,8 @@ from unit_test.bug_analysis_contract import (
     waveform_record_tag,
     waveform_reference,
 )
-from ucagent.util.log import info as log_info, log_msg, warning
-from ucagent.util.markdown import ensure_markdown_file_heading_spacing
+from ucagent import info as log_info, log_msg, warning
+from ucagent import ensure_markdown_file_heading_spacing
 from unit_test.waveform_formats import (
     DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
     DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,
@@ -79,7 +79,7 @@ from unit_test.waveform_formats import (
     validate_waveform_analysis_format_priority,
     validate_waveform_analysis_backend_priority,
 )
-from ucagent.util.waveform_viewer import (
+from ucagent import (
     WaveformViewerProtocolError,
     build_waveform_viewer_markdown_link,
     build_waveform_viewer_url,
@@ -87,11 +87,11 @@ from ucagent.util.waveform_viewer import (
     waveform_viewer_semantics,
     WAVEFORM_METADATA_LOCK,
     build_waveform_metadata,
-    resolve_workspace_path,
+    WaveformResolveWorkspacePath as resolve_workspace_path,
     validate_waveform_metadata,
     write_waveform_metadata,
 )
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 
 
 _DOCUMENT_WRITE_LOCK = threading.RLock()

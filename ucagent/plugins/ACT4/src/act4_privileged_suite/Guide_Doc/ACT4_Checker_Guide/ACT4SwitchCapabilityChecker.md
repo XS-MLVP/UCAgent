@@ -44,7 +44,7 @@
 
 ## 测试
 
-回归测试位于 `plugins/ACT4/tests/test_act4_switch_capability_checker.py`。
+回归测试位于 `ucagent/plugins/ACT4/tests/test_act4_switch_capability_checker.py`。
 
 ## 实现定位与实际检查范围
 

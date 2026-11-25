@@ -7,11 +7,11 @@ from textual.app import App
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Input, Static, Tree, Footer
-from ucagent.interfaces.terminal.tui.widgets.messages_panel import MessagesPanel
-from ucagent.interfaces.terminal.tui.agent_view import SuperAgentView, SubAgentView
-from ucagent.core.multi_agent.global_agent.display import session_summary
-from ucagent.interfaces.terminal.tui.agent_screen import AgentScreen
-from ucagent.interfaces.terminal.tui.widgets.recovery import reason_label
+from ucagent import MessagesPanel
+from ucagent import SuperAgentView, SubAgentView
+from ucagent import session_summary
+from ucagent import AgentScreen
+from ucagent import reason_label
 
 SESSION_CSS = """
 Screen { background: $background; }

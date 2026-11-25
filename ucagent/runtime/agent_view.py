@@ -4,10 +4,10 @@ import copy
 import threading
 import time
 from uuid import uuid4
-from ucagent.runtime.agent_events import AgentEvents, atomic_json
-from ucagent.runtime.control.commands import CommandSession
-from ucagent.runtime.control.controller import ControlError
-from ucagent.util.output import AGENT_ACTOR, OUTPUT_RECORDED, OUTPUT_METADATA
+from ucagent import AgentEvents, atomic_json
+from ucagent import CommandSession
+from ucagent import ControlError
+from ucagent import AGENT_ACTOR, OUTPUT_RECORDED, OUTPUT_METADATA
 
 class LocalAgentView:
     def __init__(self, host, root, agent_id, attempt=1):

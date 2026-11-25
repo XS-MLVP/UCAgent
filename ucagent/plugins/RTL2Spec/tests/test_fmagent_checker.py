@@ -8,9 +8,8 @@ import yaml
 from rtl2spec.fmagent_checker import RTL2SpecFMAgentExportChecker, RTL2SpecFMAgentPrepareChecker
 from rtl2spec.plugin import get_plugin
 from rtl2spec import fmagent_workflow
-from ucagent.plugins import LoadedPlugin
+from ucagent import LoadedPlugin, VerifyAgent
 from ucagent.util.config import get_config
-from ucagent.verify_agent import VerifyAgent
 
 
 @pytest.fixture(autouse=True)
@@ -211,6 +210,7 @@ print('stub')
     monkeypatch.setattr(fmagent_workflow.fmagent, "local_status", lambda paths: ("ready", "stub"))
     original_prepare = fmagent_checker.prepare
     snapshots = {}
+    original_parent_mode = project.parent.stat().st_mode
     old_runtime = project / "fm_agent/extracted_functions/nested/Top_spec.md"
     old_spec_inode = old_runtime.stat().st_ino
 
@@ -287,7 +287,12 @@ archive.mkdir(parents=True)
         preparation = agent.stage_manager.stages[0].checker[0]
         preparation.on_init()
         assert preparation.do_check()[0]
-    assert project.parent.stat().st_mode & 0o222 == 0
+    if outcome in {"failure", "cancelled", "partial"} or outcome == "fresh_archive" and mode == "run":
+        assert project.parent.stat().st_mode == original_parent_mode
+    else:
+        assert project.parent.stat().st_mode & 0o222 == 0
+        agent._startup_cleanup.close()
+        assert project.parent.stat().st_mode == original_parent_mode
     assert len(native_calls) == (1 if mode == "run" else 0)
     assert snapshots
 
@@ -321,7 +326,7 @@ def test_cached_prepare_failure_does_not_restart(tmp_path, monkeypatch):
 @pytest.mark.parametrize("saved", [{"stage_index": 2}, {"stage_index": 0, "stages_info": {"0": {"is_skipped": True}}}])
 def test_saved_stage_bypass_rejected_before_writes(tmp_path, saved):
     """Real StageManager rejects persisted downstream progress or skipped preparation."""
-    from ucagent.stage.vmanager import StageManager
+    from ucagent import StageManager
 
     root = tmp_path / "work"
     project = input_project(root, "generic")

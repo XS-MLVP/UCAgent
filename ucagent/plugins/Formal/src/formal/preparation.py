@@ -1,5 +1,5 @@
 """Normalize DUT RTL and documentation for a fresh Formal task."""
-from ucagent.core.workspace.preparation import rtl_source
+from ucagent import rtl_source
 
 
 def prepare_formal(ctx):

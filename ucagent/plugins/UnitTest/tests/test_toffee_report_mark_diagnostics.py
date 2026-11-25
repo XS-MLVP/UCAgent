@@ -20,7 +20,7 @@ from unit_test.checkers.toffee_report import (
     check_unhit_checkpoint_reproducers,
     check_report,
 )
-from ucagent.util.config import Config
+from ucagent import Config
 
 
 def _write_function_doc(path):

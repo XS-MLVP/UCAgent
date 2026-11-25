@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Mapping
 
-from ucagent.core.plugins import PluginError
+from ucagent import PluginError
 
 
 def validate_input_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, Any]:

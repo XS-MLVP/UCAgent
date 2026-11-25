@@ -23,15 +23,15 @@ from design_with_ppa.consistency import (  # noqa: E402
     RunDesignConsistencyArgs,
 )
 from design_with_ppa.plugin import get_plugin
-from ucagent.util.config import (  # noqa: E402
+from ucagent import (  # noqa: E402
     Config,
     build_runtime_config,
     get_config,
     load_yaml_with_env_vars,
     save_runtime_config,
 )
-from ucagent.util.markdown import markdown_heading_spacing_errors
-from ucagent.util.functions import render_template_dir
+from ucagent import markdown_heading_spacing_errors
+from ucagent import render_template_dir
 
 
 

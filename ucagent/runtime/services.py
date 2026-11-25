@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Callable
 
-from ucagent.runtime.control.controller import ControlError, Controller, public_data
+from ucagent import ControlError, Controller, public_data
 
 
 def lifecycle_timeout(value):
@@ -84,7 +84,7 @@ def start_http_listeners(owner, *, timeout=10, name="http", lifespan="auto"):
                     except BaseException as error:
                         owner._listener_errors.append(str(error))
 
-                from ucagent.runtime.output import OUTPUT_OWNER
+                from ucagent import OUTPUT_OWNER
                 # A service outlives its launching operation: propagate only the
                 # instance owner, never cancellation, command or model contexts.
                 listener_context = Context()
@@ -216,7 +216,7 @@ class ServiceManager:
                 return {"ok": False, **self.status(name)}
             record = ServiceRecord(resource)
             self._records[name] = record
-        from ucagent.runtime.output import OUTPUT_OWNER
+        from ucagent import OUTPUT_OWNER
         runtime = getattr(self.agent, "runtime_host", None)
         output_token = OUTPUT_OWNER.set(runtime.output if runtime is not None else None)
         try:
@@ -433,7 +433,7 @@ class ServiceManager:
 
     def sync_workspace_back(self, reason="manual", master_url=None):
         """Respect automatic sync switches and report each independent connection result."""
-        from ucagent.util.log import info
+        from ucagent import info
 
         trigger = "on_stage_complete" if reason.startswith("stage_complete:") else "on_exit" if reason == "exit" else None
         if trigger and not self.agent.cfg.get_value(f"master_api.sync_workspace.{trigger}", True):
@@ -485,9 +485,9 @@ class ServiceManager:
 
     def heartbeat_payload(self):
         """Build the existing Master registration contract from injected control and services."""
-        from ucagent.util.functions import fmt_time_deta, load_ucagent_info
-        from ucagent.util.functions import local_ip
-        from ucagent.version import __version__
+        from ucagent import fmt_time_deta, load_ucagent_info
+        from ucagent import local_ip
+        from ucagent import __version__
         import os
 
         task = self.controller.task_status()
@@ -534,7 +534,7 @@ class ServiceManager:
 
     def listener_address(self, key, host, port, default_host, default_port, *, tcp=True):
         """Resolve launch defaults once; a dynamically selected port is reported after bind."""
-        from ucagent.util.functions import find_available_port, is_port_free
+        from ucagent import find_available_port, is_port_free
 
         host = host or self.agent.cfg.get_value(f"{key}.host", default_host)
         explicit = port is not None

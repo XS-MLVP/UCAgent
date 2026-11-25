@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 
 
 _TAG = r"[A-Za-z0-9._-]+"

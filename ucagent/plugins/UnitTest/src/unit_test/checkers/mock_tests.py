@@ -5,14 +5,14 @@
 import os
 from ..testops import RunUnityChipTest
 import ucagent.util.functions as fc
-from ucagent.core.checkers.base import Checker, BatchTask
+from ucagent import Checker, BatchTask
 from .unit_test import (
     _iter_test_function_defs,
     _test_function_contract_failure,
     _test_name_has_required_prefix,
 )
 from typing import Tuple
-from ucagent.util.log import info
+from ucagent import info
 from collections import OrderedDict
 from unit_test.test_report import check_has_assert_in_tc, is_run_report_pass
 

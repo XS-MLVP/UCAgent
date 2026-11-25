@@ -415,7 +415,7 @@ def write_repo_optimization_log(paths: RepoPaths, records: list[dict]) -> None:
                    "no_pareto_improvement" if measured >= minimum and measured - improved >= patience else None)
     write_optimization_log(log_path, entries, best_iteration=best["iteration"] if best else None,
                            stop_reason=stop_reason if records else None)
-    from ucagent.util.log import info
+    from ucagent import info
 
     latest = entries[-1]
     info(f"[PPA optimization] v{latest['iteration']} {latest['label']} {latest['decision']}; "

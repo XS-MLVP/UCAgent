@@ -10,9 +10,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from unit_test.checkers import UnityChipCheckerTestFree
-from ucagent.core.stage.vmanager import StageManager
-from ucagent.core.plugins import PluginContext
-from ucagent.util.config import Config
+from ucagent import StageManager
+from ucagent import PluginContext
+from ucagent import Config
 from unit_test.test_runner import (
     RunTestCasesManagerTool,
     resolve_free_runner_clss,
@@ -53,6 +53,30 @@ def test_waveform_tool_stack_built_when_workflow_declares_test_dir(tmp_path):
         "ApplyWaveInfoEvidence",
         "ReviewWaveInfoEvidenceBatch",
     ]
+
+
+def test_waveform_tool_stack_normalizes_config_wrapped_backend_priority(tmp_path):
+    cfg = Config(
+        {
+            "tools": {"RunTestCases": {"test_dir": "tests"}},
+            "runtime_options": {
+                "waveform_analysis_backend_priority": {"vcd": ["wavekit"]}
+            },
+            "write_dirs": ["tests"],
+            "un_write_dirs": [],
+        }
+    )
+    tools = create_waveform_tools(_plugin_context(cfg, tmp_path))
+    assert [tool.name for tool in tools] == [
+        "WaveInfo",
+        "ApplyWaveInfoEvidence",
+        "ReviewWaveInfoEvidenceBatch",
+    ]
+    assert tools[0].backend_priority == {
+        "fst": ["pywellen", "wavekit"],
+        "vcd": ["wavekit"],
+        "fsdb": ["wavekit"],
+    }
 
 
 def test_waveform_tool_stack_skipped_without_test_dir(tmp_path):

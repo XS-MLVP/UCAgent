@@ -14,8 +14,8 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import RichLog
 
-from ucagent.interfaces.terminal.tui.widgets.console_input import ConsoleInput
-from ucagent.interfaces.terminal.tui.mixins import AutoScrollMixin
+from ucagent import ConsoleInput
+from ucagent import AutoScrollMixin
 
 
 @dataclass

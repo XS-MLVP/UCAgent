@@ -2,9 +2,9 @@
 """Markdown file checkers for UCAgent."""
 
 
-from ucagent.core.checkers.base import Checker, BatchTask
+from ucagent import Checker, BatchTask
 import ucagent.util.functions as fc
-from ucagent.util.log import info
+from ucagent import info
 from collections import OrderedDict
 import hashlib
 import os

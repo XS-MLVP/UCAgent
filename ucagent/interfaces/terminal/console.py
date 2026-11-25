@@ -1,6 +1,6 @@
 """Ordinary terminal view over a persistent runtime session."""
 
-from ucagent.interfaces.terminal.presentation import format_result, format_operation
+from ucagent import format_result, format_operation
 import codecs
 import io
 import os
@@ -11,10 +11,10 @@ from uuid import uuid4
 
 from rich.cells import cell_len
 
-from ucagent.runtime.control.commands import CommandResult, completion_base
-from ucagent.runtime.control.controller import ControlError
-from ucagent.runtime.output import StreamBridge
-from ucagent.runtime.session import RuntimeSession
+from ucagent import CommandResult, completion_base
+from ucagent import ControlError
+from ucagent import StreamBridge
+from ucagent import RuntimeSession
 
 
 class Console:

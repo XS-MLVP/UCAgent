@@ -9,8 +9,8 @@ import re
 import shutil
 from typing import Any
 import yaml
-from ucagent.core.checkers.base import Checker
-from ucagent.util.log import info
+from ucagent import Checker
+from ucagent import info
 from ..contracts import (
     atomic_json,
     atomic_text,

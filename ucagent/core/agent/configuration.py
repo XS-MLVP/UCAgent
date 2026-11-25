@@ -6,14 +6,14 @@ from pathlib import Path
 import random
 from typing import Callable
 
-from ucagent.core.plugins import (
+from ucagent import (
     collect_plugin_resources, configured_plugin_search_paths, load_plugins,
     load_pointer_workflow_plugin, resolve_plugin_workflow, validate_workflow_dependencies,
     resolve_guide_doc_copy_policy, resolve_plugin_guide_doc_copy_policy,
     resolve_workflow_template_context,
 )
-from ucagent.util.config import Config, get_config, resolve_workflow_pointer_path, discovery_overrides
-from ucagent.version import __version__
+from ucagent import Config, get_config, resolve_workflow_pointer_path, discovery_overrides
+from ucagent import __version__
 
 
 @dataclass(frozen=True)
@@ -48,11 +48,11 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     configuration_workspace = configuration_workspace or workspace
     discovery = get_config(config_file, discovery_overrides(cfg_override), configuration_workspace)
     discovery.update_template({"WORKSPACE": workspace, "DUT": dut_name, "OUT": output or ""})
-    from ucagent.core.multi_agent.mode import agent_role
+    from ucagent import agent_role
     initial_workflow = None
     global_catalog = None
     if agent_role(discovery) == "global":
-        from ucagent.core.multi_agent.global_agent.catalog import GlobalWorkflowCatalog
+        from ucagent import GlobalWorkflowCatalog
         global_catalog = GlobalWorkflowCatalog(discovery, selectors=plugin_selectors, plugins=plugins or ())
         if plugin_workflow:
             initial_workflow = global_catalog.resolve(plugin_workflow).ref
@@ -115,11 +115,11 @@ def resolve_task_configuration(workspace, dut_name, output=None, config_file=Non
     cfg.seed = seed if seed is not None else random.randint(1, 999999)
     cfg._temp_cfg = values
     cfg.freeze()
-    from ucagent.core.multi_agent.super_agent.contracts import load_settings
+    from ucagent import load_settings
     load_settings(cfg, workspace)
-    from ucagent.core.workflow.contracts import load_handoff_settings
+    from ucagent import load_handoff_settings
     load_handoff_settings(cfg)
-    from ucagent.core.multi_agent.global_agent.session_contracts import load_global_settings
+    from ucagent import load_global_settings
     load_global_settings(cfg)
     resolve_guide_doc_copy_policy(cfg)
     resolve_plugin_guide_doc_copy_policy(cfg)

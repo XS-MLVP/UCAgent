@@ -48,7 +48,7 @@ blocking issue 彼此一致。
 
 ## 测试
 
-回归测试位于 `plugins/ACT4/tests/test_act4_ai_review_checker.py`。
+回归测试位于 `ucagent/plugins/ACT4/tests/test_act4_ai_review_checker.py`。
 
 ## 实现定位与配置关系
 

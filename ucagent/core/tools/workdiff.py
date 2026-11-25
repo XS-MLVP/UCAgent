@@ -2,12 +2,12 @@
 """Diff operations for workspace files."""
 
 
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 from typing import Optional
 import ucagent.util.diff_ops as diff_ops
-from ucagent.util.log import info
+from ucagent import info
 
 import os
 import glob

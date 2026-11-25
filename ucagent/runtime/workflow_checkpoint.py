@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import threading
 
-from ucagent.core.workflow.contracts import workflow_fingerprint
+from ucagent import workflow_fingerprint
 
 
 class WorkflowCheckpoint:

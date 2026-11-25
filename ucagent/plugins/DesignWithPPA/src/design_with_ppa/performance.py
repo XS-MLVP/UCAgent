@@ -12,7 +12,7 @@ import re
 import tempfile
 from typing import Any, Mapping
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 
 from .contracts import canonical_json_sha256, performance_stimulus_identity
 

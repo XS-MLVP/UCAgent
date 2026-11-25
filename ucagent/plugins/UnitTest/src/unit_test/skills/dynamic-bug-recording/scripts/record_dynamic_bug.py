@@ -17,7 +17,7 @@ try:
 except ImportError:  # pragma: no cover - Windows has no POSIX advisory locks.
     fcntl = None
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 from unit_test.report_store import load_current_test_report
 from unit_test.bug_analysis_contract import (
     DYNAMIC_BUG_DOCUMENT_PATH,
@@ -36,7 +36,7 @@ from unit_test.bug_analysis_contract import (
     waveform_anchor_id,
     waveform_reference,
 )
-from ucagent.util.markdown import ensure_markdown_heading_spacing
+from ucagent import ensure_markdown_heading_spacing
 
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
 DYNAMIC_BUGS_END_MARKER = "</DYNAMIC-BUGS>"

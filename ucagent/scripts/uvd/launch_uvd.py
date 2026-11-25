@@ -14,8 +14,8 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 # _parse_hier produced the names in the metadata; UsdbReader would also run the slow dap query.
-from ucagent.util.waveform_formats.read_usdb import UsdbRuntimeError, _find_tool, _parse_hier, _run_tool
-from ucagent.util.waveform_viewer import load_waveform_metadata, resolve_workspace_path
+from ucagent import UsdbRuntimeError, _find_tool, _parse_hier, _run_tool
+from ucagent import load_waveform_metadata, WaveformResolveWorkspacePath as resolve_workspace_path
 
 
 def tcl_word(value: str) -> str:

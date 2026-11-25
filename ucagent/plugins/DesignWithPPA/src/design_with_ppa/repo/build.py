@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from ucagent.util.config import Config
+from ucagent import Config
 
 from ..checkers.rtl_validation import RTLBackendBuildChecker
 from ..contracts import atomic_json, atomic_text, load_json, sha256_file

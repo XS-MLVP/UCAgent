@@ -74,7 +74,7 @@ from design_with_ppa.checkers import (  # noqa: E402
     select_best_accepted_record,
 )
 from design_with_ppa.contracts import sha256_file
-from ucagent.util.functions import render_template_dir
+from ucagent import render_template_dir
 
 
 

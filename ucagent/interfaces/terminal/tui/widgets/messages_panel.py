@@ -18,7 +18,7 @@ from textual.geometry import Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
-from ucagent.interfaces.terminal.tui.mixins import AutoScrollMixin
+from ucagent import AutoScrollMixin
 
 
 @dataclass

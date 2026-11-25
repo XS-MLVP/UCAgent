@@ -6,8 +6,8 @@ Provides enhanced interaction logic, advanced adaptive strategies, and tool orch
 """
 
 # Import interaction logic classes
-from ucagent.core.interaction.enhanced import EnhancedInteractionLogic, InteractionState
-from ucagent.core.interaction.advanced import (
+from ucagent import EnhancedInteractionLogic, InteractionState
+from ucagent import (
     AdvancedInteractionLogic, 
     AdvancedInteractionState,
     ContextAnalyzer,
@@ -15,7 +15,7 @@ from ucagent.core.interaction.advanced import (
     AdaptiveStrategy,
     ContextComplexity
 )
-from ucagent.core.interaction.orchestrator import (
+from ucagent import (
     ToolOrchestrator,
     ToolRecommendationEngine,
     ToolUsageTracker,

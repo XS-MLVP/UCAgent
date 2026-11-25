@@ -2,12 +2,12 @@
 """File operations tools for UCAgent."""
 
 from typing import Annotated, Optional, List, Tuple, Union
-from ucagent.util.log import info, str_info, str_return, str_error, str_data, warning
-from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
-from ucagent.util.functions import get_diff, match_pattern_list
-from ucagent.util import file_policy
-from ucagent.util.markdown import ensure_markdown_file_heading_spacing
-from ucagent.core.tools.uctool import UCTool
+from ucagent import info, str_info, str_return, str_error, str_data, warning
+from ucagent import is_text_file, get_file_size, bytes_to_human_readable
+from ucagent import get_diff, match_pattern_list
+from ucagent import file_policy
+from ucagent import ensure_markdown_file_heading_spacing
+from ucagent import UCTool
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -177,7 +177,6 @@ def _bounded_diff(old_content: str, new_content: str, path: str) -> Tuple[str, b
     )
 
 
-
 class BaseReadWrite:
     """Base class for write operations."""
 
@@ -192,11 +191,11 @@ class BaseReadWrite:
     )
     write_able_dirs: List[str] = Field(
         default=None,
-        description="Writable path entries. None applies only protected-path restrictions; an empty list permits no writes."
+        description="List of directories where files can be modified. If empty, all directories are writable."
     )
     un_write_able_dirs: List[str] = Field(
         default=None,
-        description="Additional protected path entries. The workspace .ucagent/ tree remains read-only even when this list is empty."
+        description="List of directories where files cannot be modified. If empty, no directories are restricted."
     )
     create_file: bool = Field(
         default=False,
@@ -255,9 +254,6 @@ class BaseReadWrite:
         self.write_able_dirs = self.refine_dirs(self.workspace, write_dirs)
         self.un_write_able_dirs = self.refine_dirs(self.workspace, un_write_dirs)
         self.max_read_size = max_read_size
-        self.description = getattr(self, "description", "") + (
-            "\n\nThe workspace .ucagent/ directory is read-only to you; reading it is allowed."
-        )
         if write_dirs is not None:
             if len(write_dirs) == 0:
                 self.description += "\n\nNote: All directories are read only."
@@ -269,7 +265,7 @@ class BaseReadWrite:
                     warning(f"Writable path entry {d} matches nothing in workspace {workspace}.")
         if un_write_dirs is not None:
             if len(un_write_dirs) == 0:
-                self.description += "\n\nNote: No additional directories are restricted."
+                self.description += "\n\nNote: No directories are restricted."
             else:
                 self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
             for d in un_write_dirs:

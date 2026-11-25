@@ -36,7 +36,7 @@ def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
         if hasattr(tool_config, "as_dict"):
             tool_config = tool_config.as_dict()
         if isinstance(tool_config, dict):
-            from ucagent.util.functions import get_tools_from_cfg
+            from ucagent import get_tools_from_cfg
 
             tools = get_tools_from_cfg(tools, tool_config)
     # Workflow requirements apply to the business endpoint; supervisors above
@@ -96,8 +96,8 @@ class McpServer:
             tools = self.tools
             self.cfg.update_template({"TOOLS": ", ".join(t.name for t in tools)})
 
-            from ucagent.interfaces.server.mcp_http import create_verify_mcps, start_verify_mcps, stop_verify_mcps
-            from ucagent.util.log import info
+            from ucagent import create_verify_mcps, start_verify_mcps, stop_verify_mcps
+            from ucagent import info
 
             try:
                 server = create_verify_mcps(
@@ -150,7 +150,7 @@ class McpServer:
             if self._thread is None:
                 return True, "MCP server is stopped"
 
-            from ucagent.interfaces.server.mcp_http import stop_verify_mcps
+            from ucagent import stop_verify_mcps
 
             thread = self._thread
             if thread.is_alive():

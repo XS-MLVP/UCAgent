@@ -17,7 +17,7 @@ from design_with_ppa.plugin import get_plugin
 from design_with_ppa.ppa import AnalyzePPA, PPAConfig, resolve_ppa_config
 from design_with_ppa.ppa.backends.yosys_opensta import YosysOpenSTABackend
 from design_with_ppa.ppa.config import PDKConfig, resolve_pdk
-from ucagent.util.config import Config, load_yaml_with_env_vars
+from ucagent import Config, load_yaml_with_env_vars
 
 
 ASAP7_FILE = "asap7sc7p5t_28_RVT_TT_nldm_merged.lib"

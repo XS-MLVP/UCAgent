@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..", "src")))
 
 from unit_test.checkers.unit_test import BaseUnityChipCheckerTestCase
 from unit_test.checkers import UnityChipCheckerTestTemplate
-from ucagent.util.config import load_yaml_with_env_vars
+from ucagent import load_yaml_with_env_vars
 from unit_test.str_utils import list_str_abbr
 from unit_test.checkers.toffee_report import load_toffee_report
 

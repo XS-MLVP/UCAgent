@@ -17,7 +17,7 @@ import re
 import shlex
 from typing import Any, Callable, Protocol
 
-from ucagent.runtime.control.controller import Controller, ControlError, public_data
+from ucagent import Controller, ControlError, public_data
 
 
 _REQUIRED = object()
@@ -570,7 +570,7 @@ class SessionCommands:
 def register_plugin_commands(registry, plugins):
     """Validate plugin command declarations and reject collisions with core or other plugins."""
 
-    from ucagent.core.plugins import PluginError
+    from ucagent import PluginError
 
     pending = []
     names = set(registry._names)

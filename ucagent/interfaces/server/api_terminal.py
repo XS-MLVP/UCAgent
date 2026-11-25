@@ -54,7 +54,7 @@ from typing import (
 )
 
 from aiohttp import WSMsgType, web
-from ucagent.runtime.services import lifecycle_timeout
+from ucagent import lifecycle_timeout
 
 log = logging.getLogger("ucagent.terminal")
 
@@ -151,7 +151,7 @@ def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
 
 def _resolve_web_console_bind(spec: str) -> tuple[str, int, str]:
     """Resolve final web-console bind host/port/password with conflict policy."""
-    from ucagent.util.functions import find_available_port, is_port_free
+    from ucagent import find_available_port, is_port_free
     host, port, password = _parse_web_console_spec(spec)
     if ":-1" in str(spec):
         return host, find_available_port(start_port=port, end_port=65535), password
@@ -788,12 +788,12 @@ class WebTerminalServer:
 
     def _print_banner(self) -> None:
         """Print UCAgent ASCII art banner."""
-        from ucagent.version import banner
+        from ucagent import banner
         print(banner, file=sys.stderr)
 
     def get_status(self) -> Dict[str, Any]:
         """Return a status dict for the /api/status endpoint."""
-        from ucagent.version import __version__
+        from ucagent import __version__
         result: Dict[str, Any] = {
             "running": self._running,
             "mode": ("process" if self.is_process_mode

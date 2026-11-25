@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ucagent.util.functions import local_ip
+from ucagent import local_ip
 
 import json
 import os
@@ -10,10 +10,10 @@ import shutil
 import socket
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from ucagent.util.log import warning
-from ucagent.util.workspace_archive import create_workspace_archive
+from ucagent import warning
+from ucagent import create_workspace_archive
 
-from ucagent.interfaces.server.api_master.common import (
+from ucagent import (
     _copy_jsonable,
     _master_log,
     _now,
@@ -175,7 +175,7 @@ class MasterClient:
 
     def stop(self, timeout=5) -> Tuple[bool, str]:
         """Retain a heartbeat thread blocked in HTTP until that request actually ends."""
-        from ucagent.runtime.services import lifecycle_timeout
+        from ucagent import lifecycle_timeout
 
         timeout = lifecycle_timeout(timeout)
         with self._lifecycle_lock:

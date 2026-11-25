@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from ucagent.core.multi_agent.global_agent.session_contracts import (
+from ucagent import (
     SuperProfile, PROTECTED_OVERRIDES, GlobalSettings, SuperSpec,
 )
 
@@ -66,8 +66,8 @@ class SubprocessSuperLauncher:
         workspace_key = str(workspace_path) if workspace_path.is_dir() else None
         cache_key = (profile.backend, profile.no_embed_tools, config_key, workspace_key)
         if cache_key not in self._backend_traits:
-            from ucagent.core.backends import get_backend_class
-            from ucagent.util.config import get_config
+            from ucagent import get_backend_class
+            from ucagent import get_config
 
             cfg = get_config(
                 config_key,
@@ -201,7 +201,7 @@ class SubprocessSuperLauncher:
         snapshot = None
         root = Path(handle["messages_path"]).parent
         if (root / "connection.json").is_file():
-            from ucagent.interfaces.server.agent_session import RemoteAgentView
+            from ucagent import RemoteAgentView
             try:
                 snapshot = RemoteAgentView(root, timeout=.5).snapshot()
                 handle["last_snapshot"] = snapshot
@@ -240,10 +240,10 @@ class SubprocessSuperLauncher:
 
     def recover(self, handle, request):
         """Send an explicit recovery action to the existing authenticated session."""
-        from ucagent.interfaces.server.agent_session import RemoteAgentView
+        from ucagent import RemoteAgentView
         return RemoteAgentView(Path(handle["messages_path"]).parent).recover(request)
 
     def send_input(self, handle, message):
         """Deliver guidance through the existing child runtime instead of stdin."""
-        from ucagent.interfaces.server.agent_session import RemoteAgentView
+        from ucagent import RemoteAgentView
         return RemoteAgentView(Path(handle["messages_path"]).parent).submit_input(message)

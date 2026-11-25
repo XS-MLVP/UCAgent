@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import tempfile
 from typing import Any
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 from ..contracts import (
     atomic_json,
     diagnostic,
@@ -1137,7 +1137,7 @@ class PPAIterationChecker(Checker):
         state["ledger_sha256"] = sha256_file(ledger_path)
         atomic_json(state_path, state)
         log_path = write_unit_optimization_log(workspace, ledger, self.ledger_file)
-        from ucagent.util.log import info
+        from ucagent import info
 
         info(f"[PPA optimization] v{record['iteration']} "
              f"{'accepted' if record['accepted'] else 'rejected'}; "

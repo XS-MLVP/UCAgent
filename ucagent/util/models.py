@@ -6,7 +6,7 @@ import os
 from concurrent.futures import CancelledError
 from .config import Config
 from langchain_core.rate_limiters import InMemoryRateLimiter
-from ucagent.util.log import echo_g, warning
+from ucagent import echo_g, warning
 
 
 OPENAI_API_MODES = {"auto", "responses", "chat_completions"}

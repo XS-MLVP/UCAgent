@@ -134,7 +134,7 @@ class TaskPlan(StrictModel):
 
 def role_backend_config(cfg, role):
     """Resolve inherited model settings and the bounded legacy argv configuration once."""
-    from ucagent.util.config import Config
+    from ucagent import Config
     resolved = Config(cfg.as_dict())
     resolved.merge_from(Config(role.model_overrides))
     resolved.set_value("backend.key_name", role.backend)
@@ -146,7 +146,7 @@ def role_backend_config(cfg, role):
 
 def load_settings(cfg, workspace):
     """Validate the mode first; disabled mode never loads or reads role resources."""
-    from ucagent.core.multi_agent.mode import agent_role
+    from ucagent import agent_role
     if agent_role(cfg) != "super":
         return None
     raw = cfg.get_value("multi_agent", {})
@@ -164,7 +164,7 @@ def load_settings(cfg, workspace):
             raise ValueError(f"Role {name}: blank cannot execute a worker")
         if role.model_overrides and role.backend != "langchain":
             raise ValueError(f"Role {name}: model_overrides require the langchain backend")
-        from ucagent.core.backends import get_backend_class
+        from ucagent import get_backend_class
         resolved = role_backend_config(cfg, role)
         backend_class = get_backend_class(resolved)
         if not backend_class.capabilities.managed_sessions:

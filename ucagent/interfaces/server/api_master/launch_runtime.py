@@ -11,9 +11,9 @@ import subprocess
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from ucagent.util.log import warning
+from ucagent import warning
 
-from ucagent.interfaces.server.api_master.common import (
+from ucagent import (
     _LOCAL_HOSTS,
     _CONTAINER_LAUNCH_MODES,
     _LAUNCH_MODE_LABELS,

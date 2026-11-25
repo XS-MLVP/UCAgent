@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ucagent.checkers.base import Checker
+from ucagent import Checker
 
 from .fmagent_workflow import export_specs, prepare, settings_from_cfg
 

@@ -250,7 +250,7 @@ Provider 返回 `ucagent.core.plugins.Plugin`：
 ```python
 from pathlib import Path
 
-from ucagent.core.plugins import CommandRequirement, Plugin, PluginContext
+from ucagent import CommandRequirement, Plugin, PluginContext
 
 from .checkers import TimingBudgetChecker
 from .my_tool import MyTool
@@ -327,7 +327,7 @@ def get_plugin():
 以下只读命令复用已有阶段查询，不创建任务或线程：
 
 ```python
-from ucagent.runtime.control.commands import Argument, CommandSpec
+from ucagent import Argument, CommandSpec
 
 
 def create_commands(controller):
@@ -473,7 +473,7 @@ guide_doc:
 运行时和 Skill 声明（自足基线）：
 
 ```python
-from ucagent.core.plugins import CommandRequirement, PluginWorkflow
+from ucagent import CommandRequirement, PluginWorkflow
 
 workflow = PluginWorkflow(
     name="unit-design-tdd",

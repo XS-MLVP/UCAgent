@@ -1,8 +1,8 @@
 """Accepted workflow results, independent of transport and orchestration."""
 from typing import Literal
 from pydantic import Field, field_validator, model_validator
-from ucagent.core.workflow.contracts import canonical_file
-from ucagent.core.multi_agent.global_agent.session_contracts import StrictContract
+from ucagent import canonical_file
+from ucagent import StrictContract
 
 class ArtifactReceipt(StrictContract):
     """One runtime-produced artifact digest used by the parent verifier."""

@@ -16,9 +16,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from ucagent.core.plugins import PluginContext
-from ucagent.util.file_policy import is_file_writeable, wildcard_entry_overlaps, write_entry_has_wildcards
-from ucagent.core.tools.uctool import UCTool
+from ucagent import PluginContext
+from ucagent import is_file_writeable, wildcard_entry_overlaps, write_entry_has_wildcards
+from ucagent import UCTool
 
 from .documents import artifact_paths
 from .evidence import local_path, output_root

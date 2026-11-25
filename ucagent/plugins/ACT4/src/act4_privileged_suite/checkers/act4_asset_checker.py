@@ -16,8 +16,8 @@ from typing import Any
 from . import act4_asset_consistency as core
 
 
-from ucagent.core.checkers.base import Checker
-from ucagent.util.log import info as _info
+from ucagent import Checker
+from ucagent import info as _info
 
 
 class ACT4AssetChecker(Checker):

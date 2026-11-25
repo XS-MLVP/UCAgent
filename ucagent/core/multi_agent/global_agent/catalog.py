@@ -1,12 +1,12 @@
 """Discover workflow declarations without activating business Agents or their tools."""
 from pathlib import Path
 
-from ucagent.core.plugins import (
+from ucagent import (
     LOCAL_PLUGIN_MANIFEST, configured_plugin_search_paths, installed_plugin_names,
     load_plugin, validate_plugin, validate_workflow_dependencies,
 )
-from ucagent.core.workflow.contracts import CatalogEntry, canonical_file
-from ucagent.util.log import warning
+from ucagent import CatalogEntry, canonical_file
+from ucagent import warning
 
 
 class GlobalWorkflowCatalog:

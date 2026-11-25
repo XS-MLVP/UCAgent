@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ucagent.util.markdown import markdown_heading_spacing_errors
-from ucagent.util.config import Config, save_runtime_config
+from ucagent import markdown_heading_spacing_errors
+from ucagent import Config, save_runtime_config
 from unit_test.report_store import (
     TestProtocolRuntimeHook,
     save_current_test_report,

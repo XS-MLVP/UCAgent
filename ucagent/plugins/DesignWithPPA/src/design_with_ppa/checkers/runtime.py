@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 from typing import Any
-from ucagent.util.test_tools import ucagent_lib_path
+from ucagent import ucagent_lib_path
 from ..python_dut import (
     _RTL_DUT_CLASS_ENV,
     _RTL_DUT_MODULE_ENV,

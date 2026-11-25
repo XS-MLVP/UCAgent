@@ -16,9 +16,9 @@ import tempfile
 from typing import Tuple
 import ucagent.util.functions as fc
 from unit_test.str_utils import list_str_abbr
-from ucagent.util.config import Config
+from ucagent import Config
 from unit_test.report_store import load_current_test_report
-from ucagent.util.log import info, warning
+from ucagent import info, warning
 from ..testops import RunUnityChipTest
 import os
 import glob
@@ -26,7 +26,7 @@ import traceback
 import copy
 import ast
 
-from ucagent.core.checkers.base import Checker, BatchTask, format_stage_args_examples
+from ucagent import Checker, BatchTask, format_stage_args_examples
 from .toffee_report import (
     check_line_coverage,
     check_report,

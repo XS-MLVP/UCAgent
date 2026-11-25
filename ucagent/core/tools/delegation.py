@@ -4,8 +4,8 @@ import asyncio
 from typing import Any, Literal
 from pydantic import Field
 
-from ucagent.core.multi_agent.super_agent.contracts import StrictModel, TaskPlan
-from ucagent.core.tools.uctool import UCTool
+from ucagent import StrictModel, TaskPlan
+from ucagent import UCTool
 
 
 class NoArgs(StrictModel):
@@ -54,7 +54,7 @@ class SupervisorTool(UCTool):
 
     def display_result(self, content):
         """Use readable orchestration output while preserving read-tool bodies."""
-        from ucagent.core.multi_agent.super_agent.display import control_result
+        from ucagent import control_result
         return control_result(self.action, content)
 
     def _run(self, **kwargs):
@@ -65,7 +65,7 @@ class SupervisorTool(UCTool):
         except Exception as error:
             if self.service.observe_supervisor_failure(
                     "supervisor_tool", error=error, phase=self.action):
-                from ucagent.core.multi_agent.super_agent.recovery import ExecutionCircuitOpen
+                from ucagent import ExecutionCircuitOpen
                 raise ExecutionCircuitOpen("supervisor_tool") from error
             raise
         self.service.observe_supervisor_success("supervisor_tool")
@@ -84,8 +84,8 @@ class SupervisorTool(UCTool):
                 return {"accepted": False, "error": str(exc),
                         "next_action": "Correct the plan and resubmit within this planning turn"}
         if self.action == "roles":
-            from ucagent.core.backends import get_backend_class
-            from ucagent.core.multi_agent.super_agent.contracts import role_backend_config
+            from ucagent import get_backend_class
+            from ucagent import role_backend_config
             return {name: {"description": role.description, "backend": role.backend,
                            "allowed_tools": sorted(set(role.allowed_tools) & self.service.agent.multi_agent_business_names),
                            "budgets": {"model_rounds": get_backend_class(
@@ -122,7 +122,7 @@ def supervisor_tools(agent):
         ("PauseWorkflow", "Stop planning and ask the user for missing information or a decision.", PauseArgs, "pause_workflow"),
     ]
     if getattr(agent, "workflow_handoff_settings", None) is not None:
-        from ucagent.core.workflow.contracts import NextWorkflow, EndChain
+        from ucagent import NextWorkflow, EndChain
         definitions.extend([
             ("ListWorkflows", "List permitted successor workflows and required inputs.", NoArgs, "list_workflows"),
             ("RequestNextWorkflow", "Request a successor during handoff. Accepted means queued; yield after success.", NextWorkflow, "request_next_workflow"),

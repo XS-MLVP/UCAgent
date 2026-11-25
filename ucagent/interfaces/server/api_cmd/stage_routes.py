@@ -1,10 +1,10 @@
 """HTTP adapters for live stage controls and saved workspace history queries."""
 
 from fastapi import HTTPException, Query, Request
-from ucagent.core.workspace.files import WorkspaceAccessError
-from ucagent.runtime.workspace.access import load_info
-from ucagent.runtime.workspace.git import workspace_git_status, workspace_git_file
-from ucagent.util.log import L_GREEN, L_RED, L_YELLOW, RESET
+from ucagent import WorkspaceAccessError
+from ucagent import load_info
+from ucagent import workspace_git_status, workspace_git_file
+from ucagent import L_GREEN, L_RED, L_YELLOW, RESET
 
 
 def register_stage_routes(app, control, queries, _request_workspace, _strip_ansi):

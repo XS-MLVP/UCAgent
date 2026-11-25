@@ -7,8 +7,8 @@ import subprocess
 import threading
 import time
 
-from ucagent.core.workspace.preparation import WorkspacePreparation, PreparationOptions
-from ucagent.core.multi_agent.global_agent.result import sha256_file, _artifact_path
+from ucagent import WorkspacePreparation, PreparationOptions
+from ucagent import sha256_file, _artifact_path
 
 
 class PreparationCancelled(RuntimeError):

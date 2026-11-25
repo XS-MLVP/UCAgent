@@ -22,10 +22,9 @@ from typing import Any, Iterator
 
 import yaml
 
-from ucagent.core.checkers.base import Checker, BatchTask
-from ucagent.util.log import warning
+from ucagent import BatchTask, Checker
+from ucagent import warning
 from ..environment import prepared_environment
-
 from .act4_asset_checker import ACT4AssetChecker
 from .act4_asset_consistency import scan_systemverilog
 from .act4_testcase_reachability import inspect_source

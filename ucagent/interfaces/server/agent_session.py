@@ -9,8 +9,8 @@ import threading
 from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-from ucagent.runtime.agent_events import atomic_json
-from ucagent.runtime.control.controller import ControlError
+from ucagent import atomic_json
+from ucagent import ControlError
 
 class AgentSessionServer:
     def __init__(self, view, root):

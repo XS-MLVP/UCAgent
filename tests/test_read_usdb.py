@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 import unit_test
 
-from ucagent.util.waveform_formats.read_usdb import UsdbReader
-from ucagent.util.waveform_formats import open_waveform_reader, WaveformBackendArgumentError
+from unit_test.waveform_formats.read_usdb import UsdbReader
+from unit_test.waveform_formats import open_waveform_reader, WaveformBackendArgumentError
 
 
 def test_usdb_dispatch_without_wavekit():
@@ -17,8 +17,8 @@ def test_usdb_dispatch_without_wavekit():
     script = """
 import sys
 sys.modules['wavekit'] = None
-from ucagent.util.waveform_formats import open_waveform_reader
-from ucagent.util.waveform_formats.read_usdb import UsdbReader
+from unit_test.waveform_formats import open_waveform_reader
+from unit_test.waveform_formats.read_usdb import UsdbReader
 with open_waveform_reader('capture.USDB') as reader:
     assert isinstance(reader, UsdbReader)
     assert reader.path == 'capture.USDB'
@@ -47,7 +47,7 @@ def test_stateless_context_propagates_errors():
 
 def test_missing_file_does_not_invent_data(tmp_path):
     """A missing file must fail explicitly rather than return empty metadata."""
-    from ucagent.util.waveform_formats.read_usdb import UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import UsdbRuntimeError
 
     reader = UsdbReader(tmp_path / "absent.usdb")
     for attribute in ("begin_time", "end_time", "top_scopes"):
@@ -70,8 +70,8 @@ def test_backend_configuration():
 def test_waveinfo_usdb_uses_standard_error_and_help_paths(tmp_path, monkeypatch):
     """USDB read failures and help use the standard WaveInfo handling."""
     pytest.importorskip("mcp.server.mcpserver", reason="mcp runtime mismatch in this environment")
-    from ucagent.tools import WaveInfo
-    from ucagent.util.waveform_formats import read_usdb
+    from unit_test.waveform import WaveInfo
+    from unit_test.waveform_formats import read_usdb
 
     def unavailable(name):
         """Simulate an unavailable operator tool without probing the host."""
@@ -98,7 +98,7 @@ def test_waveinfo_usdb_uses_standard_error_and_help_paths(tmp_path, monkeypatch)
 @pytest.fixture
 def cli_reader(tmp_path, monkeypatch):
     """Emulate the documented CLI reports while exercising real reader parsing."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     path = tmp_path / "capture with spaces.usdb"
     path.touch()
@@ -176,7 +176,7 @@ def test_value_window_masks_and_duplicates(cli_reader):
 ])
 def test_invalid_value_reports_raise(cli_reader, output):
     """Missing blocks, malformed states, widths and timestamps cannot imply no data."""
-    from ucagent.util.waveform_formats.read_usdb import UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import UsdbRuntimeError
 
     reader, _, outputs = cli_reader
     signal = reader.get_matched_signals("TOP.data")["signals"]["TOP.data[3:0]"]
@@ -189,7 +189,7 @@ def test_invalid_value_reports_raise(cli_reader, output):
 
 def test_hierarchy_arrays_and_escaped_names():
     """Preserve spaces, negative bounds, multidimensional arrays and packed widths."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_hier, UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import _parse_hier, UsdbRuntimeError
 
     signals = _parse_hier(
         "Var: TOP.mem U:[0:1][-1:0] P:[7:0] Bits:8\n"
@@ -208,7 +208,7 @@ def test_hierarchy_arrays_and_escaped_names():
 
 def test_wide_values_and_foreign_descriptors(cli_reader):
     """Use Python integer precision and reject descriptors not issued by this reader."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     reader, _, outputs = cli_reader
     reader.begin_time
@@ -224,7 +224,7 @@ def test_wide_values_and_foreign_descriptors(cli_reader):
 
 def test_tool_resolution_and_environment(tmp_path, monkeypatch):
     """Search only configured homes, cache probes and preserve the operator environment."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
     from types import SimpleNamespace
 
     broken = tmp_path / "broken" / "bin" / "usdbaccess"
@@ -254,7 +254,7 @@ def test_tool_resolution_and_environment(tmp_path, monkeypatch):
 @pytest.mark.parametrize("failure", [OSError("unavailable"), subprocess.TimeoutExpired("tool", 120)])
 def test_cli_execution_failures(monkeypatch, failure):
     """Normalize launch and timeout failures into explicit adapter errors."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     def run(*args, **kwargs):
         """Raise the requested subprocess failure."""
@@ -268,7 +268,7 @@ def test_cli_execution_failures(monkeypatch, failure):
 
 def test_invalid_metadata_and_missing_scope_report(cli_reader, monkeypatch):
     """Invalid times and absent dap reports must leave the cache unpublished."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     for output in ("", "start time: -1\nend time: 10", "start time: 10\nend time: 1"):
         with pytest.raises(module.UsdbRuntimeError):
@@ -288,7 +288,7 @@ def test_invalid_metadata_and_missing_scope_report(cli_reader, monkeypatch):
 
 def test_real_subprocess_execution_and_exit_status():
     """Exercise shell-free execution and nonzero status handling with real processes."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     code, output = module._run_tool([sys.executable, "-c", "print('report')"])
     assert code == 0 and output.strip() == "report"
@@ -362,7 +362,7 @@ def _build_usdb(tmp_path: Path, source_name: str) -> Path:
     uvs = Path(home).resolve() / "bin" / "uvs"
     if not uvs.is_file() or not os.access(uvs, os.X_OK):
         pytest.skip("no uvs executable under UVS_HOME/bin for USDB fixtures")
-    from ucagent.util.waveform_formats.read_usdb import _find_tool, UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import _find_tool, UsdbRuntimeError
 
     for tool in ("usdbaccess", "dap"):
         try:
@@ -409,7 +409,7 @@ def test_paginated_query_bounds_are_enforced():
 
 def test_parse_info_time_bounds():
     """Extract start/end ticks from the report including its time scale field."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_info, UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import _parse_info, UsdbRuntimeError
 
     assert _parse_info("start time: 0\nend time: 60\ntime scale: 1ns\n") == (0, 60)
     for report in ("no time fields here", "start time: 5\nend time: 2\n"):
@@ -419,7 +419,7 @@ def test_parse_info_time_bounds():
 
 def test_parse_hier_declares_ranges_and_elements():
     """Keep packed ranges and expand unpacked elements from complete CLI Var rows."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_hier, UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import _parse_hier, UsdbRuntimeError
 
     signals = _parse_hier("\n".join([
         "banner lines",
@@ -442,7 +442,7 @@ def test_parse_hier_declares_ranges_and_elements():
 
 def test_parse_hier_multidimensional_declarations():
     """Expand merged unpacked dimensions while retaining bare multi-packed names."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_hier, UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import _parse_hier, UsdbRuntimeError
 
     signals = _parse_hier("\n".join([
         "Var:tb.mem2 U:[0:1][0:3] P:[7:0] Bits:8 Idcode:0 Type:Reg",
@@ -460,7 +460,7 @@ def test_parse_hier_multidimensional_declarations():
 
 def test_parse_scopes_keeps_top_level_only():
     """Drop nested instances and signal rows while retaining genuine roots."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_scopes
+    from unit_test.waveform_formats.read_usdb import _parse_scopes
 
     output = "\n".join(["# header", "tb", "signal: tb.clk", "tb.d", "signal: tb.d.clk"])
     assert [scope.full_name for scope in _parse_scopes(output)] == ["tb"]
@@ -469,7 +469,7 @@ def test_parse_scopes_keeps_top_level_only():
 
 def test_parse_value_blocks_collapses_same_tick():
     """Key blocks by signal name and keep only the final state at each tick."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_value_blocks
+    from unit_test.waveform_formats.read_usdb import _parse_value_blocks
 
     blocks = _parse_value_blocks("\n".join([
         "noise header", "Signal: tb.a", "Time: 0             Value: 0x",
@@ -481,7 +481,7 @@ def test_parse_value_blocks_collapses_same_tick():
 
 def test_declared_name_expansion_forms():
     """Exercise scalar, packed and separate unpacked tokens through hierarchy parsing."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_hier
+    from unit_test.waveform_formats.read_usdb import _parse_hier
 
     for row, names in (
         ("tb.mem U:[0:2] P:[7:0]", ["tb.mem[0]", "tb.mem[1]", "tb.mem[2]"]),
@@ -495,7 +495,7 @@ def test_declared_name_expansion_forms():
 
 def test_map_state_msb_first_and_wide(cli_reader):
     """Exercise MSB-first mapping and invalid states through the public value load."""
-    from ucagent.util.waveform_formats.read_usdb import UsdbRuntimeError
+    from unit_test.waveform_formats.read_usdb import UsdbRuntimeError
 
     reader, _, outputs = cli_reader
     signal = reader.get_matched_signals("TOP.data")["signals"]["TOP.data[3:0]"]
@@ -511,7 +511,7 @@ def test_map_state_msb_first_and_wide(cli_reader):
 
 def test_find_tool_requires_working_installation(monkeypatch):
     """Report the requested tool and searched locations when no installation works."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     monkeypatch.delenv("UVD_HOME", raising=False)
     monkeypatch.delenv("UVS_HOME", raising=False)
@@ -543,7 +543,7 @@ def test_live_xz_metadata_and_queries(tmp_path):
 
 def test_live_xz_value_changes_and_mapping(tmp_path):
     """Retain the state at the begin bound and exclude the exclusive end bound."""
-    from ucagent.util.waveform_formats.read_usdb import UsdbRuntimeError, UsdbSignal
+    from unit_test.waveform_formats.read_usdb import UsdbRuntimeError, UsdbSignal
 
     reader = _load_xz_reader(_build_usdb(tmp_path, "tb_xz.sv"))
     outz = reader.get_matched_signals("tb.outz")["signals"]["tb.outz[3:0]"]
@@ -616,7 +616,7 @@ def test_live_window_bounds_validation(tmp_path):
 ])
 def test_captured_uvs_bounded_value_reports(filename, expected):
     """Parse UVS2026.06.P3 samples transcribed from the operator's screenshots."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_value_blocks
+    from unit_test.waveform_formats.read_usdb import _parse_value_blocks
 
     report = (Path(__file__).parent / "fixtures" / "usdb" / filename).read_text(encoding="utf-8")
     assert _parse_value_blocks(report) == expected
@@ -624,7 +624,7 @@ def test_captured_uvs_bounded_value_reports(filename, expected):
 
 def test_captured_unbounded_clock_excerpt():
     """Collapse the duplicate initial tick in a captured prefix, not a full trace."""
-    from ucagent.util.waveform_formats.read_usdb import _parse_value_blocks
+    from unit_test.waveform_formats.read_usdb import _parse_value_blocks
 
     path = Path(__file__).parent / "fixtures" / "usdb" / "clock_unbounded_excerpt.txt"
     rows = _parse_value_blocks(path.read_text(encoding="utf-8"))["tb.ohot.clk"]
@@ -643,7 +643,7 @@ def test_captured_unbounded_clock_excerpt():
 ])
 def test_captured_reports_through_fake_cli(tmp_path, monkeypatch, begin, end, filename, expected):
     """Send native bounds and signal lists while retaining original predecessor ticks."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     capture = tmp_path / "vista.usdb"
     capture.touch()
@@ -677,7 +677,7 @@ def test_captured_reports_through_fake_cli(tmp_path, monkeypatch, begin, end, fi
 
 def test_captured_metadata_reports():
     """Parse captured time bounds, digital types, array bounds and genuine scope roots."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     fixtures = Path(__file__).parent / "fixtures" / "usdb"
     assert module._parse_info((fixtures / "info_excerpt.txt").read_text(encoding="utf-8")) == (0, 9000170)
@@ -698,7 +698,7 @@ def test_captured_metadata_reports():
 @pytest.mark.parametrize("returncode,emit_report", [(0, True), (0, False), (2, True)])
 def test_dap_report_file_isolated_from_terminal_logs(tmp_path, monkeypatch, returncode, emit_report):
     """Read dap's default report in scratch cwd, rejecting missing reports or failed runs."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     fixtures = Path(__file__).parent / "fixtures" / "usdb"
     monkeypatch.chdir(tmp_path)
@@ -743,7 +743,7 @@ def test_dap_report_file_isolated_from_terminal_logs(tmp_path, monkeypatch, retu
 
 def test_cli_working_directory(tmp_path):
     """Pass a scratch working directory to a real child without changing the parent cwd."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     parent_cwd = Path.cwd()
     code, output = module._run_tool([sys.executable, "-c", "import os; print(os.getcwd())"], cwd=tmp_path)
@@ -754,7 +754,7 @@ def test_cli_working_directory(tmp_path):
 @pytest.mark.parametrize("home_value", [None, "", "missing-installation"])
 def test_tool_lookup_never_uses_path(tmp_path, monkeypatch, home_value):
     """Missing installation homes fail even when a same-named tool is on PATH."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     executable = tmp_path / "usdbaccess"
     executable.touch()
@@ -777,7 +777,7 @@ def test_tool_lookup_never_uses_path(tmp_path, monkeypatch, home_value):
 
 def test_tool_cache_tracks_installation_environment(tmp_path, monkeypatch):
     """A changed installation home must not return a tool cached from the previous home."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     monkeypatch.delenv("UVD_HOME", raising=False)
     monkeypatch.setattr(module, "_RESOLVED_TOOLS", {})
@@ -806,7 +806,7 @@ def test_tool_cache_tracks_installation_environment(tmp_path, monkeypatch):
 
 def test_dap_requires_explicit_uvd_home(tmp_path, monkeypatch):
     """A dap executable under UVS_HOME cannot manufacture the required UVD_HOME."""
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     home = tmp_path / "uvs"
     executable = home / "bin" / "dap"
@@ -822,7 +822,7 @@ def test_dap_requires_explicit_uvd_home(tmp_path, monkeypatch):
 def test_subprocess_preserves_installation_variables(tmp_path, monkeypatch):
     """Queries inherit the configured UVS/UVD roots without deriving another release."""
     import json
-    from ucagent.util.waveform_formats import read_usdb as module
+    from unit_test.waveform_formats import read_usdb as module
 
     expected = {"UVS_HOME": str(tmp_path / "uvs"), "UVD_HOME": str(tmp_path / "uvd")}
     for key, value in expected.items():
@@ -839,7 +839,7 @@ def test_default_formats_include_usdb_and_respect_overrides(tmp_path, priority):
     """YAML and runtime defaults include USDB; explicit format lists replace defaults."""
     import json
     from ucagent.util.config import Config, load_yaml_with_env_vars, load_runtime_config, save_runtime_config
-    from ucagent.util.waveform_formats import DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY
+    from unit_test.waveform_formats import DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY
 
     defaults = ["fst", "vcd", "fsdb", "usdb"]
     assert list(DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY) == defaults

@@ -7,9 +7,9 @@ from pathlib import Path
 import threading
 import time
 
-from ucagent.core.workflow.chain import HandoffDecision
-from ucagent.core.workflow.contracts import source_file
-from ucagent.runtime.operations import TERMINAL_STATES
+from ucagent import HandoffDecision
+from ucagent import source_file
+from ucagent import RuntimeTerminalStates as TERMINAL_STATES
 
 
 class WorkflowHandoff:

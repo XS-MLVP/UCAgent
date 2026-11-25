@@ -11,7 +11,7 @@ import re
 
 import yaml
 
-from ucagent.util.config import load_runtime_config
+from ucagent import load_runtime_config
 
 
 _PLACEHOLDER = "Not implemented"

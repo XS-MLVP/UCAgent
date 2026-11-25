@@ -7,7 +7,7 @@ from collections import OrderedDict
 from typing import Tuple
 
 import ucagent.util.functions as fc
-from ucagent.core.checkers.base import BatchTask, format_stage_args_examples
+from ucagent import BatchTask, format_stage_args_examples
 from .unit_test import (
     BaseUnityChipCheckerTestCase,
     _iter_test_function_defs,
@@ -16,7 +16,7 @@ from .unit_test import (
 )
 from .toffee_report import check_report
 from .descriptions import has_executable_mark_function_call
-from ucagent.util.log import warning
+from ucagent import warning
 from unit_test.doc_marks import get_doc_marks
 from unit_test.test_report import check_has_assert_in_tc, is_run_report_pass
 from unit_test.report_utils import clean_report_with_keys

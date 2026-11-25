@@ -40,8 +40,8 @@ import os
 import re
 import time
 
-from ucagent.core.checkers.base import Checker
-from ucagent.util.log import info, warning
+from ucagent import Checker
+from ucagent import info, warning
 
 
 # Shared utilities – single source of truth
@@ -103,7 +103,7 @@ class BaseFormalChecker(Checker):
 
         # Check if any dependency file has uncommitted changes
         try:
-            from ucagent.util import diff_ops
+            from ucagent import diff_ops
             dirty_files = set(diff_ops.get_dirty_files(self.workspace))
             for dep in dep_paths:
                 rel_dep = os.path.relpath(dep, self.workspace)

@@ -7,7 +7,7 @@ import json
 import sys
 
 from pydantic import Field
-from ucagent.core.workspace.preparation import PreparationOptions, rtl_source
+from ucagent import PreparationOptions, rtl_source
 
 
 class UnitTestPreparationOptions(PreparationOptions):
@@ -34,6 +34,11 @@ def input_signature(ctx, seeds):
         digest.update(json.dumps([path.name, path.stat().st_size]).encode())
         digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def simulator_rw_mode(simulator: str) -> str:
+    """Use direct memory access only for Verilator exports."""
+    return "1" if simulator == "verilator" else "0"
 
 
 def prepare_unittest(ctx):
@@ -87,7 +92,7 @@ def prepare_unittest(ctx):
         if top is None or not top.read_text().strip():
             raise ValueError(f"Missing nonempty {name}.v/.sv; select original RTL sources to export a new interface")
         suffix = {"verilator": "fst", "gsim": "fst", "vcs": "fsdb", "uvs": "usdb"}[ctx.options.simulator]
-        argv = ["picker", "export", top, "--sim", ctx.options.simulator, "--rw", "1", "--sname", name,
+        argv = ["picker", "export", top, "--sim", ctx.options.simulator, "--rw", simulator_rw_mode(ctx.options.simulator), "--sname", name,
                 "--tdir", str(workspace) + "/", "-c", "-w", interface / f"{name}.{suffix}"]
         if (rtl / "filelist.txt").is_file():
             argv.extend(["--fs", rtl / "filelist.txt"])

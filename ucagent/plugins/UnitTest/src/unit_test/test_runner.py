@@ -14,9 +14,9 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
-from ucagent.core.stage.vmanager import ManagerTool
-from ucagent.util.functions import import_class_from_str, make_llm_tool_ret
-from ucagent.util.log import info
+from ucagent import ManagerTool
+from ucagent import import_class_from_str, make_llm_tool_ret
+from ucagent import info
 
 import ucagent.core.checkers
 

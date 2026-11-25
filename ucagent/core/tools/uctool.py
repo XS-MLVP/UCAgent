@@ -10,7 +10,7 @@ from typing import Callable, Optional, Any
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.mcpserver.tools import Tool as MCPTool
-from ucagent.util.output import output_source, publish_output
+from ucagent import output_source, publish_output
 from contextvars import copy_context
 
 import ucagent.util.functions as fc
@@ -20,7 +20,7 @@ import concurrent.futures
 import asyncio
 import os
 import weakref
-from ucagent.util.cqueque import CircularOverwriteQueue
+from ucagent import CircularOverwriteQueue
 import time
 
 

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ucagent.core.plugins import (
+from ucagent import (
     CommandRequirement,
     Plugin,
     PluginContext,

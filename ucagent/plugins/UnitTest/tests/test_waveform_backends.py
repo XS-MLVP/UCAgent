@@ -12,8 +12,8 @@ import yaml
 
 from unit_test.waveform import WaveInfo
 from unit_test.waveform import ArgWaveInfo, WaveInfoAnalysisArgs
-from ucagent.core.tools.uctool import to_mcp_tool
-from ucagent.util.config import Config, load_runtime_config, load_yaml_with_env_vars, save_runtime_config
+from ucagent import to_mcp_tool
+from ucagent import Config, load_runtime_config, load_yaml_with_env_vars, save_runtime_config
 from unit_test.waveform_formats import (
     DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,
     open_waveform_reader, register_waveform_reader, registered_waveform_backends,
@@ -156,12 +156,17 @@ def test_backend_configuration_snapshot_and_defaults(tmp_path):
     cfg._temp_cfg = {'DUT': 'Demo', 'OUT': 'out'}
     path = save_runtime_config(str(tmp_path), cfg)
     result = load_runtime_config(str(tmp_path))['runtime_options']['waveform_analysis_backend_priority']
-    assert result == {**DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY, 'vcd': ['wavekit']}
+    # The snapshot persists the resolved config verbatim; the plugin tool fills
+    # unspecified built-in defaults when it constructs WaveInfo.
+    assert result == {'vcd': ['wavekit']}
+    assert validate_waveform_analysis_backend_priority(result) == {
+        **DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY, 'vcd': ['wavekit']}
     snapshot = json.loads(path.read_text())
     snapshot['runtime_options']['waveform_analysis_backend_priority']['vcd'] = []
     path.write_text(json.dumps(snapshot))
+    reloaded = load_runtime_config(str(tmp_path))['runtime_options']['waveform_analysis_backend_priority']
     with pytest.raises(ValueError, match='waveform_analysis_backend_priority'):
-        load_runtime_config(str(tmp_path))
+        validate_waveform_analysis_backend_priority(reloaded)
     with pytest.raises(ValueError, match='No waveform reader'):
         WaveInfo(backend_priority={'vcd': ['unknown']})
 
@@ -549,7 +554,7 @@ $enddefinitions $end
 @pytest.mark.parametrize('enabled', [False, True])
 def test_resolved_yaml_backend_order_overrides_per_format(tmp_path, monkeypatch, enabled):
     """YAML list replacement is stable across environment/runtime boolean choices."""
-    from ucagent.util.config import _merge_config_file
+    from ucagent import _merge_config_file
 
     root = Path(__file__).resolve().parents[4]
     workflow = Path(__file__).resolve().parents[1] / 'src/unit_test/workflows/unittest.yaml'
@@ -558,7 +563,7 @@ def test_resolved_yaml_backend_order_overrides_per_format(tmp_path, monkeypatch,
     cfg = Config()
     loaded = []
     _merge_config_file(cfg, str(root / 'ucagent/setting.yaml'), loaded)
-    _merge_config_file(cfg, str(root / 'ucagent/lang/zh/config/default.yaml'), loaded)
+    _merge_config_file(cfg, str(workflow), loaded)
     override = tmp_path / 'backend.yaml'
     override.write_text('runtime_options:\n  waveform_analysis_backend_priority:\n    vcd: [wavekit]\n')
     _merge_config_file(cfg, str(override), loaded)

@@ -9,8 +9,8 @@ from collections import OrderedDict
 from typing import Tuple
 
 import ucagent.util.functions as fc
-from ucagent.core.checkers.base import Checker, BatchTask, format_stage_args_examples
-from ucagent.util.log import info, warning
+from ucagent import Checker, BatchTask, format_stage_args_examples
+from ucagent import info, warning
 from .unit_test import (
     UnityChipCheckerLabelStructure,
     _normalize_checkpoint_prefixes,

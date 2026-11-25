@@ -76,7 +76,7 @@ from design_with_ppa.performance import (  # noqa: E402
     measure_throughput,
     write_performance_result,
 )
-from ucagent.util.config import (  # noqa: E402
+from ucagent import (  # noqa: E402
     Config,
     build_runtime_config,
     get_config,

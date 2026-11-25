@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """External tools integration for UCAgent."""
 
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 
 # Extool is a class that extends UCTool to provide additional functionality.
 

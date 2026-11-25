@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import threading
 
-from ucagent.util.output import OUTPUT_METADATA, AGENT_ACTOR
+from ucagent import OUTPUT_METADATA, AGENT_ACTOR
 
 
 class AgentMessages:

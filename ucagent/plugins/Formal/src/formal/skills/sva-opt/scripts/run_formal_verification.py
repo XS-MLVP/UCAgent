@@ -17,7 +17,7 @@ if _skill_root not in sys.path:
 
 import argparse
 from lib.formal_paths import FormalPaths
-from ucagent.util.log import str_error, str_info
+from ucagent import str_error, str_info
 from lib.formal_tools import run_formal_verification, summarize_execution
 
 

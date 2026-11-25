@@ -9,15 +9,15 @@ import os
 import shutil
 
 import ucagent.util.functions as fc
-from ucagent.util.config import save_runtime_config
-from ucagent.util.functions import copy_skill_files, get_template_path, render_template, render_template_dir
-from ucagent.util.log import info, warning
-from ucagent.util.markdown import ensure_markdown_heading_spacing
-from ucagent.util.test_tools import ucagent_lib_path
-from ucagent.util.file_policy import wildcard_entry_overlaps
-from ucagent.core.workspace.permissions import PermissionChanges
-from ucagent.core.plugins import resolve_guide_doc_copy_policy, resolve_plugin_guide_doc_copy_policy
-from ucagent.version import __version__, __email__
+from ucagent import save_runtime_config
+from ucagent import copy_skill_files, get_template_path, render_template, render_template_dir
+from ucagent import info, warning
+from ucagent import ensure_markdown_heading_spacing
+from ucagent import ucagent_lib_path
+from ucagent import wildcard_entry_overlaps
+from ucagent import PermissionChanges
+from ucagent import resolve_guide_doc_copy_policy, resolve_plugin_guide_doc_copy_policy
+from ucagent import __version__, __email__
 
 
 

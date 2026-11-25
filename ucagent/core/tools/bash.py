@@ -2,8 +2,8 @@
 """Bash operations tools for UCAgent."""
 
 from typing import Optional, Dict
-from ucagent.util.log import info, str_return, str_error
-from ucagent.core.tools.uctool import UCTool
+from ucagent import info, str_return, str_error
+from ucagent import UCTool
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,

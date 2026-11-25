@@ -34,7 +34,7 @@ if _skill_root not in sys.path:
 from lib.formal_paths import FormalPaths
 from lib.formal_tools import load_records, save_records
 from lib.models import FormalRecords, FormalSpec, FunctionGroup, FunctionPoint, CheckPoint
-from ucagent.util.log import str_error, str_info
+from ucagent import str_error, str_info
 
 
 VALID_STYLES = {"Assume", "Comb", "Seq", "Cover"}

@@ -2,16 +2,16 @@
 # -*- coding: utf-8 -*-
 """Public CLI entrypoint, launch orchestration, error presentation and exit codes."""
 
-from ucagent.application.plan import LaunchRequest
+from ucagent import LaunchRequest
 import os
 import sys
 import traceback
 from typing import List, Optional
 
-from ucagent.interfaces.cli.actions import run_management_commands
-from ucagent.interfaces.cli.arguments import get_args
-from ucagent.interfaces.cli.options import parse_launch_options
-from ucagent.application.workspace import WorkspaceArchiveError
+from ucagent import run_management_commands
+from ucagent import get_args
+from ucagent import parse_launch_options
+from ucagent import ApplicationWorkspaceArchiveError
 
 os.environ['PYTHONPYCACHEPREFIX'] = os.path.join(os.path.expanduser('~'), ".ucagent/__pycache__")
 
@@ -37,11 +37,11 @@ def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
 def run() -> None:
     """Main entry point for UCAgent CLI."""
     if sys.argv[1:2] == ["attach"]:
-        from ucagent.interfaces.cli.attach import attach
+        from ucagent import attach
         return attach(sys.argv[2:])
     if sys.argv[1:2] == ["prepare-workspace"]:
-        from ucagent.interfaces.cli.workspace_preparation import parse_preparation_options
-        from ucagent.application.prepare_workspace import prepare_workflow_workspace
+        from ucagent import parse_preparation_options
+        from ucagent import prepare_workflow_workspace
         target = prepare_workflow_workspace(**parse_preparation_options(sys.argv[2:]))
         info(f"Prepared workspace: {target}")
         return
@@ -53,14 +53,14 @@ def run() -> None:
     if args.web_console is not None and \
        args.web_console_session_host is None and \
        args.web_console_session_port is None:
-        from ucagent.interfaces.server.api_terminal import _serve_web_console
+        from ucagent import _serve_web_console
         try:
             return _serve_web_console(sys.argv)
         except Exception as e:
             info(f"Failed to start Web UI: {e}")
             sys.exit(1)
 
-    from ucagent.application.launch import run_application
+    from ucagent import run_application
     return run_application(LaunchRequest(**parse_launch_options(args)))
 
 
@@ -68,7 +68,7 @@ def main() -> None:
     """Main entry point with exception handling."""
     try:
         run()
-    except WorkspaceArchiveError as e:
+    except ApplicationWorkspaceArchiveError as e:
         info(f"Workspace archive error: {e}")
         sys.exit(1)
     except KeyboardInterrupt:

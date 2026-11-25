@@ -28,7 +28,7 @@ from lib.formal_tools import (
     save_records,
     auto_scaffold_analysis_entries,
 )
-from ucagent.util.log import str_error, str_info
+from ucagent import str_error, str_info
 
 
 def main() -> None:

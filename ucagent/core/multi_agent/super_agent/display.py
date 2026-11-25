@@ -2,7 +2,7 @@
 
 import json
 
-from ucagent.util.functions import format_message_value
+from ucagent import format_message_value
 
 
 def control_result(action, content):

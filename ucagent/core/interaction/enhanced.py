@@ -9,10 +9,10 @@ import copy
 import time
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from ucagent.util.log import info, warning, error
-from ucagent.util.functions import yam_str
+from ucagent import info, warning, error
+from ucagent import yam_str
 
-from ucagent.core.tools.planning import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
+from ucagent import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
 
 
 class InteractionState:

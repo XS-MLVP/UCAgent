@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Planning and task management tools for UCAgent."""
 
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 from langchain_core.tools.base import ArgsSchema
 from typing import Optional, List
 from pydantic import BaseModel, Field

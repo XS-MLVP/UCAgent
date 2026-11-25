@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ucagent.core.backends import get_backend
+from ucagent import get_backend
 
 
 class AgentSession:

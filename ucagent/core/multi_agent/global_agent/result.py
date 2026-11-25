@@ -7,8 +7,8 @@ import json
 import os
 from pathlib import Path
 
-from ucagent.core.multi_agent.global_agent.session_contracts import SuperSpec
-from ucagent.core.multi_agent.global_agent.contracts import (
+from ucagent import SuperSpec
+from ucagent import (
     ArtifactReceipt,
     StageReceipt,
     WorkflowRunResult,
@@ -40,7 +40,7 @@ def _artifact_path(workspace: Path, relative: str) -> Path:
 
 def _declared_outputs(agent) -> list[str]:
     """Read the active workflow's declared outputs without trusting model text."""
-    from ucagent.core.plugins import resolve_plugin_workflow
+    from ucagent import resolve_plugin_workflow
 
     selector = getattr(agent, "plugin_workflow", "") or None
     if not selector:
@@ -79,7 +79,7 @@ def _collect_artifacts(agent, result_path: Path) -> list[ArtifactReceipt]:
 
 def write_workflow_run_result(agent, status: str, *, error: str | None = None):
     """Write the trusted result from the child runtime after its stage gate has returned."""
-    from ucagent.core.multi_agent.global_agent.contracts import WorkflowRunResult
+    from ucagent import WorkflowRunResult
 
     result_path = agent.cfg.get_value("agent_run.result_path", None)
     agent_id = agent.cfg.get_value("agent_run.id", None)

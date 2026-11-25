@@ -20,13 +20,13 @@
 
 ```bash
 python3 -m pip install .
-python3 -m pip install ./plugins/ACT4
+python3 -m pip install ./ucagent/plugins/ACT4
 ucagent --list-plugins
 ucagent --validate-plugin act4-privileged-suite
 ```
 
-已有兼容 UCAgent 时可跳过核心安装。开发时可用 `python3 -m pip install -e ./plugins/ACT4`，
-也可直接通过 `--plugin /absolute/path/to/UCAgent/plugins/ACT4` 加载源码。
+已有兼容 UCAgent 时可跳过核心安装。开发时可用 `python3 -m pip install -e ./ucagent/plugins/ACT4`，
+也可直接通过 `--plugin /absolute/path/to/UCAgent/ucagent/plugins/ACT4` 加载源码。
 模型配置见 [UCAgent 使用说明](../../README.zh.md)。若源码运行显示 `0.9.1+source.code`，
 先安装核心生成版本元数据，不要降低插件要求；详情见 [开发说明](docs/development.md#源码与安装态)。
 

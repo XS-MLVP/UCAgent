@@ -9,7 +9,7 @@ import secrets
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
-from ucagent.interfaces.server.api_master.common import (
+from ucagent import (
     _config_ref_name,
     _now,
     _path_is_under,

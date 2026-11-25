@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from unit_test.waveform import WaveInfo
-from ucagent.core.tools.uctool import to_mcp_tool
+from ucagent import to_mcp_tool
 from unit_test.waveform_formats import (
     open_waveform_reader, paginate_signal_matches, register_waveform_reader,
 )
@@ -113,15 +113,18 @@ def recorded_waveform(tmp_path, monkeypatch):
 
 def test_import_and_config_validation_do_not_import_wavekit():
     """Package import and registration must work without the built-in backend."""
-    script = """
+    repo_root = Path(__file__).resolve().parents[4]
+    plugin_src = Path(__file__).resolve().parents[1] / "src"
+    script = f"""
 import sys
+sys.path.insert(0, {str(plugin_src)!r})
 sys.modules['wavekit'] = None
 sys.modules['pywellen'] = None
 from unit_test.waveform_formats import registered_waveform_formats
-from ucagent.util.config import Config
+from ucagent import Config
 assert registered_waveform_formats() == ('fst', 'vcd', 'fsdb', 'usdb')
 """
-    subprocess.run([sys.executable, "-c", script], check=True, cwd=Path(__file__).parents[1])
+    subprocess.run([sys.executable, "-c", script], check=True, cwd=repo_root)
 
 
 @pytest.mark.parametrize("extension,reader_name", [("fst", "FstReader"), ("vcd", "VcdReader"), ("fsdb", "FsdbReader")])

@@ -266,5 +266,5 @@ class AgentBackendBase(object):
         return 0
 
     def should_retry_loop_error(self, error: Exception, recovered_tool_calls: int = 0) -> bool:
-        """Preserve bounded loop retries unless the backend identifies a permanent failure."""
+        """Keep bounded retries unless a backend identifies a permanent failure."""
         return True

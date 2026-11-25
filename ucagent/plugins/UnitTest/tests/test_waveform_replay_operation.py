@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from types import SimpleNamespace
 import pytest
 
-from ucagent.util.config import Config
+from ucagent import Config
 from unit_test.operations.waveform_replay import WaveformReplay
 
 
@@ -368,7 +368,7 @@ def test_waveform_replay_reanalysis_rejects_unavailable_backend(
     waveform_runtime, unavailable
 ):
     """Disabled or busy model work leaves the original diagnostic visible."""
-    from ucagent.core.backends.blank import BlankBackend
+    from ucagent import BlankBackend
 
     state = waveform_runtime
     state.test_result = (False, {"error": "Current TC needs reanalysis."})
@@ -406,7 +406,7 @@ def test_waveform_replay_guards_stage_tools_and_restores_state(
     waveform_runtime, failure
 ):
     """Stage callbacks stay blocked through direct/local calls and restore on every exit."""
-    from ucagent.core.stage.vmanager import ToolDoCheck, ToolDoComplete, ToolGoToStage, ToolDoExit, ToolCurrentTips
+    from ucagent import ToolDoCheck, ToolDoComplete, ToolGoToStage, ToolDoExit, ToolCurrentTips
 
     state = waveform_runtime
     state.test_result = (False, {"error": "Reanalyze the changed TC."})

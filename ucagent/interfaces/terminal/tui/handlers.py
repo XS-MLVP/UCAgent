@@ -1,9 +1,9 @@
 """TUI input dispatch and history; operations remain owned by the runtime host."""
 
-from ucagent.runtime.control.controller import ControlError
-from ucagent.runtime.control.commands import CommandResult
-from ucagent.interfaces.terminal.tui.widgets import ConsoleWidget
-from ucagent.interfaces.terminal.tui.screens.confirmation import ConfirmationScreen
+from ucagent import ControlError
+from ucagent import CommandResult
+from ucagent import ConsoleWidget
+from ucagent import ConfirmationScreen
 
 
 class KeyHandler:

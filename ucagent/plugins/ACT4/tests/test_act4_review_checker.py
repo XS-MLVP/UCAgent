@@ -16,7 +16,7 @@ from act4_privileged_suite.checkers import act4_review_checker
 from act4_privileged_suite.checkers.act4_asset_checker import ACT4AssetChecker
 from act4_privileged_suite import environment
 from act4_privileged_suite.plugin import get_plugin
-from ucagent.core.plugins import LoadedPlugin, create_plugin_checker_registry, load_plugin
+from ucagent import LoadedPlugin, create_plugin_checker_registry, load_plugin
 from ucagent import VerifyAgent
 
 
@@ -945,10 +945,10 @@ def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, mo
         assert agent.cfg.write_dirs == ["reports"]
         assert agent.cfg.un_write_dirs == ["Guide_Doc"]
         assert (tmp_path / "Guide_Doc/ACT4_Extension_Review_Guide.md").is_file()
-        from ucagent.util.file_policy import is_file_writeable
+        from ucagent import is_file_writeable
         assert not is_file_writeable(f"{input_root}/generators/H.py", agent.cfg.un_write_dirs, agent.cfg.write_dirs)[0]
     finally:
-        agent.exit()
+        agent._startup_cleanup.close()
 
 
 @pytest.mark.parametrize("skill_enabled", [True, False])
@@ -1009,7 +1009,7 @@ def test_real_complete_advances_automatically_and_resumes_repairs(tmp_path: Path
                 (harness.output / "candidate/generators/H.py").write_text('"""Native H generator fixture."""\nVALUE = 2\n')
         manager.save_stage_info()
     finally:
-        agent.exit()
+        agent._startup_cleanup.close()
     restored = VerifyAgent(**options)
     try:
         manager = restored.stage_manager
@@ -1048,7 +1048,7 @@ def test_real_complete_advances_automatically_and_resumes_repairs(tmp_path: Path
         if not skill_enabled:
             assert not (tmp_path / ".ucagent/skills").exists()
     finally:
-        restored.exit()
+        restored._startup_cleanup.close()
 
 
 @pytest.mark.parametrize("discover", [True, False])

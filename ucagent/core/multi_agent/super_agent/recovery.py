@@ -102,7 +102,7 @@ class RecoveryControl:
 
     def accepted_files(self):
         """Fingerprint declared inputs and outputs of completed stages for live recovery."""
-        from ucagent.util.functions import find_files_by_pattern
+        from ucagent import find_files_by_pattern
         snapshots = {}
         for index, stage in enumerate(self.agent.stage_manager.stages):
             if not stage.is_completed():

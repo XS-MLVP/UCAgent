@@ -8,7 +8,7 @@ import traceback
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ucagent.interfaces.terminal.tui.app import VerifyApp
+    from ucagent import VerifyApp
 
 
 class UIMsgLogger(logging.Logger):
@@ -92,5 +92,5 @@ def agent_display_name(agent: Any) -> str:
 
 def format_check_result(check_info: Any, sender: str) -> str:
     """Render the latest Check result as compact, attributable context."""
-    from ucagent.core.stage.display import format_check_result as render
+    from ucagent import format_check_result as render
     return render(check_info, sender=sender)

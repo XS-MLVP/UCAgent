@@ -11,7 +11,7 @@ import yaml
 
 from act4_privileged_suite.plugin import get_plugin
 from act4_privileged_suite.review_tools import ACT4ReviewDocument
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent import to_mcp_tool
 from test_act4_review_checker import ReviewHarness
 from test_act4_review_checker import isolate_optional_simulators as isolate_optional_simulators
 

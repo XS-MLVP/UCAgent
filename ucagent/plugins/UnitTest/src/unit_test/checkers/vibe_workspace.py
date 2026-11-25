@@ -5,8 +5,8 @@ import time
 
 import ucagent.util.diff_ops as diff_ops
 import ucagent.util.functions as fc
-from ucagent.core.checkers.base import Checker
-from ucagent.util.log import warning
+from ucagent import Checker
+from ucagent import warning
 
 
 class VibeWorkSpaceInit(Checker):

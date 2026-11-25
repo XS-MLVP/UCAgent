@@ -3,8 +3,8 @@ from pathlib import Path
 import tempfile
 from uuid import uuid4
 
-from ucagent.core.plugins import load_plugin
-from ucagent.runtime.workspace_preparation import PreparationJob
+from ucagent import load_plugin
+from ucagent import PreparationJob
 
 
 def prepare_workflow_workspace(*, plugin, workflow, source, workspace, dut, options=None, timeout=900):

@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import tempfile
 from typing import Any
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 from unit_test.checkers.unit_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,
@@ -33,7 +33,7 @@ from unit_test.checkers import (
 )
 from unit_test.checkers.toffee_report import check_line_coverage
 
-from ucagent.util.log import warning as log_warning
+from ucagent import warning as log_warning
 from ..contracts import (
     atomic_json,
     atomic_text,

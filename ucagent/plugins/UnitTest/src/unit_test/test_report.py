@@ -7,7 +7,7 @@ import os
 import re
 import traceback
 from .str_utils import list_str_abbr
-from ucagent.util.log import warning
+from ucagent import warning
 
 def workspace_relative_path(workspace: str, path: str) -> str:
     """

@@ -13,7 +13,7 @@ requires-python = ">=3.11"
 dependencies = ["UCAgent>=26.9.2.dev25", "PyYAML>=6,<7"]
 
 [project.urls]
-Homepage = "https://github.com/XS-MLVP/UCAgent/tree/main/plugins/ACT4"
+Homepage = "https://github.com/XS-MLVP/UCAgent/tree/main/ucagent/plugins/ACT4"
 Issues = "https://github.com/XS-MLVP/UCAgent/issues"
 
 [project.optional-dependencies]

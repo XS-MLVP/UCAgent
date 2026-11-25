@@ -16,9 +16,9 @@ import yaml
 from pydantic import Field, BaseModel, field_validator
 
 import subprocess
-from ucagent.core.tools.uctool import UCTool, ArgsSchema, EmptyArgs
-from ucagent.util.config import load_runtime_config
-from ucagent.util.log import warning
+from ucagent import UCTool, ArgsSchema, EmptyArgs
+from ucagent import load_runtime_config
+from ucagent import warning
 import ucagent.util.functions as fc
 
 # Security: Maximum size for SKILL.md files to prevent DoS attacks (10MB)

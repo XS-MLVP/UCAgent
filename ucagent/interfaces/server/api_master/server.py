@@ -16,15 +16,15 @@ import sys
 import tempfile
 import threading
 import time
-from ucagent.runtime.services import lifecycle_timeout, start_http_listeners, stop_http_listeners
+from ucagent import lifecycle_timeout, start_http_listeners, stop_http_listeners
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
-from ucagent.util.config import get_config
-from ucagent.util.functions import find_available_port, get_abs_path_cwd_ucagent
-from ucagent.util.log import warning
-from ucagent.util.workspace_archive import create_workspace_archive, extract_workspace_root_archive
+from ucagent import get_config
+from ucagent import find_available_port, get_abs_path_cwd_ucagent
+from ucagent import warning
+from ucagent import create_workspace_archive, extract_workspace_root_archive
 
-from ucagent.interfaces.server.api_master.common import (
+from ucagent import (
     HTTPException,
     _ACTIVE_TASK_STATUSES,
     _CONTAINER_LAUNCH_MODES,
@@ -54,11 +54,11 @@ from ucagent.interfaces.server.api_master.common import (
     _workspace_sync_ignore_patterns_from_cfg,
 )
 
-from ucagent.interfaces.server.api_master.workspaces import WorkspaceMixin
-from ucagent.interfaces.server.api_master.compilation import CompilationMixin
-from ucagent.interfaces.server.api_master.launch_runtime import LaunchRuntimeMixin
-from ucagent.interfaces.server.api_master.relaunch import RelaunchMixin
-from ucagent.interfaces.server.api_master.routes import RoutesMixin
+from ucagent import WorkspaceMixin
+from ucagent import CompilationMixin
+from ucagent import LaunchRuntimeMixin
+from ucagent import RelaunchMixin
+from ucagent import RoutesMixin
 
 
 class MasterApiServer(

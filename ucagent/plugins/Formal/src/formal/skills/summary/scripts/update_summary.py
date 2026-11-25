@@ -18,7 +18,7 @@ if _skill_root not in sys.path:
 from lib.formal_paths import FormalPaths
 from lib.formal_tools import load_records, save_records, set_nested_value, append_nested_value
 from lib.models import FormalRecords
-from ucagent.util.log import str_error, str_info
+from ucagent import str_error, str_info
 
 
 def _parse_value(raw: str):

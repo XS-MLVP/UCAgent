@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from ucagent.core.workspace.files import WorkspaceFiles
+from ucagent import WorkspaceFiles
 
 
 class FileNewBody(BaseModel):

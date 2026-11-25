@@ -6,8 +6,8 @@ import os
 from typing import Tuple
 
 import ucagent.util.functions as fc
-from ucagent.core.checkers.base import Checker
-from ucagent.util.log import info
+from ucagent import Checker
+from ucagent import info
 from .unit_test import (
     UnityChipCheckerBaseFixture,
     _ast_qualified_name,

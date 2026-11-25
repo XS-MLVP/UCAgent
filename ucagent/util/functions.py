@@ -6,8 +6,8 @@ import shutil
 import socket
 import stat
 from collections.abc import Sequence
-from ucagent.util.log import info, warning
-from ucagent.util.file_policy import is_file_writeable
+from ucagent import info, warning
+from ucagent import is_file_writeable
 import os
 from typing import List, Union
 import json
@@ -220,6 +220,7 @@ def load_ucagent_info(workspace) -> dict:
     if os.path.getsize(info_path) == 0:
         return {}
     return load_json_file(info_path)
+
 
 
 def rm_workspace_prefix(workspace: str, path: str) -> dict:
@@ -830,7 +831,6 @@ def import_and_instance_tools(class_list: List[str], module=None):
     return tools
 
 
-
 def get_diff(old_lines, new_lines, file_name):
     import difflib
     diff = "".join(difflib.unified_diff(
@@ -967,7 +967,7 @@ def get_ucagent_hook_msg(
 def get_interaction_messages(key, config_file=None):
     """Get interaction prompts from default cfg"""
     # [config_file.yaml::]continue_prompt_keys[|stop_prompt_keys]
-    from ucagent.util.config import get_config, resolve_default_task_workflow
+    from ucagent import get_config, resolve_default_task_workflow
     import os
 
     if "::" in key:
@@ -1260,7 +1260,6 @@ def sync_dir_to(
         same_type = target_mode is not None and stat.S_IFMT(source_mode) == stat.S_IFMT(target_mode)
         if target_mode is not None and not same_type:
             _remove_sync_node(target)
-
         if stat.S_ISLNK(source_mode):
             link_text = os.readlink(source)
             if not same_type or os.readlink(target) != link_text:

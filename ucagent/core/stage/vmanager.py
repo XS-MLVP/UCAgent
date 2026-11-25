@@ -18,13 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import ucagent.util.functions as fc
 import ucagent.core.checkers
-from ucagent.core.stage.vstage import get_root_stage, coordinated_stage_mutation
-from ucagent.core.tools.uctool import UCTool, EmptyArgs
-from ucagent.util.functions import import_class_from_str, make_llm_tool_ret
-from ucagent.util.config import Config
-from ucagent.util.log import info, warning
-from ucagent.core.stage.llm_suggestion.base_suggestion import get_llm_check_instance
-from ucagent.core.tools.skill import _list_skills, list_skills_in_format
+from ucagent import get_root_stage, coordinated_stage_mutation
+from ucagent import UCTool, EmptyArgs
+from ucagent import import_class_from_str, make_llm_tool_ret
+from ucagent import Config
+from ucagent import info, warning
+from ucagent import get_llm_check_instance
+from ucagent import _list_skills, list_skills_in_format
 from ucagent.core.stage.work import StageWork, stage_work_handoff_blocker
 
 
@@ -371,7 +371,7 @@ class ToolDoCheck(ManagerTool):
 
     def display_result(self, content):
         """Render actionable validation context instead of the complete tool payload."""
-        from ucagent.core.stage.display import format_check_result
+        from ucagent import format_check_result
         return format_check_result(content)
 
     def _run(self, timeout=0, stage_args=None,
@@ -408,7 +408,6 @@ class ToolDoComplete(ManagerTool):
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
         "The tool provides detailed feedback (Different from tool 'Check': if all checks pass, the stage is marked as complete and the manager advances to the next stage).\n\n"
-        "Record the current stage journal with SetCurrentStageJournal before calling Complete.\n"
         "When the current stage requires custom input, pass it in the stage_args JSON "
         "object using the structure documented by that stage."
     )
@@ -606,7 +605,7 @@ class StageManager(object):
         return True
 
     def init_stage(self):
-        from ucagent.core.stage import VerifyStage
+        from ucagent import VerifyStage
         self.root_stage = get_root_stage(
             self.cfg,
             self.workspace,
@@ -1334,10 +1333,9 @@ class StageManager(object):
     def _escalate_repeated_failure(self, stage_index, failure_summary):
         """Return the failure summary with an escalation note when looping.
 
-        Tracks consecutive failures carrying the same error_code, location,
-        and optional Checker-authored failure_key on one stage. From the
-        threshold-th repetition onward the diagnostic gains an explicit
-        stop-and-rethink instruction.
+        Tracks consecutive failures carrying the same error_code and location
+        on one stage.  From the threshold-th repetition onward the diagnostic
+        gains an explicit stop-and-rethink instruction.
         """
 
         if not isinstance(failure_summary, dict):
@@ -1356,10 +1354,15 @@ class StageManager(object):
         else:
             count = 1
         state[stage_index] = (signature, count)
-        threshold = self.cfg.get_value(
-            "multi_agent.limits.checker_repeat_failures",
-            self.REPEAT_FAILURE_ESCALATION_THRESHOLD,
-        )
+        threshold = self.REPEAT_FAILURE_ESCALATION_THRESHOLD
+        cfg = getattr(self, "cfg", None)
+        get_value = getattr(cfg, "get_value", None)
+        if callable(get_value):
+            threshold = get_value(
+                "multi_agent.limits.checker_repeat_failures", threshold
+            )
+        if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 1:
+            threshold = self.REPEAT_FAILURE_ESCALATION_THRESHOLD
         if count < threshold:
             return failure_summary
         escalation = (
@@ -1468,7 +1471,10 @@ class StageManager(object):
                     "'Complete' to finish this stage."
                 )
             else:
-                ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+                ret_data["message"] = (
+                    f"Congratulations! Stage {self.stage_index} checks passed "
+                    "successfully, you can use tool 'Complete' to finish this stage."
+                )
         self._annotate_ignored_stage_args(ret_data, ignored_stage_args)
         if not ck_pass and ignored_stage_args:
             ret_data.setdefault("action", "")
@@ -1753,7 +1759,7 @@ class StageManager(object):
 
     @coordinated_stage_mutation("validation", manager=True)
     def complete(self, timeout, stage_args=None, *, actor=None):
-        """Apply all completion gates before advancing the coordinated stage."""
+        """Require a journal, then apply completion gates before advancing."""
         if self.stage_index >= len(self.stages):
             return self._public_check_result({
                 "complete": False,
@@ -1767,10 +1773,11 @@ class StageManager(object):
         if args_timeout > timeout:
             timeout = args_timeout
         stage = self.stages[self.stage_index]
-        # A missing journal is repairable without running or advancing checkers.
         if stage.meta_get_journal() is None:
-            return {"complete": False,
-                    "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
+            return {
+                "complete": False,
+                "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it.",
+            }
         ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
         ck_pass, ck_info = stage.do_check(
             timeout=timeout,

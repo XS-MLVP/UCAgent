@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any
-from ucagent.core.checkers.base import Checker
+from ucagent import Checker
 from unit_test.checkers.unit_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerCoverageGroup,

@@ -14,7 +14,7 @@ import sys
 import pytest
 import yaml
 
-from ucagent.util.config import Config, get_config, load_yaml_with_env_vars
+from ucagent import Config, get_config, load_yaml_with_env_vars
 from design_with_ppa.contracts import atomic_json, atomic_text, atomic_yaml
 from design_with_ppa.plugin import create_tools, get_plugin
 from design_with_ppa.repo.apply_bundle import apply_bundle
@@ -27,7 +27,7 @@ from design_with_ppa.repo.common import run_command
 from design_with_ppa.repo.snapshot import snapshot_repository
 from design_with_ppa.repo.tools import RunRepoValidation, RunRepoValidationArgs
 from design_with_ppa.repo.validation import reference_check, validate_unit, validated_records
-from ucagent.core.plugins import PluginContext
+from ucagent import PluginContext
 
 
 def git(root: Path, *args: str) -> str:
@@ -404,7 +404,7 @@ def test_real_candidates_and_delivery_stage_gates(repo_case):
     assert result["verification_scope"] == "unit_only"
     summary = paths.edit / "delivery/summary.md"
     assert summary.is_file()
-    from ucagent.util.markdown import markdown_heading_spacing_errors
+    from ucagent import markdown_heading_spacing_errors
     text = summary.read_text(encoding="utf-8")
     assert not markdown_heading_spacing_errors(text)
     assert "`baseline`" in text and "`carry_chain`" in text
@@ -638,8 +638,8 @@ def test_source_receipt_forgery_is_rejected(repo_case):
 def test_repo_workflow_configuration_and_stage_lifecycle(repo_case, monkeypatch, skills_enabled):
     """Resolve new YAML, instantiate every stage gate, and require no optional skill files."""
 
-    from ucagent.core.stage.vstage import VerifyStage
-    from ucagent.util.config import build_runtime_config
+    from ucagent import VerifyStage
+    from ucagent import build_runtime_config
     from design_with_ppa.checkers import (DesignFunctionalContractChecker,
                                           DesignLabelStructureChecker,
                                           DesignMarkdownFileFormatChecker)
@@ -684,7 +684,7 @@ def test_repo_workflow_configuration_and_stage_lifecycle(repo_case, monkeypatch,
 def test_repo_tool_mcp_and_local_failures(repo_case):
     """The workflow-local tool converts to MCP and diagnoses real local invocation failures."""
 
-    from ucagent.core.tools.uctool import to_mcp_tool
+    from ucagent import to_mcp_tool
 
     tool = RunRepoValidation(workspace=str(repo_case.workspace), cfg=repo_case.cfg)
     schema = to_mcp_tool(tool).parameters
@@ -809,7 +809,7 @@ def test_guide_examples_and_packaged_templates_are_canonical():
 
     import ast
     import re
-    from ucagent.util.markdown import markdown_heading_spacing_errors
+    from ucagent import markdown_heading_spacing_errors
     from design_with_ppa.repo.models import Candidate, TaskContract, Workload
 
     root = Path(__file__).resolve().parents[1]
@@ -830,7 +830,7 @@ def test_byte_increment_case_bootstraps_a_real_source_repository(tmp_path):
         pytest.skip("make is unavailable")
     plugin_root = Path(__file__).resolve().parents[1]
     readme = (plugin_root / "cases/repo_byte_increment/README.md").read_text(encoding="utf-8")
-    from ucagent.util.markdown import markdown_heading_spacing_errors
+    from ucagent import markdown_heading_spacing_errors
 
     assert not markdown_heading_spacing_errors(readme)
     assert "`rtl/unit.v`" in readme and "(a + 1) mod 256" in readme

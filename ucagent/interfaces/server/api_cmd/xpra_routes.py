@@ -12,10 +12,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, TypeAdapter, ValidationError, field_validator
 
-from ucagent.util.config import Config
+from ucagent import Config
 
-from ucagent.interfaces.server.api_cmd.transport import XpraBrowserAccess, authorize_websocket, relay_websocket
-from ucagent.interfaces.server.api_cmd.xpra import XpraError
+from ucagent import XpraBrowserAccess, authorize_websocket, relay_websocket
+from ucagent import XpraError
 
 
 class _CreateSession(BaseModel):

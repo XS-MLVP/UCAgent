@@ -9,7 +9,7 @@ import os
 import re
 from collections import OrderedDict
 from typing import List
-from ucagent.util.functions import rm_workspace_prefix
+from ucagent import rm_workspace_prefix
 from unit_test.doc_marks import rm_blank_in_str
 
 def del_report_keys(report: dict, keys: List[str]) -> dict:

@@ -9,7 +9,7 @@ from unit_test.doc_marks import (
 )
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-from ucagent.util.functions import yam_str
+from ucagent import yam_str
 
 
 def test_func_check_points(tfile=None):

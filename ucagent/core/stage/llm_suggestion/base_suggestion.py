@@ -1,9 +1,9 @@
 #coding: utf-8
 
-from ucagent.util.functions import import_class_from_str
-from ucagent.util.config import Config
-from ucagent.util.log import info, warning
-from ucagent.core.stage.vstage import VerifyStage
+from ucagent import import_class_from_str
+from ucagent import Config
+from ucagent import info, warning
+from ucagent import VerifyStage
 
 
 class BaseLLMSuggestion:

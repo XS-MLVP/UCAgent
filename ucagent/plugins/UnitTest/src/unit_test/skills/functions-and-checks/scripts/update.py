@@ -4,8 +4,8 @@ import os
 import re
 from typing import Any, Dict, List, Tuple
 
-from ucagent.util.config import load_runtime_config
-from ucagent.util.markdown import ensure_markdown_heading_spacing
+from ucagent import load_runtime_config
+from ucagent import ensure_markdown_heading_spacing
 
 
 PROJECT_ROOT = os.getcwd()

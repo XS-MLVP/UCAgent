@@ -3,14 +3,14 @@
 
 import json
 import time
-from ucagent.core.tools.uctool import UCTool
+from ucagent import UCTool
 from langchain_core.tools.base import ArgsSchema
 
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
 import os
-from ucagent.util.log import info
+from ucagent import info
 
 
 from langgraph.store.memory import InMemoryStore

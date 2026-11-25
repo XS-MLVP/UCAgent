@@ -8,16 +8,16 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Static, Tree, HelpPanel, Button
-from ucagent.interfaces.terminal.tui.widgets.recovery import RecoveryPanel, RecoveryDialog
+from ucagent import RecoveryPanel, RecoveryDialog
 
-from ucagent.interfaces.terminal.presentation import format_mission, format_status, format_data
-from ucagent.interfaces.terminal.tui.agent_view import SubAgentView
-from ucagent.interfaces.terminal.tui.screens import ThemePickerScreen
-from ucagent.interfaces.terminal.tui.widgets import (
+from ucagent import format_mission, format_status, format_data
+from ucagent import SubAgentView
+from ucagent import ThemePickerScreen
+from ucagent import (
     TaskPanel, MessagesPanel, ConsoleWidget, ConsoleInput, StatusBar,
     VerticalSplitter, HorizontalSplitter,
 )
-from ucagent.interfaces.terminal.tui.widgets.splitter import _clamp_split_value
+from ucagent import _clamp_split_value
 
 
 class AgentTaskPanel(TaskPanel):
@@ -77,7 +77,7 @@ class AgentTaskPanel(TaskPanel):
                 if selected == key: tree.move_cursor(node)
             tree.root.expand()
             self.child_rows = rows
-        from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
+        from ucagent import fmt_time_stamp, fmt_time_deta
         changed = Text()
         for row in snapshot.get("changed_files", [])[:5]:
             age = row.get("age_seconds")

@@ -15,10 +15,10 @@ import tempfile
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 from fastapi import WebSocketException
-from ucagent.util.log import warning
-from ucagent.util.workspace_archive import WorkspaceArchiveError
+from ucagent import warning
+from ucagent import UtilityWorkspaceArchiveError as WorkspaceArchiveError
 
-from ucagent.interfaces.server.api_master.common import (
+from ucagent import (
     BaseModel,
     Body,
     Depends,
@@ -46,7 +46,7 @@ from ucagent.interfaces.server.api_master.common import (
     _path_is_under,
     _plain_config_value,
     _rewrite_html,
-    _strip_ansi,
+    MasterApiStripAnsi as _strip_ansi,
     _sync_reported_service_tcp_url,
     _task_logs_for_display,
 )
@@ -81,7 +81,7 @@ class RoutesMixin:
         password = self.password
         security = HTTPBasic(auto_error=False)
         proxy_timeout = aiohttp.ClientTimeout(total=120, connect=3, sock_connect=3, sock_read=120)
-        from ucagent.interfaces.server.api_cmd.transport import XpraBrowserAccess
+        from ucagent import XpraBrowserAccess
         xpra_browser_access = XpraBrowserAccess(password)
 
         async def _proxy_http_request(
@@ -214,7 +214,7 @@ class RoutesMixin:
 
         @app.get("/api/ui-meta", summary="UI metadata", dependencies=[Depends(_check_password)])
         def ui_meta():
-            from ucagent.version import __version__
+            from ucagent import __version__
 
             uptime_s = 0.0
             if self.started_at:
@@ -2177,6 +2177,6 @@ class RoutesMixin:
                     except Exception:
                         pass
 
-        from ucagent.interfaces.server.api_cmd.master_proxy import register_master_xpra_routes
+        from ucagent import register_master_xpra_routes
         register_master_xpra_routes(app, self, xpra_browser_access)
         return app

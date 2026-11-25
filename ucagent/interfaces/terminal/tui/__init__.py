@@ -3,10 +3,10 @@
 
 def enter_tui(session):
     """Detach back to the console while keeping host-owned operations alive."""
-    from ucagent.interfaces.terminal.tui.app import VerifyApp
+    from ucagent import VerifyApp
 
     if getattr(session.host, "agent_sessions", None) is not None:
-        from ucagent.interfaces.terminal.tui.global_app import GlobalApp
+        from ucagent import GlobalApp
         app = GlobalApp(session)
     else:
         app = VerifyApp(session)

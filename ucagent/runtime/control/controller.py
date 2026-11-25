@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Any
 from ucagent.util.redaction import redact_config
 
-from ucagent.core.tools.fileops import BaseReadWrite
-from ucagent.util.file_policy import write_entry_has_wildcards
-from ucagent.util.config import Config
-from ucagent.util.functions import list_files_by_mtime
-from ucagent.version import __version__
-from ucagent.runtime.workspace.access import WorkspaceAccess
-from ucagent.runtime.workspace.queries import WorkspaceQueries
+from ucagent import BaseReadWrite
+from ucagent import write_entry_has_wildcards
+from ucagent import Config
+from ucagent import list_files_by_mtime
+from ucagent import __version__
+from ucagent import WorkspaceAccess
+from ucagent import WorkspaceQueries
 
 
 class ControlError(Exception):
@@ -67,7 +67,7 @@ class Controller:
 
     def start_operation(self, command, arguments, session):
         """Submit a structured command to the same owner used by text frontends."""
-        from ucagent.runtime.control.commands import COMMAND_ORIGIN
+        from ucagent import COMMAND_ORIGIN
 
         origin = COMMAND_ORIGIN.get()
         token = COMMAND_ORIGIN.set(origin if origin is not None and origin[0] == session.id

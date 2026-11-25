@@ -439,7 +439,7 @@ def test_checker_reads_current_state(artifacts):
 def test_fresh_agent_stages(workspace, monkeypatch, enabled, workflow, output_dir):
     """Both workflows complete in the selected directory with Skills enabled or absent."""
     from ucagent import VerifyAgent
-    from ucagent.core.plugins import (
+    from ucagent import (
         collect_plugin_resources,
         load_plugin,
         resolve_plugin_workflow,
@@ -636,7 +636,7 @@ def test_markdown_fences_are_checked_without_fixed_layout():
 def test_resolved_workflow_parameters(monkeypatch, config):
     """The workflow resolves configuration without a document version field."""
     from rtl2spec.plugin import get_plugin
-    from ucagent.util.config import load_yaml_with_env_vars
+    from ucagent import load_yaml_with_env_vars
 
     monkeypatch.setenv("XIANGSHAN_CONFIG", config)
     cfg = load_yaml_with_env_vars(str(get_plugin().workflows[0].config_file))

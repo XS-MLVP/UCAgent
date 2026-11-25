@@ -11,4 +11,4 @@ if _root not in sys.path:
 
 from .formal_paths import FormalPaths
 from .formal_tools import *
-from ucagent.util.log import str_error, str_info, warning, info
+from ucagent import str_error, str_info, warning, info
