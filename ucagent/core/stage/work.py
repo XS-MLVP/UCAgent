@@ -123,7 +123,8 @@ def stage_work_handoff_blocker(manager):
         except Exception as error:
             name = type(hook).__name__
             warning(f"StageWork handoff check {name} failed ({type(error).__name__})")
-            return f"工作流 {name} 未能核对交接证据。先检查现有证据和运行日志；不要原样重跑或改为等人工。"
+            return (f"Workflow {name} could not verify the handoff evidence. Check the current "
+                    "evidence and run logs first; do not rerun unchanged or switch to waiting for a human.")
     return None
 
 
@@ -164,9 +165,10 @@ class StageWorkLoop:
             self.recovery = False
         if ready:
             item = ready[0]
-            return None, (f"继续本工作流的待办：阶段 {item['stage']} / {item['id']}。{item['detail']}。"
-                          "如果在别的已达阶段，先用 GoToStage；执行、核对证据，再更新 StageWork。"
-                          "不要重做已完成项，也不要为另一个缺规格的问题停下。")
+            return None, (f"Continue the pending StageWork item: stage {item['stage']} / {item['id']}. "
+                          f"{item['detail']}. If it belongs to another reached stage, call GoToStage first; "
+                          "execute, verify the evidence, then update StageWork. Do not redo completed items, "
+                          "and do not stop for a different missing-specification problem.")
         blocker = None
         if new["reviewed"] and not new["stalled"] and (
                 index_now >= len(self.manager.stages) or new["human"] and (
@@ -180,8 +182,10 @@ class StageWorkLoop:
             self.recovery = True
             self.quiet = 0
             return None, ((blocker + "\n" if blocker else "")
-                          + "不要重复刚才的检查或原样重跑。先用 StageWork(show) 核对剩余事项，"
-                          "从现有证据找一个能独立处理的问题并登记为 ready，能做就直接做。"
-                          "确实需要负责人提供规格、权限或决定的，写清缺什么和影响。"
-                          "已核对全部剩余范围后用 StageWork(review) 记录证据；没有新办法就保留未完成。")
+                          + "Do not repeat the previous check or rerun unchanged. Use StageWork(show) to "
+                          "review the remaining items first, find one problem that can be handled independently "
+                          "from the current evidence and mark it ready; if it can be done, do it. For items that "
+                          "truly need an owner-supplied specification, permission, or decision, state exactly "
+                          "what is missing and its impact. After reviewing the full remaining scope, record the "
+                          "evidence with StageWork(review); if there is no new approach, keep the work incomplete.")
         return None, blocker

@@ -173,4 +173,4 @@ def test_veto_failure_is_bounded_and_never_waits_for_human(work_runtime, bad_res
     assert result["state"] == "succeeded", result
     assert result["result"] == {"reason": "paused", "stop_reason": "checker_stall", "invoke_round": 6}
     assert decision.call_count == 6
-    assert "未能核对交接证据" in r.agent.set_continue_msg.call_args.args[0]
+    assert "could not verify the handoff evidence" in r.agent.set_continue_msg.call_args.args[0]
