@@ -27,11 +27,9 @@ dependencies = [
     "psutil>=7.1.0",
     "langfuse>=3.9.1",
     "gitpython>=3.1.43",
-    # UnitTest default-workflow runtime dependencies: the plugin ships as
-    # framework package data, so its toffee test substrate installs with the
-    # framework itself (装框架=能跑默认工作流).
-    "pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master",
-    "toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master",
+    # Default toffee-ut workflow runtime: Toffee 2. Legacy UnitTest and
+    # DesignWithPPA use requirements-legacy-unittest.txt in a separate venv.
+    "uc-toffee[runner]>=2.2.0",
     "textual>=7.3.0",
     "Jinja2>=3.1.6",
     "fastapi>=0.135.0",

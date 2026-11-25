@@ -1,28 +1,5 @@
-langchain>=1.2.15
-langchain_community>=0.3.31
-openai>=1.109.1
-langgraph>=1.0.5
-langchain_openai>=1.1.6
-mem0ai>=0.1.118
-mcp>=2.3.0,<3.0
-psutil>=7.1.0
-langfuse>=3.9.1
-gitpython>=3.1.43
-textual>=7.3.0
-Jinja2>=3.1.6
-fastapi>=0.135.0
-uvicorn[standard]>=0.42.0
-aiohttp>=3.13.5,<4
-docker>=7.1.0
-kubernetes>=33.1.0
-# UnitTest default-workflow runtime dependencies: the plugin ships as
-# framework package data, so its toffee test substrate and waveform reader
-# install with the framework itself (装框架=能跑默认工作流).
-pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master
-toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master
-wavekit>=0.7.0,<0.8.0
-pywellen>=0.25.7,<0.26
-pylibfst>=0.2.1,<0.3
-packaging>=24,<27
-PyYAML>=6.0,<7.0
-regex>=2024.11.6
+# Default UCAgent environment: Toffee 2 for the toffee-ut workflow.
+# Legacy UnitTest/DesignWithPPA must use requirements-legacy-unittest.txt in a
+# separate virtualenv; pytoffee and uc-toffee cannot share the `toffee` import.
+-r requirements-core.txt
+uc-toffee[runner]>=2.2.0

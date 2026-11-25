@@ -7,9 +7,11 @@ template_overwrite:
 # 启动期选择数据，由 ucagent 命令在启动时解析，任何后层配置（工作区、--config、
 # --override）都可以重定义或置空它：相对路径先按本目录（core/locales/）
 # 解析，再按仓库根解析（插件工作流如
-# ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml 走后者）；
+# ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml 走后者）；
 # workflow 置空（Null）时表示纯框架运行、不加载默认任务工作流。
-workflow: "ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml"
+# Legacy UnitTest 仍可显式选择：
+# ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml
+workflow: "ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml"
 
 hooks:
   # Define any hook prompts here if needed

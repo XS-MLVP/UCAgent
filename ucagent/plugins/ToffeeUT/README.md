@@ -2,12 +2,15 @@
 # ToffeeUT
 
 独立的 UCAgent UT 插件，使用当前环境中的 `uc-toffee`，输出采用 ucv4xs 的工程结构。
-旧 UnitTest、DesignWithPPA 和默认工作流不变。这里的 `env/agent` 指 DUT 事务环境，
+默认工作流指针已切换到 `toffee-ut:ut`；旧 UnitTest 和 DesignWithPPA 保留为 Legacy
+可选工作流，需要独立的 Toffee 1.x 环境。这里的 `env/agent` 指 DUT 事务环境，
 不是 LLM 子 Agent。
 
 ## 安装
 
-在 UCAgent 仓库根运行，插件拥有自己的一个 venv：
+默认的 `requirements.txt` 已使用 Toffee 2，因此仓库默认环境可以直接加载本插件。
+
+如需与 Legacy UnitTest 环境并存的独立插件 venv，可在仓库根运行：
 
 ```bash
 python3 ucagent/plugins/ToffeeUT/scripts/setup_env.py
@@ -15,9 +18,9 @@ source ucagent/plugins/ToffeeUT/.venv/bin/activate
 python -m ucagent --validate-plugin ./ucagent/plugins/ToffeeUT
 ```
 
-脚本安装核心运行依赖时排除 `pytoffee` 和 `toffee-test`，把当前 UCAgent 源码加入
-此 venv，不改核心依赖文件、不升级 ucv4xs 的环境。不要在这个环境再执行普通的
-`pip install UCAgent`，它会带入同样占用 `toffee` 导入名的 Legacy 依赖。
+脚本把当前 UCAgent 源码加入此 venv，不改核心依赖文件、不升级 ucv4xs 的环境。
+不要在这个环境再执行普通的 `pip install UCAgent`，它会带入同样占用 `toffee`
+导入名的 Legacy 依赖。
 
 ## 使用自己的 opencode 终端
 

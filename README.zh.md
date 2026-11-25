@@ -49,6 +49,10 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
+默认环境使用 Toffee 2，默认工作流为 `toffee-ut:ut`。旧的 UnitTest 和
+DesignWithPPA 需要 Toffee 1.x，必须在独立虚拟环境中安装
+`requirements-legacy-unittest.txt`，不要与默认环境混装。
+
 ### 3. 安装 OpenCode
 
 请参考 [https://opencode.ai/](https://opencode.ai/) 安装opencode。

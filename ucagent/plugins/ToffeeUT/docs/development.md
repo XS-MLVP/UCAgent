@@ -4,24 +4,26 @@
 ## 安装边界
 
 插件与 UnitTest 同级，独立包名 `ucagent-toffee-ut`，导入 `toffee_ut`，工作流
-`toffee-ut:ut` 和任务交接入口 `toffee-ut:adopt`。它不依赖 UnitTest，也不更改默认工作流。UCAgent 主发行包仅增加
-ToffeeUT 的打包排除项，避免把独立插件与本地 venv 带进主包。
+`toffee-ut:ut` 和任务交接入口 `toffee-ut:adopt`。它不依赖 UnitTest；默认工作流
+指针已切换到 `toffee-ut:ut`，UnitTest/DesignWithPPA 保留为 Legacy 可选工作流。
+UCAgent 主发行包仅增加 ToffeeUT 的打包排除项，避免把独立插件与本地 venv 带进主包。
 
 `scripts/setup_env.py` 创建插件目录内的一个 `.venv`，从指定 UCAgent 源码读取核心
 requirements，排除 pytoffee/toffee-test 后安装，加上插件的 Toffee 2 依赖，再通过
 `.pth` 引用该份 UCAgent 源码。没有第二个 runner 环境；所有工具与测试使用同一个
-`sys.executable`。脚本不安装旧 Toffee，不修改旧环境或 ucv4xs。
+`sys.executable`。脚本不安装旧 Toffee，不修改 Legacy 环境或 ucv4xs。默认
+`requirements.txt` 已使用 Toffee 2；该脚本主要用于与 Legacy 环境并存的独立 venv。
 
 venv 是可选的准备方式，不是工具运行前提。使用已准备的本地解释器与最新源码时，
 不调用该脚本、不从旧 venv 补导入路径；让该解释器可导入所选 UCAgent、ToffeeUT 和
 兼容的 `uc-toffee`，并核对实际模块路径和 Picker 可执行文件。用户级安装的工具回归
 若用临时 HOME 隔离配置，应保留原解释器的 PYTHONUSERBASE，避免子进程误换安装根。
 
-普通 `pip install UCAgent` 当前会带 Legacy Toffee，不应在这个 venv 中执行。
-此源码接入不安装 UCAgent 发行包；源码树已有 egg-info 仍可能被 pip 发现，所以
-`pip check` 会按核心默认工作流的元数据报告缺少 pytoffee/toffee-test。这两项是此
-环境有意排除的依赖，不能为消除提示混装。其余依赖错误仍需修复；发行版环境还需
-操作者提供匹配的 UCAgent 核心。
+默认 `pip install UCAgent` 现在安装 Toffee 2；Legacy UnitTest/DesignWithPPA 必须在
+独立环境使用 `requirements-legacy-unittest.txt`，不能与默认环境混装。此源码接入
+不安装 UCAgent 发行包；源码树已有旧 egg-info 时，`pip check` 可能仍按旧元数据
+报告缺少 pytoffee/toffee-test，刷新 egg-info 后再核对。其余依赖错误仍需修复；
+发行版环境还需操作者提供匹配的 UCAgent 核心。
 需要编译实际 DUT 时，外部工具链为 Picker、Verilator、C/C++ 构建工具及
 verilator_coverage。Toffee 2 依赖提供 xspcomm 绑定；已有 DUT 包的 ABI 仍需与当前
 Python/绑定匹配。缺工具链不会阻止资料和规格工作，构建调用会返回具体阻塞。
@@ -80,7 +82,7 @@ export UC_ENV_CMD_BACKEND_EX_ARGS="--model <provider/model>"
 | `WaveInfo` | 读取精确节点的信号目录、事件窗口并生成绑定运行的波形观察收据 |
 | `CoverageInfo` | 分页读取当前 DUT 的实际原生行/分支/toggle 计数及未覆盖点 |
 | `UTProject(audit)` / Checker | 相同的阶段验收，不自动启动测试或改变资料 |
-| `UTProject(summary)` | 从当前运行生成 docs/README.md 的人读总览、问题/逐例视图及 JSON，保留区块外人工字节 |
+| `UTProject(summary)` | 从当前运行更新 docs/README.md 的人读总览和证据入口，保留生成区块外的人工说明 |
 
 离线 CLI 复用同一实现。例如：
 
@@ -252,10 +254,9 @@ Skill 在初始化时复制，已有运行实例不会自动读取源文件修�
   runtime 只显示收据已有字段；源码 hash 表和完整 build 原件链接到 receipt/manifest，
   源码映射使用排序、紧凑 JSON 的 SHA-256 标识，避免复制完整 hash 表。没有收据字段的
   工具提交、构建选项及跨版本同刺激结论不作证明。
-- summary 只替换现有拥有标记内的字节，链接从 docs/README.md 出发（results 用
-  `../results/`）；逐例诊断安全转义，结构化 JSON 保留原语义。final 重新从当前证据渲染
-  整个自动区块并逐字节比对，人读统计或诊断被手改也拒绝；不改变既有交付门禁或 verdict。
-  完整规范示例与工具回归在 `Guide_Doc/ut-results.md` 和 `tests/reports/test_reports.py`。
+- summary 管理生成区块，链接从 docs/README.md 出发（results 用 `../results/`）；
+  保留机器证据原义与区块外的人工说明，final 依据当前证据核对生成内容。问题正文示例见
+  `Guide_Doc/ut-results.md`，交付渲染回归见 `tests/reports/test_reports.py`。
 
 ## 当前限制与测试范围
 

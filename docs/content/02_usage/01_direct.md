@@ -3,6 +3,8 @@
 
 直接使用适合希望由 UCAgent 自己连接模型、在一个终端内完成验证的场景。它使用默认的 `langchain` backend，不需要外部 Code Agent 或 MCP。
 
+> 当前默认工作流为 `toffee-ut:ut`，默认产物在 `<workspace>/ut_project/`。本文中的 `unit_test/` 产物示例对应显式选择的 Legacy UnitTest 工作流。
+
 ## 1. 配置模型
 
 推荐使用环境变量：

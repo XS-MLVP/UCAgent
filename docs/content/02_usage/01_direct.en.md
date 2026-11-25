@@ -3,6 +3,8 @@
 
 Direct usage is suitable for scenarios where you want UCAgent to connect to the model itself and complete verification within a single terminal. It uses the default `langchain` backend and does not require an external Code Agent or MCP.
 
+> The default workflow is now `toffee-ut:ut`, with default artifacts under `<workspace>/ut_project/`. The `unit_test/` examples below describe the explicitly selected Legacy UnitTest workflow.
+
 ## 1. Configure the Model
 
 Environment variables are recommended:

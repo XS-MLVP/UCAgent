@@ -1,0 +1,9 @@
+# Legacy UnitTest/DesignWithPPA environment only.
+# Install in a dedicated virtualenv; never combine with uc-toffee.
+#   python3 -m venv .venv-legacy
+#   source .venv-legacy/bin/activate
+#   pip install -r requirements-legacy-unittest.txt
+#   pip install --no-deps -e .
+-r requirements-core.txt
+pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master
+toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master
