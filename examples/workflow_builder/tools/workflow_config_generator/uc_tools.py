@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 from .core import ConfigGenerationError, generate_config
 

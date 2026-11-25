@@ -2,9 +2,11 @@
 """Model utilities for UCAgent chat models."""
 
 from typing import Any
+import os
+from concurrent.futures import CancelledError
 from .config import Config
 from langchain_core.rate_limiters import InMemoryRateLimiter
-from ucagent.util.log import echo_g, warning
+from ucagent import echo_g, warning
 
 
 OPENAI_API_MODES = {"auto", "responses", "chat_completions"}
@@ -34,13 +36,7 @@ def get_chat_model_openai(
     Raises:
         ImportError: If langchain_openai is not installed.
     """
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        raise ImportError(
-            "Please install langchain_openai to use OpenAI chat model. "
-            "You can install it with: pip3 install langchain_openai"
-        )
+    from langchain_openai import ChatOpenAI
     kw = cfg.openai.as_dict()
     kw.pop("api_mode", None)
     probe_timeout = kw.pop("responses_probe_timeout", 10)
@@ -121,10 +117,21 @@ def get_chat_model_openai(
                 "timeout": probe_timeout,
             }
         )
+    # LangChain may cache default async transports across model instances. A
+    # backend runs on its own loop and closes its clients when a worker stops,
+    # so its transport must never come from that process-wide cache. Explicit
+    # caller clients are preserved; LangChain's proxy path already creates a
+    # fresh transport per model instead of using the default cache.
+    proxy = kw.get("openai_proxy", os.environ.get("OPENAI_PROXY"))
+    if not proxy and not any(kw.get(key) is not None for key in ("http_async_client", "async_client")):
+        from openai import DefaultAsyncHttpxClient
+        kw["http_async_client"] = DefaultAsyncHttpxClient(
+            timeout=kw.get("timeout", kw.get("request_timeout")),
+        )
     return ChatOpenAI(**kw)
 
 
-def negotiate_openai_api_mode(cfg: Config) -> str:
+def negotiate_openai_api_mode(cfg: Config, *, invoke=None) -> str:
     """Select the OpenAI API protocol before the LangChain agent starts."""
     requested_mode = cfg.openai.get_value("api_mode", "auto")
     if requested_mode not in OPENAI_API_MODES:
@@ -150,7 +157,10 @@ def negotiate_openai_api_mode(cfg: Config) -> str:
         probe=True,
     )
     try:
-        probe_model.invoke("Reply with OK.", max_tokens=8)
+        (invoke(probe_model, "Reply with OK.", phase="probe", max_tokens=8) if invoke
+         else probe_model.invoke("Reply with OK.", max_tokens=8))
+    except CancelledError:
+        raise
     except Exception as probe_error:
         response = getattr(probe_error, "response", None)
         status_code = getattr(probe_error, "status_code", None)
@@ -221,7 +231,10 @@ def negotiate_openai_api_mode(cfg: Config) -> str:
                 probe=True,
             )
             try:
-                chat_probe_model.invoke("Reply with OK.", max_tokens=8)
+                (invoke(chat_probe_model, "Reply with OK.", phase="probe", max_tokens=8) if invoke
+                 else chat_probe_model.invoke("Reply with OK.", max_tokens=8))
+            except CancelledError:
+                raise
             except Exception as chat_probe_error:
                 chat_reason = str(chat_probe_error).strip().splitlines()[0]
                 if len(chat_reason) > 500:
@@ -263,13 +276,7 @@ def get_chat_model_anthropic(cfg: Config, callbacks, rate_limiter) -> Any:
     Raises:
         ImportError: If langchain_anthropic is not installed.
     """
-    try:
-        from langchain_anthropic import ChatAnthropic
-    except ImportError:
-        raise ImportError(
-            "Please install langchain_anthropic to use Anthropic chat model. "
-            "You can install it with: pip3 install langchain_anthropic"
-        )
+    from langchain_anthropic import ChatAnthropic
     kw = cfg.anthropic.as_dict()
     if rate_limiter:
         kw.update({"rate_limiter": rate_limiter})
@@ -284,13 +291,8 @@ def get_chat_model_anthropic(cfg: Config, callbacks, rate_limiter) -> Any:
 
 
 def get_chat_model_google_genai(cfg: Config, callbacks, rate_limiter) -> Any:
-    try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-    except ImportError:
-        raise ImportError(
-            "Please install langchain_google_genai to use Google GenAI chat model. "
-            "You can install it with: pip3 install langchain_google_genai"
-        )
+    """Construct the selected Google provider using its explicit dependency."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
     kw = cfg.google_genai.as_dict()
     model_name = kw.pop("model_name")
     if model_name:
@@ -312,6 +314,7 @@ def get_chat_model(
     openai_api_mode: str | None = None,
     streaming: bool | None = None,
 ) -> Any:
+    """Create only the provider selected by resolved configuration."""
     if not cfg.rate_limiter.enabled:
         rate_limiter = None
     else:

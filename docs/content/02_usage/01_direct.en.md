@@ -3,6 +3,8 @@
 
 Direct usage is suitable for scenarios where you want UCAgent to connect to the model itself and complete verification within a single terminal. It uses the default `langchain` backend and does not require an external Code Agent or MCP.
 
+> The default workflow is now `toffee-ut:ut`, with default artifacts under `<workspace>/ut_project/`. The `unit_test/` examples below describe the explicitly selected Legacy UnitTest workflow.
+
 ## 1. Configure the Model
 
 Environment variables are recommended:
@@ -13,7 +15,7 @@ export OPENAI_API_KEY="<api_key>"
 export OPENAI_API_BASE="https://<provider>/v1"
 ```
 
-UCAgent uses the OpenAI-compatible interface. The `OPENAI_API_MODE` for the LangChain backend defaults to `auto`: it probes the Responses API at startup and falls back to Chat Completions only if the server explicitly does not support it. Set it to `responses` or `chat_completions` if you need to fix the protocol. `OPENAI_REASONING_EFFORT` defaults to `xhigh`; the value is passed to the server as-is, so please fill in a value supported by your model.
+UCAgent uses the OpenAI-compatible interface. The `OPENAI_API_MODE` for the LangChain backend defaults to `auto`: it probes the Responses API before the first model operation and falls back to Chat Completions only if the server explicitly does not support it. Set it to `responses` or `chat_completions` if you need to fix the protocol. `OPENAI_REASONING_EFFORT` defaults to `xhigh`; the value is passed to the server as-is, so please fill in a value supported by your model.
 
 Configure an embedding model if you need semantic search or memory tools:
 
@@ -84,7 +86,7 @@ ucagent output/ Adder -s -hm --tui -l
 Common parameters:
 
 - `--config <path>`: Specifies the project configuration; if not specified, the hierarchical default configuration is used.
-- `--output <name>`: Modifies the output directory under the workspace, defaulting to `unity_test`.
+- `--output <name>`: Modifies the output directory under the workspace, defaulting to `unit_test`.
 - `--human` / `-hm`: Starts human-intervention mode.
 - `--tui`: Opens the TUI; if not using the TUI, you can use `--web-console` or `--web-terminal`.
 - `--skip <index>`, `--unskip <index>`: Controls stages by runtime stage index; the index is based on what is displayed in `status`/`hmcheck_list`.
@@ -98,17 +100,17 @@ current_tips
 loop
 ```
 
-When a stage fails, first check the specific files and next steps returned by the Checker, then fix them and invoke:
+When a stage fails, wait for the active operation to end, inspect the files and next steps reported by the Checker, repair them, then invoke each command and wait for its result:
 
 ```text
 tool_invoke Check
 tool_invoke Complete
 ```
 
-If the check process has no output:
+If a check has no output, inspect the logs. Cancel active model/tool work with `Ctrl+C` or the [HTTP operation API](10_runtime_control.md) and wait for it to end. The following tool calls also use the model-operation slot and are rejected while it is busy:
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 ```
 
@@ -127,7 +129,7 @@ Stopping retries does not clear the conversation, advance stages, or bypass Chec
 
 ## 5. Artifacts and Next Steps
 
-Default artifacts are located in `<workspace>/unity_test/`, and toffee-test reports (if tests have been run) are located in `<workspace>/uc_test_report/`. The workflow determines the specific documentation and test file names; do not assume that Bug, waveform, or coverage files will necessarily be generated.
+Default artifacts are located in `<workspace>/unit_test/`, and toffee-test reports (if tests have been run) are located in `<workspace>/uc_test_report/`. The workflow determines the specific documentation and test file names; do not assume that Bug, waveform, or coverage files will necessarily be generated.
 
 - To involve an external Code Agent: Read [MCP Integration](../01_start/03_mcp_mode.md).
 - To centrally manage multiple tasks: Read [Master Mode](../01_start/04_master_mode.md).

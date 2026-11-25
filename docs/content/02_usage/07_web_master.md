@@ -26,7 +26,7 @@ Web Master 不只是状态展示，而是完整的任务管理入口，核心能
 
 ### 2.1 启动 Master
 
-Master 保留本地 PDB 控制台，用于执行 Master API、任务、终端、状态和文件管理命令，但不会初始化、探测或调用 API/命令行模型后端。执行 `loop`、`chat`、`next_round` 等模型工作命令时，`BlankBackend` 会直接返回不支持，不会调用模型。
+Master 保留本地 Console 控制台，用于执行 Master API、任务、终端、状态和文件管理命令，但不会初始化、探测或调用 API/命令行模型后端。执行 `loop`、`chat`、`next_round` 等模型工作命令时，`BlankBackend` 会直接返回不支持，不会调用模型。
 
 ```bash
 # 源码仓库：临时工作区
@@ -50,6 +50,10 @@ http://localhost:8800
 ```bash
 ucagent --as-master-persist --as-master --as-master-password "your_password"
 ```
+
+该密码同时保护 HTTP 页面和四个 task/agent 的终端、Web Console WebSocket 代理；
+代理先验证 Master 凭据，再使用子 Agent 凭据连接上游。未设置密码仍为无认证模式，
+不要把无密码 Master 暴露到不可信网络。
 
 Master 启动本身不要求模型地址、API Key 或模型名称。若需要从 Launch 页面启动子 Agent，可在 Master 进程环境中配置模型变量；它们只用于构造子 Agent 的启动环境。
 
@@ -79,9 +83,11 @@ ucagent ./output Adder --master 127.0.0.1:8800
 
 1. 搜索 Agent（ID/Host/Mission）
 2. 按状态过滤（online/offline）
-3. 按字段排序（last_seen/progress 等）
+3. 按字段排序（last_seen/阶段位置等）
 4. 分页浏览大规模 Agent 列表
 5. 批量删除离线 Agent
+
+列表和 Detail 中的进度条按已完成及跳过的阶段数计算，分别显示 completed 和 skipped 数量；开始最后一个阶段不会自动显示满条。缺少阶段状态的旧记录显示完成情况不可用，不根据当前阶段序号猜测完成数量。
 
 ### 3.2 离线清理策略
 
@@ -104,6 +110,12 @@ ucagent ./output Adder --master 127.0.0.1:8800
 4. 选择 DUT 名称、模块与 Picker 仿真器后执行编译
 5. 检查命令预览并启动托管任务
 
+内置选择项使用 `plugin` / `plugin_workflow`：UT 为 `toffee-ut:ut`，Formal 为
+`formal:formal`，Vibe 为 `unittest:vibe`，Increment 为 `unittest:incremental`。
+它们通过 `--plugin` 和 `--plugin-workflow` 选择独立基线，不把工作流标识当作 `--config` 文件。
+另选 YAML 仍作为用户配置；产物目录留空时采用工作流默认值。Formal 需安装对应插件，
+Vibe/Increment 需旧版 UnitTest 环境，选择预设不会自动安装或混合依赖。
+
 编译区的 **Picker Simulator** 使用横向单选勾选项，按 `launch.default_args.simulator` 列表顺序显示，默认勾选第一个可用仿真器。默认优先级为 `[verilator, vcs, gsim, uvs]`；例如优先使用 VCS，可配置：
 
 ```yaml
@@ -122,6 +134,12 @@ launch:
 | UVS | `.usdb` | DPI（`--rw 0`） |
 
 仿真器选择适用于单任务和批量编译。批量运行期间，每个编译与启动请求均使用开始时勾选的仿真器。切换仿真器后须重新编译才能启动任务。任务启动与 Relaunch 复用已有编译产物记录的仿真器，不再检测编译工具是否可用。单任务 YAML 导入使用顶层 `simulator: vcs`，编译 API 使用字符串请求字段 `simulator`，省略时按配置顺序选择第一个可用项；批量任务统一使用表单选择。附加 `picker_args` 用于其他参数，不能覆盖 `--sim`、`--rw` / `--access-mode` 或 `-w` / `--wave_file_name`。
+
+Launch 默认设置 `mcp_server: true`、`mcp_server_no_file_tools: false`，为新任务启动包含文件工具的 MCP；实际工具仍受工作流注册、`tools.ignore_tools` / `tools.selected_tools` 和文件权限约束。切换 backend、生成命令预览与提交单个或批量任务均保留文件工具开关的当前选择。
+
+普通任务工作流可以用 `runtime_options.required_mcp_tools` 声明必需的 MCP 工具名列表，默认空列表表示没有额外要求。MCP 启动前检查最终工具集合；缺失必需工具时返回缺失项与恢复方式。UnitTest 的 unittest、incremental、vibe 工作流要求 `ReadTextFile`、`EditTextFile`、`ReplaceStringInFile`、`DeleteTextLines`，因此不能使用禁用文件工具的 MCP 模式。多 Agent 监督器的 MCP 端点按委派权限提供工具，不套用业务工作流的这份清单。
+
+默认配置只影响新启动的任务。已有任务需先暂停执行，在该任务自己的 Console 中停止 MCP，再使用 `start_mcp_server`（不带 `--no-file-ops`）按原 host/port 启动；确认 `mcp_server_status` 的 `no_file_ops` 为 false，并让客户端重新连接、发现工具后继续。仅刷新 Launch 页面不会更新运行中任务的工具列表。
 
 ### 4.2 建议实践
 
@@ -161,11 +179,17 @@ launch:
 3. Agent 未注册：检查 --master 地址、key、网络连通性
 4. 任务一直 waiting：并行任务已达到 `master_api.max_task_count` 上限，详情页可见队列位置，等待自动启动或撤销任务
 
+若启动报 `HTTP listeners failed to start`，错误信息会标明服务名称及冲突的 TCP 地址或 Unix socket 路径。默认自动生成的 socket 路径遇到占用时会改用唯一名称，并通过服务状态和心跳公布实际路径；显式指定的 `--sock` 路径冲突仍会报错，已有路径不会被自动删除。
+
 ---
 
 ## 6. Agent 页面高级操作
 
+左侧依次显示阶段信息、工具调用次数和 Agent Status。三块区域独立滚动，拖动它们之间的横向分隔栏可以调整高度；高度比例会自动保存，Reset UI 可恢复默认布局。Agent Status 按可用宽度在同一行排列多项信息。
+
 ### 6.1 阶段快捷控制
+
+阶段列表和 Master Detail 用绿色表示完成、红色表示当前阶段、黄色表示跳过，并附状态文字、阶段序号、失败次数和耗时。完成工作区使用相同的展示规则。
 
 页面支持单阶段快捷开关：
 
@@ -191,6 +215,18 @@ launch:
 2. Diff 查看（当前结果与变更对比）
 3. 快速定位失败阶段对应产物
 
+文件查看窗口默认占屏幕宽度约 92%、高度约 88%，打开后即可用滚轮阅读；标题和底部按钮保持固定。边缘拖动仍可调整大小并记忆布局；标题栏的 Reset size 可单独恢复文件窗口的默认大小及居中位置。
+
+### 6.4 执行信息与系统日志
+
+右下角 Output 默认显示 **Activity（执行信息）**：模型/后端输出、工具调用与结果、阶段检查进展和命令输出。HTTP 访问记录与服务诊断归入 **System logs（系统日志）**；警告或错误会在页签上提示。**Raw output（原始输出）** 保留当前进程捕获的控制台原文，用于排查问题。长工具结果及最近的命令结果可以展开查看。
+
+Web 与 TUI 可以同时显示模型消息，打开或关闭 TUI 不会使 Web 丢失模型输出。向上滚动时暂停跟随，点击新内容提示回到底部；Clear 只清空当前浏览器的当前视图，不删除公共日志或其他终端的内容。各视图独立限制记录数量和文本大小，缓冲淘汰、超长记录截断及服务重启都会明确提示。
+
+这里显示的是后端实际输出的消息，不是完整模型请求上下文。外部命令行后端尚未区分的回答与诊断保留为 Backend 输出。分类记录仅保存在当前进程内存中；历史子工作区显示暂无保存的执行信息，不借用 Master 的实时日志。托管任务已有的进程日志仍可在 Task 页查看。
+
+升级后需要重启对应 UCAgent 进程并刷新页面。仅刷新页面不会让运行中的旧进程具备分类接口。
+
 ---
 
 ### 6.4 报告与波形同步
@@ -211,6 +247,8 @@ launch:
 ### 7.2 多会话建议
 
 启用多个终端会话时，建议通过不同 URL/页签区分任务，避免误操作。
+
+Agent 页面内的 Runtime 命令栏按页面和工作区保存独立目录；切换工作区时回到目标工作区根目录。路径补全跟随当前会话目录，含空格的候选会保留完整命令并自动加引号。
 
 ---
 

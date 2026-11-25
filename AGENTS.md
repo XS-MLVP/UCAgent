@@ -22,32 +22,60 @@ and fabricated evidence from being accepted.
 
 ## Repository Map
 
-- `ucagent/verify_agent.py`: top-level agent assembly and runtime initialization.
-- `ucagent/cli.py`, `ucagent.py`: installed and source-tree CLI entry points.
-- `ucagent/setting.yaml`: global defaults, backends, tools, launch settings, and
-  environment-backed defaults.
-- `ucagent/util/config.py`: layered config loading, overrides, template handling,
-  and the shared `.ucagent/runtime_config.json` snapshot.
-- `ucagent/stage/`: `VerifyStage`, `StageManager`, Check/Complete lifecycle, stage
-  history, and stage tools.
-- `ucagent/checkers/`: deterministic validation and batch-task implementations.
-- `ucagent/tools/`: LLM tools, file/test operations, MCP conversion, skills, and
-  waveform analysis.
-- `ucagent/abackend/`: LangChain and command-line backend adapters.
-- `ucagent/server/`, `ucagent/tui/`: master APIs, terminals, web UI, and TUI.
-- `ucagent/lang/zh/config/default.yaml`: the main UnityTest workflow, system
-  prompts, stage tasks, checker wiring, and stage-local skills.
-- `ucagent/lang/zh/doc/Guide_Doc/`: runtime guidance copied into a DUT workspace.
-- `ucagent/lang/zh/template/`: files rendered into a DUT workspace.
-- `ucagent/lang/zh/skills/`: skills copied to `<workspace>/.ucagent/skills` when
-  skill support is enabled.
-- `docs/content/`: developer/user documentation for the MkDocs site. This is not
-  the same as runtime `Guide_Doc`.
-- `tests/`: unit and focused regression tests.
-- `plugins/`: independently packaged, opt-in plugins maintained in this repository;
-  each plugin owns its dependencies, resources, tests, and usage documentation.
-- `examples/`: example DUT inputs and, in some cases, generated verification
-  artifacts. Do not treat generated example outputs as canonical source.
+- `ucagent/core/`: complete Agent capabilities; no imports from application,
+  runtime or interface packages. `agent/` owns execution, task configuration and
+  construction; `backends/` owns concrete model/command backends and their
+  `assets/`; `interaction/` owns enhanced task-execution strategies.
+- `ucagent/core/stage/`: StageManager, VerifyStage, Check/Complete, history and
+  review gates. `core/checkers/` owns the generic Checker and BatchTask engines.
+- `ucagent/core/tools/`: generic tools, including file, shell, planning, memory,
+  context and optional Skill execution. Workflow-specific tools and Checkers
+  remain inside their plugins.
+- `ucagent/core/workspace/`: task assets, templates, instructions, shared runtime
+  snapshots and reversible file protection. `ucagent/util/file_policy.py` owns
+  the shared path/write rules and imports only the standard library.
+- `ucagent/core/plugins.py`: plugin declarations, discovery, validation and
+  registries. The distribution entry-point group remains `ucagent.plugins`.
+  Runtime command registration belongs to `runtime/control/commands.py`.
+- `ucagent/core/locales/zh.yaml`: generic Chinese framework prompts, hooks and
+  default workflow selector. There are no framework Guide_Doc/template/Skill
+  directories beneath locales; each selected workflow supplies its resources.
+- `ucagent/application/`: launch entry, workspace/logging preparation, execution
+  plan and runtime assembly. `workspace.py` owns archive/temporary workspace
+  sources; `presets/zh/master.yaml` is the Master launch preset.
+- `ucagent/runtime/`: instance lifetime, operation scheduling, cancellation,
+  service management, shared sessions, startup commands and output buffers.
+  `control/` owns Controller and command registration/dispatch. Concrete service
+  constructors and presentation callbacks are supplied by application/interfaces.
+- `ucagent/interfaces/`: CLI parsing and input adaptation (`cli/`), Console and
+  result presentation (`terminal/`), TUI (`terminal/tui/`), and network services
+  (`server/`: HTTP, MCP, Master, Web Terminal, static assets and page templates).
+- `ucagent/__init__.py`: public `from ucagent import VerifyAgent` export.
+  `ucagent/__main__.py` and root `ucagent.py` are package/source entrypoints;
+  installed `ucagent` calls `ucagent.application.entry:main`.
+- `ucagent/setting.yaml`: cross-layer global defaults. `ucagent/util/config.py`
+  owns layered loading and `.ucagent/runtime_config.json`; `util/` contains only
+  shared foundations and does not import core/application/runtime/interfaces.
+- `ucagent/util/waveform_viewer.py`: signed waveform metadata/link protocol and
+  workspace-safe paths; toffee session discovery lives in UnitTest's WaveInfo.
+- `ucagent/plugins/`: independent workflow projects. Each plugin keeps its code,
+  workflows, Guide_Doc, templates, skills, dependencies and tests together.
+  UnitTest owns verification-domain helpers imported as `unit_test.*` and
+  the dynamic Bug contract. Other plugins declare sibling import roots when
+  they use those helpers. Plugins copy optional skills to
+  `.ucagent/skills/ext/<plugin_name>/`.
+- `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/`: default `ut.yaml` for Toffee 2.
+- `ucagent/plugins/UnitTest/src/unit_test/workflows/`: explicit legacy `unittest.yaml`
+  and self-contained `incremental.yaml`/`vibe.yaml` baselines. The sibling
+  `presets/labeled_spec.yaml` is an overlapping `--config` preset, not a workflow.
+- ToffeeUT and UnitTest ship in the framework wheel. `ucagent.plugins` remains a data
+  package; its package-data key, packages.find excludes and MANIFEST.in prunes
+  exclude Formal, DesignWithPPA, RTL2Spec, ACT4 and plugin tests from the wheel.
+- `tests/`: framework and focused regression tests. Plugin tests stay under
+  `ucagent/plugins/<Plugin>/tests/`.
+- `docs/content/`: MkDocs developer/user documentation, distinct from runtime
+  Guide_Doc. `examples/` contains DUT inputs and some generated outputs; generated
+  example artifacts are not canonical source.
 
 ## Working Tree Discipline
 
@@ -90,7 +118,7 @@ every document that happens to mention the affected feature.
   genuinely needs more detail. Do not duplicate the same explanatory paragraphs
   across README files, option references, tutorials, and feature guides.
 - For Master mode specifically, document the Master process's blank backend,
-  separation from child-Agent backend configuration, retained PDB control
+  separation from child-Agent backend configuration, Console control
   surface, and unsupported model-work commands only in
   `docs/content/02_usage/07_web_master.md`. Do not add those details to README
   files or the general CLI option reference.
@@ -107,10 +135,20 @@ Configuration is loaded in this order:
 
 1. `ucagent/setting.yaml`
 2. `~/.ucagent/setting.yaml`
-3. `ucagent/lang/<lang>/config/default.yaml`
-4. workspace `.ucagent/setting.yaml`
-5. the explicitly selected config file, usually `config.yaml`
-6. CLI/config overrides
+3. `ucagent/core/locales/<lang>.yaml`
+4. the task workflow baseline: an explicitly selected plugin workflow, or the
+   default task workflow the launcher resolved from the `workflow` selector
+   (resolved relative to core/locales first, then to the repository
+   root; currently
+   `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml`; a
+   `<importable-module>:<relative-path>` selector resolves inside an installed
+   plugin package for pip-installed setups); `mission.prompt.system` and
+   `mission.prompt.tips.*` append to the framework layer's values, and a
+   selected plugin workflow replaces the resolved default workflow entirely
+   instead of stacking underneath it
+5. workspace `.ucagent/setting.yaml`
+6. the explicitly selected config file, usually `config.yaml`
+7. CLI/config overrides
 
 Important rules:
 
@@ -118,20 +156,57 @@ Important rules:
   such as `not $(IGNORE_X: true)` use `UCAgentConfigLoader`.
 - Config lists are replaced as lists; they are not merged item-by-item. A custom
   `stage:` override generally needs the complete intended stage list.
+- The task workflow layer appends mission prompts instead of replacing them.
+  `workflow` is launcher-side selection data: the cli resolves it at startup
+  (any later layer — workspace settings, `--config`, overrides — may redefine
+  or null it; null means framework-only, e.g. master mode) and passes the file
+  as the workflow baseline; get_config never interprets the key, so library
+  callers resolve it themselves via `resolve_default_task_workflow`. Both the
+  resolved default workflow and a selected plugin workflow extend the
+  framework layer's `mission.prompt.system` (joined by a blank line) and
+  `mission.prompt.tips` lists; a selected plugin workflow replaces the default
+  workflow entirely (so plugin workflows declare their own tool, runtime,
+  skill, output, and template settings). Workspace settings, `--config` files,
+  and overrides replace these keys normally.
 - `{DUT}`, `{OUT}`, `{WORKSPACE}`, and other template values are rendered after
   config loading. Do not confuse template substitution with environment
   substitution.
+- `--output` is unset by default: the output directory comes from the workflow
+  yaml's `output` declaration, with the generic framework fallback `output`.
+  `setting.yaml` carries no workflow-level defaults (`template: Null`, no
+  `launch.default_args.output`), so each workflow renders only the template it
+  declares.
 - Runtime code must consume resolved `agent.cfg`, not re-read an environment
   variable that originally supplied a config default.
 - After template resolution, `VerifyAgent` writes the non-secret shared snapshot
   `<workspace>/.ucagent/runtime_config.json`. External scripts and other runtime
   consumers should use `load_runtime_config(workspace)`.
+- Plugin runtime hooks may contribute snapshot sections alongside the
+  framework-owned keys; sections must not collide with reserved framework
+  keys or another section. The shared test-protocol hook publishes
+  `test_output_dir` and the `current_test_report` report pointer only when
+  the workflow declares `tools.RunTestCases.test_dir`; workflows that run no
+  tests omit both keys, and `current_test_report` without `test_output_dir`
+  is an invalid snapshot.
+- A workflow declares its stage manager tools by name in `manager_tools`
+  (for example `["RunTestCases"]`); names resolve through the loaded
+  plugins' manager-tool registry at startup. An undeclared tool never
+  registers, while a declared tool whose required workflow config is missing
+  fails at startup instead of silently dropping the tool.
 - The runtime snapshot must include `ucagent_python_path`: an absolute Python
   import root containing the exact running `ucagent` package. Derive it from the
   loaded package location, not the current directory, repository name, an
   environment variable, or an assumed installation layout. Validate that the
   path contains `ucagent/__init__.py`; an absent, relative, or stale path must
   fail with an instruction to restart UCAgent and regenerate the snapshot.
+- When local workflow plugins are active, the snapshot also carries
+  `plugin_python_paths`: the absolute import roots of every loaded plugin,
+  including extra manifest roots of declared sibling plugin dependencies
+  (for example DesignWithPPA's `../UnitTest/src`).
+  Subprocess consumers must place these roots in the child
+  `PYTHONPATH` after `ucagent_python_path`, without duplication; a listed root
+  that no longer exists must fail with an instruction to restart UCAgent and
+  regenerate the snapshot.
 - Keep secrets out of runtime snapshots, prompts, logs, checker results, and test
   fixtures. Never dump the full config because it can contain API keys/tokens.
 - When adding a runtime option, define a positive, unambiguous field under
@@ -161,7 +236,7 @@ Follow these rules when implementing checkers:
 
 - Every Checker subclass with a custom `__init__` must call
   `super().__init__()` before registering lifecycle callbacks or constructing a
-  `UnityChipBatchTask`. `Checker._cb_list` is an instance-only registry; do not
+  `BatchTask`. `Checker._cb_list` is an instance-only registry; do not
   add class-level callback storage, lazy initialization, or test-time resets.
 - Keep `__init__` limited to validating/storing constructor parameters and
   creating lightweight helper objects. Do not scan workspace files or derive
@@ -201,15 +276,17 @@ Follow these rules when implementing checkers:
 - Keep Check and Complete semantics distinct: Check may finish one batch and
   expose the next; Complete succeeds only when all work and final validation are
   complete.
-- Export a new checker from `ucagent/checkers/__init__.py` when its short class
-  name is referenced by `clss` in YAML.
+- A checker referenced by `clss` in YAML resolves through the plugin checker
+  registry first, then through its `ucagent/core/checkers/__init__.py` export;
+  plugin-owned checkers need no core export, and dotted `module.Class` names
+  always resolve directly.
 
 ## Batch Checker Rules
 
-Use `UnityChipBatchTask` for staged batch work rather than implementing a second
+Use `BatchTask` for staged batch work rather than implementing a second
 checkpoint/progress engine.
 
-- Set `checker.batch_size` before constructing `UnityChipBatchTask`.
+- Set `checker.batch_size` before constructing `BatchTask`.
 - Preserve and reconcile `source_task_list`, `gen_task_list`, `tbd_task_list`,
   and `cmp_task_list`.
 - Treat the current source files/documents as ground truth. Checkpoints support
@@ -218,7 +295,7 @@ checkpoint/progress engine.
   appropriate, then use `sync_source_task()` and `sync_gen_task()`.
 - Remove or invalidate stale tasks after source changes. Unknown, duplicate, or
   forged progress must fail rather than silently skip work.
-- Use `UnityChipBatchTask.do_complete()` for batch transitions and completion
+- Use `BatchTask.do_complete()` for batch transitions and completion
   semantics. It also resets the stage's consecutive-failure counter after a
   successful batch.
 - Fail clearly when the source task list is empty because of an invalid path or
@@ -244,7 +321,7 @@ For functional line mapping specifically:
   `BaseModel` `args_schema` with useful `Field` descriptions.
 - MCP conversion requires a `BaseModel` schema and does not support LangChain
   injected arguments. Test local invocation and MCP-schema conversion.
-- Export a new built-in tool from `ucagent/tools/__init__.py` if configs should
+- Export a new built-in tool from `ucagent/core/tools/__init__.py` if configs should
   refer to it by short name.
 - Resolve workspace-relative paths safely. Do not let tool arguments escape the
   configured workspace or bypass read/write directory restrictions.
@@ -264,10 +341,13 @@ For functional line mapping specifically:
 
 These layers form one behavioral contract and often must change together:
 
-1. `ucagent/lang/zh/config/default.yaml` task/system prompts
-2. `ucagent/lang/zh/doc/Guide_Doc/*` runtime user guidance
-3. `ucagent/lang/zh/template/*` generated-file skeletons
-4. `ucagent/lang/zh/skills/*/SKILL.md` and skill scripts
+1. `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml` task/system
+   prompts
+2. `ucagent/plugins/UnitTest/src/unit_test/Guide_Doc/*` runtime user guidance
+3. `ucagent/plugins/UnitTest/src/unit_test/templates/unit_test/*`
+   generated-file skeletons
+4. `ucagent/plugins/UnitTest/src/unit_test/skills/*/SKILL.md` and skill scripts
+   (workspace skill ids are `ext/unittest/<skill>`)
 5. checker/parser implementation
 6. focused tests
 
@@ -437,7 +517,8 @@ goal unless the current task explicitly requests a bounded migration.
 - Python Skill scripts that import `ucagent` must run through `RunSkillScript`.
   Before starting the child process, `RunSkillScript` must load
   `ucagent_python_path` from `.ucagent/runtime_config.json`, place it first in
-  the child `PYTHONPATH` without duplicating it, and preserve other import paths.
+  the child `PYTHONPATH` without duplicating it, follow it with the snapshot's
+  `plugin_python_paths` entries when present, and preserve other import paths.
   This contract must work both for an installed package and direct source-tree
   execution; do not require a separate UCAgent installation or infer the source
   root from the copied Skill script's location.
@@ -535,11 +616,11 @@ Preserve these established semantics unless the task explicitly changes them:
 - Self-test every distinct feature point and its important failure boundaries.
   Run sufficient focused and proportional regression tests before stating that
   the implementation is correct, complete, or has no remaining problems.
-- Use UTF-8. Files in `ucagent/lang/zh/` may contain Chinese. Do not put Chinese
+- Use UTF-8. Files in `ucagent/core/locales/` may contain Chinese. Do not put Chinese
   literals in generic implementation Python files outside the language tree,
   including Unicode escapes that decode to Chinese at runtime. When generic
   Python needs localized titles, templates, prompt text, or diagnostic guidance,
-  load them from the matching `ucagent/lang/<lang>/` resource instead of
+  load them from the matching `ucagent/core/locales/` resource instead of
   duplicating them in Python.
 - Keep generic checker and tool diagnostics language-neutral. Refer to stable
   field keys, machine tags, and exact Guide_Doc paths; do not embed or echo a
@@ -564,19 +645,21 @@ git diff --check
 Useful focused suites:
 
 - config/runtime prompts: `tests/test_config_loader.py`,
-  `tests/test_waveform_prompt_config.py`,
-  `tests/test_unitytest_skill_runtime_options.py`
+  `ucagent/plugins/UnitTest/tests/test_waveform_prompt_config.py`,
+  `ucagent/plugins/UnitTest/tests/test_unittest_skill_runtime_options.py`
 - stages and batches: `tests/test_stage_manager.py`,
-  `tests/test_file_linemap_batch_checker.py`, and the relevant
-  `tests/test_unity_*_checker.py`
-- tools/MCP/waveforms: `tests/test_waveform_tool.py`,
+  `ucagent/plugins/UnitTest/tests/test_file_linemap_batch_checker.py`, and the
+  relevant `ucagent/plugins/UnitTest/tests/test_unity_*_checker.py`
+- tools/MCP/waveforms: `ucagent/plugins/UnitTest/tests/test_waveform_tool.py`,
   `tests/test_mcp_waveinfo_visibility.py`, `tests/test_mcps.py`
-- Bug formats/checkers: `tests/test_toffee_report_waveform_analysis.py`,
-  `tests/test_toffee_report_mark_diagnostics.py`,
-  `tests/test_dynamic_bug_record_scripts.py`, `tests/test_static_bug.py`
+- Bug formats/checkers:
+  `ucagent/plugins/UnitTest/tests/test_toffee_report_waveform_analysis.py`,
+  `ucagent/plugins/UnitTest/tests/test_toffee_report_mark_diagnostics.py`,
+  `ucagent/plugins/UnitTest/tests/test_dynamic_bug_record_scripts.py`,
+  `ucagent/plugins/UnitTest/tests/test_static_bug.py`
 - server/TUI/backend changes: the matching `tests/test_api_*`,
   `tests/test_messages_panel*`, `tests/test_cmdline_backend.py`, or
-  `tests/test_verify_pdb_runtime.py`
+  `tests/test_runtime_cli.py`
 
 Testing caveats:
 

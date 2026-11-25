@@ -16,7 +16,7 @@ import pytest
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.abackend.cmdline import UCAgentCmdLineBackend
+from ucagent.core.backends.cmdline import SessionCommandBackend, UCAgentCmdLineBackend
 
 
 class _FakeAgent:
@@ -24,7 +24,7 @@ class _FakeAgent:
         self._break = False
         self.messages = []
         self.workspace = workspace or current_dir
-        self.pdb = SimpleNamespace(_mcp_server=None)
+        self.services = SimpleNamespace(require_endpoint=lambda name: {"host": "127.0.0.1", "port": 5678})
 
     def message_echo(self, txt: str) -> None:
         self.messages.append(txt)
@@ -34,6 +34,21 @@ class _FakeAgent:
 
     def set_break(self, value=True) -> None:
         self._break = value
+
+
+def test_command_backend_attributes_multi_agent_text():
+    """Command backends expose Global/Super/Sub ownership but leave single-Agent text unchanged."""
+    agent = _FakeAgent()
+    agent.message_sender = "Super:prepare-a"
+    backend = SessionCommandBackend(agent, config=object(), argv=["client"], output={"format": "text"})
+    backend.process_output("working on stage")
+    backend.process_output("[Super:prepare-a] already attributed")
+    assert agent.messages == ["[Super:prepare-a] working on stage",
+                              "[Super:prepare-a] already attributed"]
+
+    agent.message_sender = "Agent"
+    backend.process_output("single agent text")
+    assert agent.messages[-1] == "single agent text"
 
 
 def test_process_bash_cmd_interrupts_silent_process():
@@ -201,6 +216,7 @@ def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monke
     )
 
     backend.init()
+    backend.prepare()
 
     rendered_file = workspace / "nested" / "config.json"
     assert rendered_file.read_text(encoding="utf-8") == (
@@ -217,7 +233,7 @@ def test_opencode_template_denies_shell_and_runtime_state_edits(
     workspace = tmp_path / directory
     workspace.mkdir()
     template_file = os.path.abspath(
-        os.path.join(current_dir, "..", "ucagent", "assets", "mcp_opencode.json")
+        os.path.join(current_dir, "..", "ucagent", "core", "backends", "assets", "mcp_opencode.json")
     )
     config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
     monkeypatch.setenv("OPENAI_MODEL", "test-model")
@@ -231,6 +247,7 @@ def test_opencode_template_denies_shell_and_runtime_state_edits(
         render_files={template_file: "{CWD}/opencode.json"},
     )
     backend.init()
+    backend.prepare()
 
     rendered = json.loads((workspace / "opencode.json").read_text(encoding="utf-8"))
     assert rendered["permission"] == {
@@ -252,7 +269,7 @@ def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_pat
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     template_file = os.path.abspath(
-        os.path.join(current_dir, "..", "ucagent", "assets", "mcp_codex.toml")
+        os.path.join(current_dir, "..", "ucagent", "core", "backends", "assets", "mcp_codex.toml")
     )
     config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
 
@@ -268,6 +285,7 @@ def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_pat
         render_files={template_file: "{CWD}/with-key.toml"},
     )
     backend.init()
+    backend.prepare()
 
     with_key = (workspace / "with-key.toml").read_text(encoding="utf-8")
     assert 'env_key = "OPENAI_API_KEY"' in with_key
@@ -280,6 +298,7 @@ def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_pat
         render_files={template_file: "{CWD}/without-key.toml"},
     )
     backend.init()
+    backend.prepare()
 
     without_key = (workspace / "without-key.toml").read_text(encoding="utf-8")
     assert 'env_key = "OPENAI_API_KEY"' not in without_key
@@ -294,7 +313,7 @@ def _render_model_backend_templates(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
-    assets = os.path.abspath(os.path.join(current_dir, "..", "ucagent", "assets"))
+    assets = os.path.abspath(os.path.join(current_dir, "..", "ucagent", "core", "backends", "assets"))
     monkeypatch.setenv("OPENAI_MODEL", "test-model")
     monkeypatch.setenv("OPENAI_API_BASE", "http://example.test/v1")
     render_files = {
@@ -314,6 +333,7 @@ def _render_model_backend_templates(tmp_path, monkeypatch):
         render_files=render_files,
     )
     backend.init()
+    backend.prepare()
     return workspace
 
 

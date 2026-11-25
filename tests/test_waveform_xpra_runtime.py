@@ -28,7 +28,8 @@ import psutil
 import pytest
 import requests
 
-from ucagent.server.api_cmd import PdbCmdApiServer
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.runtime.control.controller import Controller
 from ucagent.util.config import Config
 from ucagent.util import waveform_viewer
 from runtime_requirements import require_xpra_runtime
@@ -113,7 +114,7 @@ def waveform_service(root, host='127.0.0.1', port=0):
         try:
             pdb = SimpleNamespace(agent=SimpleNamespace(workspace=str(workspace), cfg=cfg, dut_name='Demo'),
                                   stdout=None)
-            server = PdbCmdApiServer(pdb, host=host, port=port, sock='', password=password)
+            server = ControlApiServer(Controller(pdb.agent), host=host, port=port, sock='', password=password)
             ok, message = server.start()
             assert ok, message
             wait_for(lambda: server._tcp_server.started, lambda: message)

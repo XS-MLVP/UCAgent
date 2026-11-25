@@ -5,20 +5,22 @@
 
 ## 输入资料
 
-默认单元测试流程需要 DUT 的 Python 包、需求文档，以及分析所需的 RTL 源码。Python DUT 包通常由 picker 导出；直接运行 `ucagent` 不会自动编译 RTL。源码仓库的 Make 目标和 Master Launch 页面可以负责这一步。
+默认 ToffeeUT 流程使用 RTL 源码与独立需求资料，并通过 Picker 导出的 DUT Python 包进行真实仿真。包可预先由 Make 或 Master Launch 页面编译，也可在流程中使用 `BuildToffeeDUT`；仅启动 `ucagent` 不表示已完成编译或验证。
 
 `<workspace>/<DUT>/README.md` 应描述接口、时序、功能和验证目标。需求不完整时，应先补充资料，避免让 Agent 猜测设计行为。自定义文档工作流可以使用其他类型的输入，不一定需要 DUT 包。
 
 ## 工作区与输出目录
 
-`workspace` 是本次任务允许操作的工程目录；`--output` 是其中的产物目录名，默认 `unity_test`。例如：
+`workspace` 是本次任务允许操作的工程目录；`--output` 可覆盖工作流的产物目录，默认 ToffeeUT 使用 `ut_project`。例如：
 
 ```text
 output/                     # 启动时传入的 workspace
 ├── Adder/                  # DUT 包、源码和需求
 ├── Guide_Doc/              # 运行时指导文档
-├── unity_test/             # 当前工作流生成的文档和测试
-├── uc_test_report/         # 实际运行测试后生成的报告
+├── ut_project/             # 当前工作流的工程
+│   ├── docs/               # 规格、审阅和交付报告
+│   ├── testbenches/        # 验证环境和用例
+│   └── results/            # 实际运行产生的报告与回执
 └── .ucagent/               # 运行配置与任务状态
 ```
 
@@ -28,7 +30,7 @@ output/                     # 启动时传入的 workspace
 
 工作流是一组有顺序的阶段。每个阶段规定任务、参考文件、预期输出和 Checker。Agent 使用工具完成任务，再调用 `Check` 查看验收结果；调用 `Complete` 通过最终检查和适用门禁后，才能推进到下一阶段。
 
-默认中文 UT 工作流定义在 `ucagent/lang/zh/config/default.yaml`，另有 Formal、Vibe、Increment 等配置。自定义流程通过 `--config <file>` 加载，无需修改框架或额外注册。具体配置方法见[工作流配置](../03_develop/03_workflow.md)。
+框架提示与默认选择在 `ucagent/core/locales/zh.yaml`，其 `workflow` 指针指向 `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml`（`toffee-ut:ut`）。框架包附带 ToffeeUT 和 UnitTest 资源；后者使用独立旧环境并需显式选择。Formal 等其他插件需另行安装或从源码加载，经 `--plugin` 和 `--plugin-workflow` 选用。自定义配置可通过 `--config <file>` 覆盖，具体配置方法见[工作流配置](../03_develop/03_workflow.md)。
 
 ## 配置与启动入口
 

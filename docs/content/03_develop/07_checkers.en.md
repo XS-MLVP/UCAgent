@@ -29,7 +29,7 @@ Minimal structure:
 ~~~python
 from pathlib import Path
 
-from ucagent.checkers.base import Checker
+from ucagent import Checker
 
 
 class FileExistsChecker(Checker):
@@ -71,7 +71,7 @@ class FileExistsChecker(Checker):
 
 ## Configuring a Checker
 
-Stage configuration specifies the class via `clss`, passes `args` to the constructor, and sets `extra_args` after instantiation via `set_extra`. Short names are exported from `ucagent.checkers`; custom classes use the full import path:
+Stage configuration specifies the class via `clss`, passes `args` to the constructor, and sets `extra_args` after instantiation via `set_extra`. Short names first resolve through the loaded plugins' Checker registry, then fall back to `ucagent.core.checkers`; plugin names require their provider to be loaded. Custom classes can also use a full import path:
 
 ~~~yaml
 stage:
@@ -107,7 +107,7 @@ Return a concise result on pass. On failure, if a fix method can be determined, 
 return False, {
     "error_code": "DOCUMENT_TOO_SHORT",
     "error": "the document contains 450 words; at least 500 are required",
-    "artifact": "unity_test/Adder_analysis.md",
+    "artifact": "unit_test/Adder_analysis.md",
     "observed": {"word_count": 450},
     "expected": {"minimum_word_count": 500},
     "next_action": "add at least 50 words of relevant content, then call Check",
@@ -120,9 +120,9 @@ The `is_complete` parameter in `do_check` distinguishes intermediate `Check` fro
 
 ## Batch Checker
 
-When processing test cases, features, or line mappings in batches, use `UnityChipBatchTask` instead of writing separate checkpoints and batch state machines:
+When processing test cases, features, or line mappings in batches, use `BatchTask` instead of writing separate checkpoints and batch state machines:
 
-`UnityChipBatchTask` is imported from `ucagent.checkers.base`. After completing input and artifact validation and synchronizing the task list, call:
+`BatchTask` is imported from `ucagent.core.checkers.base`. After completing input and artifact validation and synchronizing the task list, call:
 
 ~~~python
 return self.batch_task.do_complete(
@@ -136,7 +136,7 @@ return self.batch_task.do_complete(
 
 This call is used within an existing batch Checker's `do_check` and cannot replace source data scanning and artifact validation. Actual implementation also requires:
 
-- Setting `batch_size` before constructing `UnityChipBatchTask`;
+- Setting `batch_size` before constructing `BatchTask`;
 - Preserving and synchronizing `source_task_list`, `gen_task_list`, `tbd_task_list`, and `cmp_task_list`;
 - Treating source files as the source of truth, using checkpoints only for recovery;
 - Removing or marking tasks as expired when source data changes; unknown, duplicate, or forged progress must fail;

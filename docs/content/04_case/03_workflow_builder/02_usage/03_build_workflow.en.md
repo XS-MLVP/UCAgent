@@ -77,4 +77,4 @@ Before intervening, save the last TUI output and task. When MCP takes over, firs
 
 Review whether the implementation plan is more specific than user requirements, whether the workflow build spec is closed, whether developer documentation references real business source code, and whether config placeholders and self-referential citations are complete. Speed is not evidence of quality.
 
-When stopping, first allow the current command to respond to SIGINT, then exit the TUI. If model streaming exceptions auto-retry, continue observing; after process exit, retain `.ucagent` for restart. During recovery, first confirm the saved stage index; do not automatically add `--no-history`.
+To stop the instance, enter `shutdown` in Console/TUI and wait for cleanup and process exit. SIGINT only requests pause or cancellation, and leaving TUI does not stop the task. If model streaming exceptions auto-retry, continue observing; after process exit, retain `.ucagent` for restart. During recovery, first confirm the saved stage index; do not automatically add `--no-history`.

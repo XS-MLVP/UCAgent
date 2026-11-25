@@ -4,8 +4,8 @@
 task_name: Mux
 dut: Mux
 module: Mux
-output: unity_test
+output: unit_test
 
 files:
   main_rtl: Mux.v
-  requirement: unity_test/Mux_verification_needs_and_plan.md
+  requirement: unit_test/Mux_verification_needs_and_plan.md

@@ -1,0 +1,13 @@
+# Interactive: ucagent ./workspace --config docs/examples/multi-agent.yaml
+# Direct task: ucagent ./workspace Adder --config docs/examples/multi-agent.yaml --plugin-workflow unittest:unittest
+# Configure model credentials separately; --backend codex selects the CLI backend for all three layers by default.
+backend: {key_name: langchain}
+runtime_options: {agent_mode: multi}
+global_agent:
+  allowed_workflows: [unittest:unittest]
+  max_parallel_supers: 2
+  launch_profiles:
+    standard:
+      backend: null
+      max_subagents: 2
+      no_embed_tools: true

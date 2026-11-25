@@ -6,7 +6,7 @@ MCP integration has two usage modes:
 1. **Command-line backend (recommended)**: Launch UCAgent using `--backend=opencode`, `--backend=codex`, etc. UCAgent starts the MCP Server, renders the client configuration, and invokes the external Code Agent, typically requiring only one terminal.
 2. **Manual dual-terminal**: Start only the UCAgent MCP Server, then manually start the MCP client in another terminal. This is suitable for debugging connection and interaction flows.
 
-The LangChain backend in normal mode does not require MCP. The default endpoint for the MCP Server is `http://127.0.0.1:5000/mcp`; use `--mcp-server` when shared file operations are needed. When the external Code Agent has built-in editing capabilities, `--mcp-server-no-file-tools` is typically used to omit the MCP file operation tool group. The basic `ReadTextFile` is still retained for reading reference files during the registration phase.
+The LangChain backend in normal mode does not require MCP. The default MCP endpoint is `http://127.0.0.1:5000/mcp`. The UnitTest examples on this page use `--mcp-server` to provide the file tools required by the workflow; native editing in an external Code Agent does not replace this MCP tool contract.
 
 ## 3.1 Prerequisites
 
@@ -49,17 +49,17 @@ The equivalent expanded command is:
 ```bash
 python3 ucagent.py output/workspace_Adder/ Adder \
   --config config.yaml -s -hm --tui \
-  --mcp-server-no-file-tools --loop --backend=opencode
+  --mcp-server --loop --backend=opencode
 ```
 
 When installed via pip:
 
 ```bash
 ucagent output/ Adder -s -hm --tui \
-  --mcp-server-no-file-tools --loop --backend=opencode
+  --mcp-server --loop --backend=opencode
 ```
 
-The command-line backend must enable either `--mcp-server` or `--mcp-server-no-file-tools`; otherwise, the CLI will refuse to start. See the `backend` configuration in `ucagent/setting.yaml` for other backend names and client commands.
+For the single-task command-line backend examples on this page, enable `--mcp-server`; the dependency check uses the final backend configuration. Client preparation and execution wait until MCP is ready. See the `backend` configuration in `ucagent/setting.yaml` for other backend names and client commands.
 
 ## 3.3 Manual Dual-Terminal Integration (Using Codex as an Example)
 
@@ -71,10 +71,12 @@ make mcp_Adder ARGS="--backend=codex"
 # Or use the manually prepared output/Adder/:
 
 ucagent output/ Adder -s -hm --tui \
-  --mcp-server-no-file-tools --backend=codex
+  --mcp-server --backend=codex
 ```
 
 When not entering `loop`, UCAgent waits for the client in Terminal B to call tools. Codex login and model configuration must be completed in Terminal B; see its client documentation.
+
+To expose tools without a local interface, use `ucagent output/ Adder --mcp-server`. Without `--loop` or an explicit model command, the service waits for clients and does not create or probe the main model. Enabled embedding/review capabilities retain their requirements; see [Runtime Control](../02_usage/10_runtime_control.md).
 
 Terminal A listens on `127.0.0.1:5000` by default. If the port is already in use, pass `--mcp-server-port <port>` and use the same port in the client configuration.
 
@@ -105,15 +107,19 @@ If the Code Agent pauses, first check `status` and `current_tips` in Terminal A,
 
 ## 3.4 Ports, Permissions, and Security
 
-- `--mcp-server-no-file-tools` omits the file operation tool group but retains the basic `ReadTextFile`, phase, and registered extension tools. The client can use its own tools to edit the workspace.
+- In single mode, `--mcp-server-no-file-tools` omits the file operation group but retains basic `ReadTextFile`, stage, and registered extension tools. It is usable only when the final tool set meets workflow requirements; native client tools do not count as MCP tools.
 - `--mcp-server` additionally exposes the file operation tool group. `--no-write` restricts writes by UCAgent tools; permissions for the client's own file tools must be configured separately.
 - For remote access, explicitly set `--mcp-server-host` and restrict sources at the network layer; the default `127.0.0.1` only allows local connections.
 - The endpoint address, port, and client timeout must be consistent; if the connection fails, first check UCAgent logs and port usage, then check the client configuration.
 
+MCP calls share the instance's tools and stage rules, but are not Console/HTTP command submissions and do not automatically receive runtime API operation IDs. See [Runtime Control](../02_usage/10_runtime_control.md) for interface and cancellation boundaries.
+
+Task workflows declare required tools through `runtime_options.required_mcp_tools`; MCP validates the final filtered set before startup. UnitTest unittest, incremental, and vibe require `ReadTextFile`, `EditTextFile`, `ReplaceStringInFile`, and `DeleteTextLines`, so their file tool group must stay enabled. For missing tools, check startup flags, `tools.ignore_tools` / `tools.selected_tools`, and plugin registration; the main model has not been called at this point. Global/Super endpoints in multi expose role-specific tools rather than applying the business endpoint checklist; see [Multi-Agent](../02_usage/11_multi_agent.md).
+
 ## 3.5 Stopping and restarting the service
 
-Use `stop_mcp_server` in the PDB or TUI console to stop MCP, inspect it with `mcp_server_status`, and restart with `start_mcp_server [host] [port]`. Shutdown actively closes this service's idle SSE notification connections without affecting other MCP instances. Active tool requests can finish within the 60-second HTTP graceful shutdown deadline. Requests exceeding that deadline are still cancelled and logged as timeout errors.
+Use `stop_mcp_server` in the Console or TUI console to stop MCP, inspect it with `mcp_server_status`, and restart with `start_mcp_server [host] [port]`. Shutdown actively closes this service's idle SSE notification connections without affecting other MCP instances. Active tool requests can finish within the 60-second HTTP graceful shutdown deadline. Requests exceeding that deadline are still cancelled and logged as timeout errors.
 
 The stop command waits up to five seconds for the background thread. If the thread remains alive, the command reports `still shutting down` and retains service ownership, preventing a replacement instance from starting. Wait for active calls to finish, then query status or retry `stop_mcp_server`. Success is reported only after the thread exits. A timed-out startup whose cleanup is still pending retains the same status and stop controls.
 
-`cmd_api_start` starts the separate CMD API and does not stop MCP. Starting MCP, CMD, or Master API listeners does not reset the process-wide Uvicorn logging levels or handlers. Leaving TUI returns to PDB; use the status commands to determine whether services remain active.
+`cmd_api_start` starts the separate CMD API and does not stop MCP. Starting MCP, CMD, or Master API listeners does not reset the process-wide Uvicorn logging levels or handlers. Leaving TUI returns to Console; use the status commands to determine whether services remain active.

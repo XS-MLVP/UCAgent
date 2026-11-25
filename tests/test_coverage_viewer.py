@@ -11,7 +11,8 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 import pytest
 
-from ucagent.server.api_cmd import PdbCmdApiServer
+from ucagent.interfaces.server.api_cmd import ControlApiServer
+from ucagent.runtime.control.controller import Controller
 from ucagent.util.config import Config
 from test_waveform_routes import Sessions
 
@@ -40,9 +41,9 @@ def application(root, simulator="vcs"):
 @pytest.mark.parametrize("simulator", ["vcs", "uvs"])
 def test_provider_page_uses_generic_authenticated_xpra_api(tmp_path, simulator):
     """Coverage needs no special request schema, routes, config or resolver."""
-    server = PdbCmdApiServer(SimpleNamespace(
-        agent=SimpleNamespace(workspace=str(tmp_path), cfg=Config({"cmd_api": {"xpra": {}}})),
-        stdout=None), sock="", password="coverage-password")
+    server = ControlApiServer(Controller(SimpleNamespace(
+        workspace=str(tmp_path), cfg=Config({"cmd_api": {"xpra": {}}}))),
+        sock="", password="coverage-password")
     server._xpra = Sessions()
     client = TestClient(server._app)
     client.auth = ("user", server.password)
@@ -101,7 +102,7 @@ setTimeout(() => {
 
 def test_test_tool_only_selects_gui_mode(tmp_path):
     """Source-tree and installed runs need only the public Toffee GUI option."""
-    from ucagent.tools.testops import RunUnityChipTest
+    from unit_test.testops import RunUnityChipTest
     tool = RunUnityChipTest(workspace=str(tmp_path))
     args = tool.get_pytest_args()
     assert "--report-custom=coverage-gui-xpra" in args
@@ -110,7 +111,7 @@ def test_test_tool_only_selects_gui_mode(tmp_path):
 
 def test_test_tool_serializes_list_options(tmp_path):
     """List-valued pytest options become repeated flags, not Python list strings."""
-    from ucagent.tools.testops import RunUnityChipTest
+    from unit_test.testops import RunUnityChipTest
     tool = RunUnityChipTest(workspace=str(tmp_path))
     tool.set_pytest_args({'report-custom': ['coverage-gui-xpra', 'future-option']})
     args = tool.get_pytest_args()

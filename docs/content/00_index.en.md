@@ -48,7 +48,7 @@ Read [Master mode](./01_start/04_master_mode.md) when you need to manage multipl
 6. **[Tasks, workspaces, and workflows](./01_start/05_architecture.md)**: inputs, artifacts, and acceptance criteria.
 7. **[Results and workflow summary](./01_start/06_summary.md)**: read results and review a completed run.
 
-> Complete one task in normal or MCP mode before moving to Master, multiple instances, or batch execution. Replace example values such as `<workspace>` and `<DUT>` in commands. In configuration files, `{WORKSPACE}`, `{DUT}`, and `{OUT}` are UCAgent template variables; `{OUT}` defaults to `unity_test`.
+> Complete one task in normal or MCP mode before moving to Master, multiple instances, or batch execution. Replace example values such as `<workspace>` and `<DUT>` in commands. In configuration files, `{WORKSPACE}`, `{DUT}`, and `{OUT}` are UCAgent template variables; `{OUT}` defaults to `unit_test`.
 
 ### User Guide
 

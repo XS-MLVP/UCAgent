@@ -28,7 +28,7 @@ from textual.app import App
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.tui.widgets.messages_panel import MessagesPanel
+from ucagent.interfaces.terminal.tui.widgets.messages_panel import MessagesPanel
 
 
 def _int_env(name: str, default: int) -> int:

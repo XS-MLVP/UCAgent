@@ -1,38 +1,40 @@
 
 # 工作流配置
 
+本页的阶段配置适用于共用的验收引擎；模型直接调用 `Check` / `Complete` 的示例以 single 为前提。multi 的工具调用者与提交边界见 [角色工具矩阵](../02_usage/11_multi_agent.md#role-tool-matrix)。
+
 工作流由一组按顺序执行的阶段组成。每个阶段描述任务、参考文件、预期产物和 Checker；Agent 可调用 `Check` 查看反馈，再用 `Complete` 执行最终验收并推进。阶段失败时应先按 Checker 的诊断修复，再重试。
 
 完成阶段前须用 `SetCurrentStageJournal` 记录工作摘要、产物、检查结果及未解决事项。`Check` 通过但尚无 journal 时会提示先填写；`Complete` 缺少 journal 时直接返回，不运行 Checker。补齐后再调用 `Complete`，继续执行最终验收和适用门禁。
 
 ## 1. 默认工作流
 
-中文默认配置位于 `ucagent/lang/zh/config/default.yaml`，当前有 20 个顶层阶段；带缩进的条目是子阶段。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
+中文默认工作流由 `ucagent/core/locales/zh.yaml` 的 `workflow` 指针指向 `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml`（`toffee-ut:ut`），当前有 20 个顶层阶段。ToffeeUT 使用 Toffee 2，默认产物目录为 `ut_project`；UnitTest 是显式选择的旧环境工作流，不与 Toffee 2 混装。运行时 Stage Manager 会把父阶段和子阶段展平，因此 `--skip`、`hmcheck_set` 和 `GoToStage` 使用的索引必须以当前运行中的 `status` 或 `hmcheck_list` 为准。
 
 | 顶层索引 | 阶段 | 默认状态 |
 | ---: | --- | --- |
 | 0 | `requirement_analysis_and_planning` | 执行 |
 | 1 | `dut_function_understanding` | 执行 |
-| 2 | `functional_specification_analysis`：FG、FC、CK、逐行映射子阶段 | 执行 |
+| 2 | `functional_specification_analysis`：行为组、要求、检查点、逐行映射子阶段 | 无输入文档时跳过逐行映射 |
 | 3 | `functional_specification_refine` | 执行 |
 | 4 | `static_bug_analysis` | 执行 |
 | 5 | `dut_wrapper_implementation`：DUT 创建、pytest fixture | 执行 |
 | 6 | `coverage_model_implementation`：覆盖组、覆盖点和批量实现 | 执行 |
 | 7 | `test_environment_implementation`：env、Bundle、Mock 和 fixture | 部分人工检查默认跳过 |
 | 8 | `basic_api_implementation` | 执行 |
-| 9 | `reference_model_implementation` | `NEED_REF_MODEL=true` 时执行 |
-| 10 | `reference_model_fixture_imp` | `NEED_REF_MODEL=true` 时执行 |
+| 9 | `reference_model_implementation` | `runtime_options.ut_reference_model=true` 时执行 |
+| 10 | `reference_model_fixture_imp` | `runtime_options.ut_reference_model=true` 时执行 |
 | 11 | `basic_api_functional_test` | 执行 |
 | 12 | `create_test_case_templates` | 执行 |
 | 13 | `comprehensive_verification_and_bug_analysis`：批量实现测试用例 | 执行 |
 | 14 | `refine_test_cases_based_on_functional_points` | 执行 |
 | 15 | `static_bug_validation` | 执行 |
-| 16 | `line_coverage_analysis_and_improvement` | 默认跳过 |
+| 16 | `line_coverage_analysis_and_improvement` | 默认执行，`runtime_options.ut_line_coverage=true` |
 | 17 | `generate_random_test_cases` | 执行 |
 | 18 | `verification_review_and_summary` | 执行 |
 | 19 | `record_and_report_bugs` | 执行 |
 
-默认配置中 `human_check_env_specification`、`human_check_env_implementation` 和 `line_coverage_analysis_and_improvement` 使用 `skip: true`；具体是否执行还会受环境变量和项目覆盖配置影响。Formal、Vibe、Increment 是独立配置，阶段数量和名称不同，不能套用上表。
+人工环境规格审核、人工环境实现审核和 Mock 阶段分别由 `runtime_options.ut_human_env_spec_review`、`runtime_options.ut_human_env_review`、`runtime_options.ut_mock_components` 控制，默认关闭。没有文档时生成的候选要求保持 inferred/open；阶段存在或被跳过不代表已验证。Formal、Vibe、Increment 是插件工作流（加载对应插件后分别经 `--plugin-workflow formal:formal`、`unittest:vibe`、`unittest:incremental` 选用），不能套用上表的验收配置。
 
 ## 2. 阶段字段
 
@@ -81,12 +83,13 @@ stage:
 
 1. `ucagent/setting.yaml`
 2. `~/.ucagent/setting.yaml`
-3. `ucagent/lang/<lang>/config/default.yaml`
-4. 工作区 `./.ucagent/setting.yaml`
-5. `--config` 指定的文件（未指定时会查找 `config.yaml`）
-6. CLI 参数和 `--override`
+3. `ucagent/core/locales/<lang>.yaml`
+4. 任务工作流基线：显式选择的插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流（mission 提示追加而非替换；不传则纯框架运行）
+5. 工作区 `./.ucagent/setting.yaml`
+6. `--config` 指定的文件（未指定时会查找 `config.yaml`）
+7. CLI 参数和 `--override`
 
-选择插件工作流时，其配置基线插在语言默认配置之后、工作区配置之前，详见[插件开发与发布](09_plugins.md)。项目配置的查找范围包括当前启动目录、`~/.ucagent/` 和语言配置目录；相对 `--config` 路径并非默认相对于 workspace。
+`workflow` 指针是启动期选择数据，由 `ucagent` 命令在启动时解析：任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它，置空即纯框架运行（master 模式即此形态）；配置装配本身不解释该键，直接调用 `get_config` 的库代码需自行解析（用 `resolve_default_task_workflow`）并把结果作为任务工作流传入。显式选择插件工作流时，其基线替换默认工作流（不是叠加在其下）、插在语言默认配置之后、工作区配置之前，详见[插件开发与发布](09_plugins.md)。项目配置的查找范围包括当前启动目录、`~/.ucagent/`、`ucagent/application/presets/<lang>/` 和仓库根目录；相对 `--config` 路径并非默认相对于 workspace。
 
 列表字段（尤其是 `stage`、`checker`、`reference_files`）整体替换，不会按项目名逐项合并。修改默认阶段时，应复制完整列表再编辑。
 
@@ -95,12 +98,12 @@ stage:
 | 变量 | 含义 |
 | --- | --- |
 | `{DUT}` | DUT 子目录名 |
-| `{OUT}` | 工作区下的输出目录，默认 `unity_test` |
+| `{OUT}` | 工作区下的输出目录，默认 `unit_test` |
 | `{WORKSPACE}` | 当前工作区绝对路径 |
 | `{GUIDE_DOC}` | 工作区运行时 `Guide_Doc` 路径 |
 | `{DOC_GEN_LANG}` | 文档语言，来自模板配置 |
 
-`{OUT}` 在首轮配置渲染时由 `--output`（默认 `unity_test`）决定。更改输出路径请使用该选项，不要仅修改 `template_overwrite.OUT`。
+`{OUT}` 在首轮配置渲染时由 `--output` 决定；未指定时取工作流 yaml 声明的 `output`（默认工作流为 `unit_test`），框架兜底值为 `output`。更改输出路径请使用该选项，不要仅修改 `template_overwrite.OUT`。
 
 环境变量替换发生在 YAML 加载时，例如 `$(NEED_REF_MODEL: false)`；`{DUT}` 和 `{OUT}` 等模板变量在配置解析后渲染。不要在运行时重新读取原始环境变量来推断已解析配置。
 
@@ -118,15 +121,15 @@ ucagent <workspace> <DUT> --unskip <runtime_stage_index>
 ```text
 skip_stage <runtime_stage_index>
 unskip_stage <runtime_stage_index>
-tool_invoke GoToStage index=<runtime_stage_index>
+tool_invoke GoToStage {"index":2}
 hmcheck_set <runtime_stage_index> true
 ```
 
-索引是展平后的运行时索引；修改工作流后不要继续使用旧编号。`GoToStage` 只能回到已经到达的阶段。跳过阶段不会生成它本应产出的文件，后续 Checker 可能因此失败；只有确认阶段不适用时才跳过。
+示例中的 `2` 应替换为目标索引。索引是展平后的运行时索引；修改工作流后不要继续使用旧编号。`GoToStage` 只能回到已经到达的阶段。跳过阶段不会生成它本应产出的文件，后续 Checker 可能因此失败；只有确认阶段不适用时才跳过。
 
 ## 5. Checker 配置
 
-Checker 类通过 `clss` 指定，短名从 `ucagent.checkers` 导入，完整路径可指向自定义模块：
+Checker 类通过 `clss` 指定。短名优先从已加载插件的 Checker 注册表解析，未命中时再从 `ucagent.core.checkers` 查找；完整路径可指向自定义模块。使用插件短名必须先加载提供方，不能假定 UnitTest 的领域 Checker 属于通用核心：
 
 ```yaml
 checker:
@@ -144,12 +147,12 @@ checker:
 
 ## 6. 批量阶段
 
-功能覆盖、测试模板、测试用例和行映射等阶段使用 `UnityChipBatchTask` 管理进度。配置批任务时：
+功能覆盖、测试模板、测试用例和行映射等阶段使用 `BatchTask` 管理进度。配置批任务时：
 
-- 在构造 `UnityChipBatchTask` 前设置 `batch_size`；
+- 在构造 `BatchTask` 前设置 `batch_size`；
 - 以当前源文档和测试文件为事实来源，checkpoint 只用于恢复；
 - 源文件变化后重新同步 source/generated task，删除或标记过期任务；
-- 用 `Check` 完成当前批次并暴露下一批，所有批次通过后才用 `Complete`；
+- 用 `Check` 完成当前批次并暴露下一批；single 由 Agent 调用 `Complete`，multi 按授权范围完成子阶段并提交，由框架收尾，不为每批重新创建 Sub；
 - 失败诊断只返回有界的缺失范围和下一步，不要把整个源码或日志塞入提示。
 
 功能行映射阶段另有约束：`file_list` 是唯一权威输入；不把 `Guide_Doc` 当作映射目标；每个非空物理行都要有 FG/FC/CK 或有理由的 `IGNORE`；一个区间最多 100 行。详见 `Guide_Doc/dut_line_func_map.md` 及默认配置中的 `functional_line_mapping_gap_analysis`。
@@ -168,7 +171,7 @@ ucagent <workspace> <DUT> \
 
 ## 8. 运行时快照
 
-配置解析后，UCAgent 在工作区写入 `.ucagent/runtime_config.json`。它只包含已解析的非敏感字段，例如 `DUT`、`OUT`、`runtime_options`、`current_test_report` 和 `ucagent_python_path`。Skill 脚本应读取该快照，不要从脚本位置猜测源码路径或重新解释环境变量；快照中的 `ucagent_python_path` 必须是包含当前 `ucagent/__init__.py` 的绝对路径。
+配置解析后，UCAgent 在工作区写入 `.ucagent/runtime_config.json`。它只包含已解析的非敏感字段，例如 `DUT`、`OUT`、`runtime_options` 和 `ucagent_python_path`。声明了 `tools.RunTestCases.test_dir` 的工作流额外携带 `test_output_dir` 与 `current_test_report`（最新测试报告的共享指针）；无测试目录的工作流两者皆不携带。Skill 脚本应读取该快照，不要从脚本位置猜测源码路径或重新解释环境变量；快照中的 `ucagent_python_path` 必须是包含当前 `ucagent/__init__.py` 的绝对路径。
 
 工作区 `.ucagent/` 及其全部内容对 Agent/LLM 只读。统一系统提示禁止模型通过文件工具、后端原生工具、shell 或脚本创建、修改、删除、移动这些文件或更改其权限，用户自定义系统提示也保留此规则。内置文件工具强制拒绝写入，opencode 生成配置同时禁止原生编辑该目录；读取仍然可用。UCAgent 及公开工作流工具仍可维护配置快照、进度与证据。遇到运行环境阻塞时，模型应报告诊断和所需人工操作；由操作者修正配置或环境并重启 UCAgent，不让模型修改运行状态或框架/插件源码来修复环境。已启动的进程不会自动重新加载配置、系统提示或后端权限。
 

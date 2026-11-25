@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -10,7 +11,7 @@ from textual.reactive import reactive
 from textual.widgets import Input, Static
 from textual.worker import WorkerCancelled, WorkerFailed
 
-from ucagent.tui.widgets.task_panel import TaskPanel
+from ucagent.interfaces.terminal.tui.widgets.task_panel import TaskPanel
 
 
 class _TaskApp(App):
@@ -22,12 +23,17 @@ class _TaskApp(App):
         """Supply only the APIs consumed by the task panel."""
         super().__init__()
         self.daemon_cmds = {}
-        self.vpdb = Mock()
-        self.vpdb.api_task_list.return_value = {"mission_name": "Test"}
-        self.vpdb.api_mission_info.return_value = ["Test", "step"]
-        self.vpdb.api_tool_status.return_value = []
-        self.vpdb.api_status.return_value = "idle"
-        self.vpdb.api_changed_files = scan
+        self.frontend = SimpleNamespace()
+        self.frontend.controller = Mock()
+        self.frontend.controller.task_status.return_value = {"mission_name": "Test"}
+        self.frontend.controller.mission_info.return_value = {
+            "current_index": 0,
+            "stages": [{"index": 0, "title": "step", "fail_count": 0}],
+        }
+        self.frontend.controller.tool_list.return_value = []
+        self.frontend.controller.status.return_value = {}
+        self.frontend.controller.changed_files = scan
+        self.frontend.agent = SimpleNamespace(cfg=SimpleNamespace(get_value=lambda *_args: False))
 
     def compose(self) -> ComposeResult:
         """Expose an input to check event processing during a slow scan."""
@@ -44,14 +50,14 @@ async def test_slow_scan_keeps_input_responsive_and_does_not_overlap(remove_pane
     finished = threading.Event()
     scan_threads = []
 
-    def scan():
+    def scan(count=10):
         """Hold a filesystem call until the UI has handled input."""
         scan_threads.append(threading.get_ident())
         started.set()
         try:
             if not release.wait(5):
                 raise TimeoutError("UI did not release the scan")
-            return [(0, 1700000000, f"report-{i}.md") for i in range(7)]
+            return [{"age_seconds": 0, "mtime": 1700000000, "path": f"report-{i}.md"} for i in range(min(count, 7))]
         finally:
             finished.set()
 
@@ -93,9 +99,9 @@ async def test_slow_scan_keeps_input_responsive_and_does_not_overlap(remove_pane
 async def test_failed_scan_preserves_display_and_can_retry():
     """A background scan error keeps the last result and allows later refreshes."""
     scan = Mock(side_effect=[
-        [(0, 1700000000, "previous.md")],
+        [{"age_seconds": 0, "mtime": 1700000000, "path": "previous.md"}],
         OSError("temporary filesystem failure"),
-        [(0, 1700000001, "current.md")],
+        [{"age_seconds": 0, "mtime": 1700000001, "path": "current.md"}],
     ])
     app = _TaskApp(scan)
     async with app.run_test():

@@ -1,0 +1,275 @@
+/* UCAgent TUI Default Stylesheet */
+
+/* Main app */
+Screen {
+    background: $background;
+}
+
+/* Help panel - docked to right */
+#help-overlay {
+    dock: right;
+    width: auto;
+    max-width: 40;
+    border: solid $primary;
+    background: $panel;
+}
+
+#help-overlay:focus {
+    border: heavy $accent;
+}
+
+#app-container {
+    height: 1fr;
+    layout: vertical;
+}
+
+/* Main container - horizontal split */
+#main-container {
+    height: 1fr;
+    layout: horizontal;
+}
+
+/* Task panel - left side, fixed width */
+#task-panel {
+    width: 84;
+    border: solid $primary;
+    border-title-align: center;
+    background: $panel;
+}
+
+#task-panel:focus {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
+}
+
+/* Right container - messages stacked */
+#right-container {
+    width: 1fr;
+    layout: vertical;
+}
+
+/* Messages panel - fills remaining space */
+#messages-panel {
+    height: 1fr;
+    border: solid $primary;
+    border-title-align: center;
+    background: $panel;
+}
+
+#messages-panel:focus {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
+}
+
+/* Console container - bottom section */
+#console-container {
+    height: auto;
+    layout: vertical;
+}
+
+/* Console - bottom, fixed height */
+#console {
+    height: auto;
+    border: solid $secondary;
+    border-title-align: center;
+    background: $panel;
+}
+
+#console ConsoleInput {
+    height: auto;
+}
+
+#console:focus-within {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
+}
+
+/* Status bar - bottom */
+#status-bar {
+    height: 1;
+    background: $surface;
+    color: $text;
+    overflow: hidden;
+}
+
+#status-left {
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
+    content-align: left middle;
+    overflow: hidden;
+}
+
+#status-hint {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    background: $success-muted;
+    color: $text;
+    text-style: bold;
+}
+
+#console-output {
+    height: 1fr;
+    padding: 0 1;
+    color: $text;
+    overflow-y: auto;
+}
+
+#console-output-text {
+    width: 100%;
+}
+
+#indicator-row {
+    height: auto;
+    layout: horizontal;
+}
+
+#console-loading {
+    width: auto;
+    height: auto;
+    background: $surface;
+    color: $accent;
+    content-align: center middle;
+    text-style: bold;
+}
+
+#running-commands {
+    width: 1fr;
+    padding: 0 1;
+    color: $text;
+    background: $surface;
+    height: auto;
+    display: none;
+}
+
+#console-input-row {
+    height: 3;
+    layout: horizontal;
+    border: solid $primary;
+    background: $surface;
+}
+
+#console-input {
+    width: 1fr;
+    height: 3;
+    border: none;
+    background: transparent;
+    padding: 0 1;
+}
+
+#console-suggest {
+    padding: 0 1;
+    color: $text;
+    background: $surface;
+    height: auto;
+}
+
+#console-input-row:focus-within {
+    background: $console-input-focus;
+    border: heavy $accent;
+    background-tint: $accent 6%;
+}
+
+#console-input.busy {
+    color: $warning;
+}
+
+/* Section titles in panels */
+.section-title {
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    margin: 1 0 0 0;
+}
+
+#task-panel .section-title {
+    margin: 1 0;
+}
+
+#task-panel .task-item {
+    padding: 0 1;
+}
+
+/* Task item styles */
+.task-current {
+    color: $text-success;
+    background: $success-muted;
+    text-style: bold;
+}
+
+.task-completed {
+    color: $text-success;
+}
+
+.task-skipped {
+    color: $text-secondary;
+    text-style: italic;
+}
+
+.task-pending {
+    color: $text-warning;
+}
+
+/* File styles */
+.file-recent {
+    color: $success;
+}
+
+/* Tool styles */
+.tool-busy {
+    color: $warning;
+    text-style: bold;
+}
+
+/* Scrollbar styling */
+Scrollbar {
+    background: $scrollbar-background;
+    width: 1;
+}
+
+ScrollBar > .scrollbar--bar {
+    color: $scrollbar;
+}
+
+ScrollBar > .scrollbar--bar-hover {
+    color: $scrollbar-hover;
+}
+
+.splitter.vertical {
+    width: 1;
+    height: 1fr;
+    padding: 0;
+    margin: 0;
+    background: $background;
+    color: $border-blurred;
+}
+
+.splitter.horizontal {
+    height: 1;
+    padding: 0;
+    margin: 0;
+    background: $background;
+    color: $border-blurred;
+}
+
+.splitter.vertical:focus,
+.splitter.vertical:hover {
+    background: $boost;
+    color: $border;
+}
+
+.splitter.horizontal:focus,
+.splitter.horizontal:hover {
+    background: $boost;
+    color: $border;
+}
+
+/* Border titles */
+* {
+    border-title-color: $text;
+    border-title-style: bold;
+}

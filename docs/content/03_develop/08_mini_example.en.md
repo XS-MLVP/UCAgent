@@ -17,7 +17,7 @@ examples/MiniWorkflow/
 └── Makefile
 ```
 
-The `mini.yaml` file uses the current workflow fields: `ex_tools`, `template_overwrite`, `mission`, `stage`, `reference_files`, `output_files`, and `checker`. The startup command uses `output/` as the workspace; since `--output` is not passed, the stage artifacts are actually located at `examples/MiniWorkflow/output/unity_test/`. When changing the output directory, pass `--output <name>` and verify the path using the current stage information.
+The `mini.yaml` file uses the current workflow fields: `ex_tools`, `template_overwrite`, `mission`, `stage`, `reference_files`, `output_files`, and `checker`. The startup command uses `output/` as the workspace; since `--output` is not passed, the stage artifacts are actually located at `examples/MiniWorkflow/output/unit_test/`. When changing the output directory, pass `--output <name>` and verify the path using the current stage information.
 
 ## 2. Running
 
@@ -57,14 +57,14 @@ The example workflow does not require embedded tools by default; the current CLI
 Stage `analyze_project`:
 
 1. Reads `Calculator/README.md` and `Guide_Doc/project_analysis_guide.md`;
-2. Generates `unity_test/Calculator_analysis.md` (relative to workspace);
+2. Generates `unit_test/Calculator_analysis.md` (relative to workspace);
 3. Uses `CountWords` to provide statistics;
 4. Accepts using a word count and Markdown format Checker.
 
 Stage `generate_documentation`:
 
 1. Reads the analysis document and `Guide_Doc/documentation_template.md`;
-2. Generates `unity_test/Calculator_documentation.md` (relative to workspace);
+2. Generates `unit_test/Calculator_documentation.md` (relative to workspace);
 3. Uses `ExtractSections` to check sections;
 4. Accepts using word count, required sections, and Markdown format Checkers.
 
@@ -73,8 +73,8 @@ All stages must pass through `Check`/`Complete`. If a Checker fails, fix it acco
 ## 4. Viewing Results
 
 ```bash
-cat output/unity_test/Calculator_analysis.md
-cat output/unity_test/Calculator_documentation.md
+cat output/unit_test/Calculator_analysis.md
+cat output/unit_test/Calculator_documentation.md
 ```
 
 The actual word count and content are determined by the model output; do not treat the word count ranges in the example as universal requirements for all workflows.

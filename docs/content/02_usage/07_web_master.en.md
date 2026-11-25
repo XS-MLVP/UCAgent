@@ -26,7 +26,7 @@ Web Master is not just a status display; it is a complete task management entry 
 
 ### 2.1 Starting Master
 
-Master retains a local PDB console for executing Master API, task, terminal, status, and file management commands, but it does not initialize, probe, or invoke API/command-line model backends. When executing model work commands such as `loop`, `chat`, or `next_round`, `BlankBackend` directly returns "not supported" and does not invoke the model.
+Master retains a local Console for executing Master API, task, terminal, status, and file management commands, but it does not initialize, probe, or invoke API/command-line model backends. When executing model work commands such as `loop`, `chat`, or `next_round`, `BlankBackend` directly returns "not supported" and does not invoke the model.
 
 ```bash
 
@@ -54,6 +54,11 @@ If password protection is required:
 ```bash
 ucagent --as-master-persist --as-master --as-master-password "your_password"
 ```
+
+This password protects HTTP pages and all four task/agent terminal and Web Console
+WebSocket proxies. The proxy authenticates Master credentials before connecting upstream
+with child credentials. An unset password still means unauthenticated access; do not
+expose a passwordless Master to untrusted networks.
 
 Starting Master itself does not require a model address, API Key, or model name. If you need to launch child Agents from the Launch page, you can configure model variables in the Master process environment; these are only used to construct the launch environment for child Agents.
 
@@ -83,9 +88,11 @@ ucagent ./output Adder --master 127.0.0.1:8800
 
 1. Search Agents (ID/Host/Mission)
 2. Filter by status (online/offline)
-3. Sort by fields (last_seen/progress, etc.)
+3. Sort by fields (last_seen/stage position, etc.)
 4. Paginate through large-scale Agent lists
 5. Batch delete offline Agents
+
+The list and Detail progress bars count completed and skipped stages, with separate completed and skipped totals. Starting the last stage does not fill the bar. Legacy records without stage state show completion as unavailable rather than inferring completion from the current stage index.
 
 ### 3.2 Offline Cleanup Policy
 
@@ -108,6 +115,14 @@ Recommendations:
 4. Select the DUT name, module, and Picker simulator, then execute compilation
 5. Check the command preview and launch the hosted task
 
+Built-in presets use `plugin` / `plugin_workflow`: UT selects `toffee-ut:ut`, Formal
+selects `formal:formal`, Vibe selects `unittest:vibe`, and Increment selects
+`unittest:incremental`. They select independent baselines through `--plugin` and
+`--plugin-workflow`, not workflow identifiers passed as `--config` files. Separately
+selected YAML remains a user configuration override. Leave output blank to use the
+workflow default. Formal requires its plugin; Vibe/Increment require the legacy UnitTest
+environment. Preset selection does not install or mix these dependencies.
+
 The compilation form's **Picker Simulator** displays inline radio choices in the order of the `launch.default_args.simulator` list and selects the first available simulator. The default priority is `[verilator, vcs, gsim, uvs]`. To prefer VCS, for example, configure:
 
 ```yaml
@@ -126,6 +141,12 @@ The list must be nonempty and contain unique names. Only configured simulators a
 | UVS | `.usdb` | DPI (`--rw 0`) |
 
 The selection applies to single and batch compilation. A running batch keeps its selected simulator for every compile and launch request. Changing the simulator requires recompilation before launch. Launch and Relaunch reuse an existing compiled package's recorded simulator without repeating compiler availability detection. Single-task YAML imports use a top-level `simulator: vcs`, and compile API requests use a string `simulator` field. Omitting it selects the first available candidate by configured priority. Batch tasks use the shared form selection. Extra `picker_args` may specify other options, but cannot override `--sim`, `--rw` / `--access-mode`, or `-w` / `--wave_file_name`.
+
+Launch defaults to `mcp_server: true` and `mcp_server_no_file_tools: false`, starting MCP with file tools for new tasks. The actual tools remain subject to workflow registration, `tools.ignore_tools` / `tools.selected_tools`, and file permissions. Switching backends, generating command previews, and submitting single or batch tasks preserve the current file-tool setting.
+
+Task workflows can declare required MCP tool names in `runtime_options.required_mcp_tools`; the default empty list adds no requirements. Before MCP starts, the final tool set is checked, and missing tools produce a diagnostic with recovery instructions. UnitTest's unittest, incremental, and vibe workflows require `ReadTextFile`, `EditTextFile`, `ReplaceStringInFile`, and `DeleteTextLines`, so they cannot use MCP with file tools disabled. Multi-agent supervisor MCP endpoints expose tools according to delegation permissions and do not apply this task-workflow list.
+
+These defaults affect newly launched tasks only. For an existing task, pause execution, stop MCP in that task's own Console, and restart it with `start_mcp_server` on the original host/port without `--no-file-ops`. Confirm that `mcp_server_status` reports `no_file_ops` as false, then reconnect the client and rediscover tools before continuing. Refreshing the Launch page alone does not update a running task's tool list.
 
 ### 4.2 Best Practices
 
@@ -165,11 +186,17 @@ The selection applies to single and batch compilation. A running batch keeps its
 3. Agent not registered: Check --master address, key, and network connectivity
 4. Task always waiting: Parallel tasks have reached the `master_api.max_task_count` limit; the queue position is visible in the details page, wait for automatic launch or cancel the task
 
+For `HTTP listeners failed to start`, the error identifies the service and conflicting TCP address or Unix socket path. Automatically generated socket paths fall back to a unique name when occupied; service status and heartbeats report the actual path. An explicitly configured `--sock` path still fails on a conflict, and existing paths are never automatically deleted.
+
 ---
 
 ## 6. Advanced Operations on Agent Page
 
+The left sidebar shows stages, tool call counts, then Agent Status. Each panel scrolls independently. Drag the horizontal separators to adjust panel heights; proportions are saved automatically and Reset UI restores the defaults. Agent Status wraps multiple fields onto each row as space allows.
+
 ### 6.1 Stage Quick Controls
+
+The stage list and Master Detail show completed stages in green, the current stage in red, and skipped stages in yellow, with status labels, stage indices, failure counts, and elapsed time. Saved workspaces use the same presentation.
 
 The page supports single-stage quick toggles:
 
@@ -195,6 +222,18 @@ For stage output files, you can:
 2. View Diff (comparison between current result and changes)
 3. Quickly locate artifacts corresponding to failed stages
 
+The file viewer defaults to approximately 92% of the viewport width and 88% of its height, with scrolling available immediately and fixed header/footer controls. Drag its edges to resize and retain the layout; Reset size in the title bar restores only the file viewer to its large centered default.
+
+### 6.4 Activity and System Logs
+
+The lower-right Output panel opens on **Activity**: model/backend output, tool calls and results, stage checks, and command output. HTTP access records and service diagnostics appear under **System logs**, whose tab indicates warnings and errors. **Raw output** retains captured process console text for troubleshooting. Long tool results and recent command results can be expanded.
+
+Web and TUI display model messages independently; attaching or detaching TUI does not remove messages from Web. Scrolling upward pauses following; use the new-output prompt to return to the bottom. Clear affects only this browser's current view, leaving shared logs and other terminals intact. Each view has independent record and text-size limits, with explicit notices for eviction, oversized records, and process restarts.
+
+These are emitted backend messages, not the complete model request context. External CLI backends retain unclassified answers and diagnostics as Backend output. Classified records are held in process memory only. Saved child workspaces report unavailable execution history instead of displaying the Master's live logs; existing managed-task process logs remain accessible from the Task page.
+
+Restart the corresponding UCAgent process and refresh the page after upgrading. Refreshing alone cannot add the classified API to an already-running older process.
+
 ---
 
 ### 6.4 Report and Waveform Synchronization
@@ -215,6 +254,8 @@ When tasks use archived workspaces, `master_api.sync_workspace.on_stage_complete
 ### 7.2 Multi-Session Recommendations
 
 When enabling multiple terminal sessions, it is recommended to distinguish tasks via different URLs/tabs to avoid accidental operations.
+
+The Agent page Runtime command bar keeps directories separate by page and workspace. Switching workspaces returns to the selected workspace root. Path completion follows the current session directory and preserves the command prefix, quoting paths that contain spaces.
 
 ---
 

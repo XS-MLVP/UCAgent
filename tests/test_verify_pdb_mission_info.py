@@ -1,70 +1,39 @@
-"""Keep text-only mission polling independent of stage history comparisons."""
+"""Controller mission details are structured and do not expose live stages."""
 
 from types import SimpleNamespace
 from unittest.mock import Mock, call
 
-import pytest
-
-from ucagent.verify_pdb import VerifyPDB
+from ucagent.runtime.control.controller import Controller
 
 
-@pytest.mark.parametrize("return_dict", [
-    pytest.param(None, id="default-text"),
-    pytest.param(False, id="explicit-text"),
-    pytest.param(True, id="structured-details"),
-])
-def test_mission_info_only_collects_outcomes_for_structured_details(return_dict):
-    """Text polling skips outcomes; structured details retain past/current results."""
+def test_mission_info_returns_stage_outcomes_as_detached_data():
     stages = [Mock() for _ in range(3)]
     for index, stage in enumerate(stages):
-        stage.is_completed.return_value = index == 0
         stage.get_stage_outcome.return_value = {"changed_files": [f"stage-{index}.txt"]}
+    rows = [{"index": index, "title": f"stage-{index}", "fail_count": 0,
+             "need_fail_llm_suggestion": False, "need_pass_llm_suggestion": False,
+             "needs_human_check": index == 1} for index in range(3)]
     manager = SimpleNamespace(
-        get_current_stage=lambda: stages[1],
-        get_stage=lambda index: stages[index],
-        llm_fail_suggestion=None,
-        llm_pass_suggestion=None,
+        stage_index=1, stages=stages, get_current_stage=lambda: stages[1],
+        status=lambda: {"stage_list": rows},
+        llm_fail_suggestion=None, llm_pass_suggestion=None,
     )
-    pdb = VerifyPDB.__new__(VerifyPDB)
-    pdb.agent = SimpleNamespace(
+    agent = SimpleNamespace(
+        cfg=SimpleNamespace(get_value=lambda _key, default=None: "Polling regression" if default else default),
         stage_manager=manager,
-        cfg=SimpleNamespace(skill=SimpleNamespace(use_skill=False)),
     )
-    pdb.api_task_list = lambda: {
-        "mission_name": "Polling regression",
-        "task_index": 1,
-        "task_list": {"stage_list": [
-            {
-                "title": f"stage-{index}",
-                "fail_count": 0,
-                "need_fail_llm_suggestion": False,
-                "need_pass_llm_suggestion": False,
-                "needs_human_check": index == 1,
-            }
-            for index in range(3)
-        ]},
-    }
+    controller = Controller.__new__(Controller)
+    controller.agent = agent
 
-    for _ in range(3):
-        result = (
-            pdb.api_mission_info()
-            if return_dict is None else pdb.api_mission_info(return_dict)
-        )
-        if return_dict:
-            assert result["current_index"] == 1
-            assert [stage["out_come"] for stage in result["stages"]] == [
-                {"changed_files": ["stage-0.txt"]},
-                {"changed_files": ["stage-1.txt"]},
-                None,
-            ]
-        else:
-            assert isinstance(result, list)
-            assert all(any(f"stage-{index}" in line for line in result) for index in range(3))
+    result = controller.mission_info()
 
-    if return_dict:
-        assert stages[0].get_stage_outcome.call_args_list == [call(True)] * 3
-        assert stages[1].get_stage_outcome.call_args_list == [call(False)] * 3
-    else:
-        stages[0].get_stage_outcome.assert_not_called()
-        stages[1].get_stage_outcome.assert_not_called()
+    assert result["mission_name"] == "Polling regression"
+    assert result["current_index"] == 1
+    assert [stage["outcome"] for stage in result["stages"]] == [
+        {"changed_files": ["stage-0.txt"]},
+        {"changed_files": ["stage-1.txt"]},
+        None,
+    ]
+    assert stages[0].get_stage_outcome.call_args_list == [call()]
+    assert stages[1].get_stage_outcome.call_args_list == [call()]
     stages[2].get_stage_outcome.assert_not_called()

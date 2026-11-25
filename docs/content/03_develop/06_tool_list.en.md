@@ -5,6 +5,8 @@ This page lists the primary tools by purpose. The actually available tools are d
 
 ## Phases and Verification
 
+The following stage tools apply to single mode. Multi Subs do not expose `Complete`, and Global/Super do not directly use this business tool set. See the [role tool matrix](../02_usage/11_multi_agent.md#role-tool-matrix) for the callers and ordering of `Check`, `CompleteSubStage`, and `SubmitTaskResult`.
+
 | Tool | Purpose |
 | --- | --- |
 | `RoleInfo` | Retrieve role, system task, and constraints |
@@ -48,7 +50,6 @@ It is recommended to read files first and record SHA-256, then submit modificati
 | Tool | Purpose |
 | --- | --- |
 | `RunPyTest` | Run Python tests, providing pytest parameters and timeout, and select stdout/stderr return |
-| `RunUnityChipTest` | Run UnityChip/toffee tests and generate corresponding reports |
 | `RunTestCases` | Run a set of test cases supported by the phase |
 | `RunBashCommand` | Execute Bash commands in the workspace; ignored by default in tool filter configuration |
 | `WorkDiff` / `WorkCommit` | View Git workspace differences or commit allowed files; ignored by default |
@@ -65,7 +66,7 @@ The `timeout` input for `RunPyTest` defaults to 15 seconds; UCAgent also sets th
 | `ApplyWaveInfoEvidence` | Update central waveform records in bug documents using verified receipts |
 | `ReviewWaveInfoEvidenceBatch` | Prepare a batch of waveform contexts for review and atomically apply results after full audit |
 
-Waveform tools depend on the optional `wavekit`. Phases requiring waveform evidence must have dependencies and real test data. Exploratory queries cannot replace complete evidence; parameters, TC nodes, and bug document formats follow the current tool schema and runtime `Guide_Doc/dut_bug_analysis.md`.
+Waveform tools require a reader backend for the selected format and real test data, rather than one universal library. Exploratory queries cannot replace complete evidence; parameters, TC nodes, and bug document formats follow the current tool schema and runtime `Guide_Doc/dut_bug_analysis.md`.
 
 By default, analysis files are selected in FST, VCD, FSDB, USDB order; `runtime_options.waveform_analysis_format_priority` can be configured. FSDB runtime dependencies, browser limitations, and readers for other formats are documented in [Waveform Analysis Formats and Extensions](10_waveform_analysis.md).
 
@@ -84,6 +85,6 @@ ToDo tools require corresponding options to be enabled. Retrieval and memory too
 
 ## Assembly and MCP Scope
 
-The `--mcp-server-no-file-tools` option omits the file operation tool group, retaining basic `ReadTextFile`, phase tools, and registered extension tools. Therefore, this option does not prohibit all file writes: external clients and custom tools must each comply with workspace permissions.
+In single mode, `--mcp-server-no-file-tools` omits the file operation tool group, retaining basic `ReadTextFile`, stage tools, and registered extension tools. Startup also depends on workflow-required tools; see [MCP Integration](../01_start/03_mcp_mode.md). This option does not prohibit all file writes: external clients and custom tools must each comply with workspace permissions. Multi endpoints expose role-specific tools rather than this single-mode inventory.
 
 The default `tools.ignore_tools` configuration includes `RunBashCommand`, `WorkDiff`, and `WorkCommit`. Filter rules are jointly determined by `tools.ignore_tools` and `tools.selected_tools`; adjustments should be confirmed via `tool_list` and MCP tool discovery results. CLI options are documented in [Parameter Description](../02_usage/03_option.md).

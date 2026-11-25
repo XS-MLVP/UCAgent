@@ -1,38 +1,40 @@
 
 # Workflow Configuration
 
+Stage configuration on this page applies to the shared acceptance engine; examples where the model directly calls `Check` / `Complete` assume single mode. For multi callers and submission boundaries, see the [role tool matrix](../02_usage/11_multi_agent.md#role-tool-matrix).
+
 A workflow consists of a set of stages executed in sequence. Each stage describes tasks, reference files, expected outputs, and a Checker; the Agent can call `Check` to view feedback, then use `Complete` to perform final acceptance and proceed. If a stage fails, it should first be fixed according to the Checker's diagnosis before retrying.
 
 Before completing a stage, use `SetCurrentStageJournal` to record the work summary, artifacts, check results, and unresolved issues. A successful `Check` prompts for a missing journal; `Complete` returns immediately without running Checkers when the journal is missing. Record it and call `Complete` again to run final validation and applicable gates.
 
 ## 1. Default Workflow
 
-The default Chinese configuration is located at `ucagent/lang/zh/config/default.yaml`, which currently has 20 top-level stages; indented entries are sub-stages. The runtime Stage Manager flattens parent and child stages, therefore indices used by `--skip`, `hmcheck_set`, and `GoToStage` must be based on the current `status` or `hmcheck_list` in the active run.
+The `workflow` selector in `ucagent/core/locales/zh.yaml` resolves to `ucagent/plugins/ToffeeUT/src/toffee_ut/workflows/ut.yaml` (`toffee-ut:ut`), with 20 top-level stages. ToffeeUT uses Toffee 2 and defaults to the `ut_project` output directory. UnitTest is an explicitly selected legacy-environment workflow; do not mix its dependencies with Toffee 2. The runtime Stage Manager flattens parent and child stages, so indices used by `--skip`, `hmcheck_set`, and `GoToStage` must come from `status` or `hmcheck_list` in the active run.
 
 | Top Index | Stage | Default Status |
 | ---: | --- | --- |
 | 0 | `requirement_analysis_and_planning` | Executing |
 | 1 | `dut_function_understanding` | Executing |
-| 2 | `functional_specification_analysis`: FG, FC, CK, line-by-line mapping sub-stages | Executing |
+| 2 | `functional_specification_analysis`: behavior groups, requirements, checkpoints, line mapping | Line mapping skipped when no input documents exist |
 | 3 | `functional_specification_refine` | Executing |
 | 4 | `static_bug_analysis` | Executing |
 | 5 | `dut_wrapper_implementation`: DUT creation, pytest fixture | Executing |
 | 6 | `coverage_model_implementation`: coverage groups, coverage points, batch implementation | Executing |
 | 7 | `test_environment_implementation`: env, Bundle, Mock, and fixture | Partially human-checked, default skip |
 | 8 | `basic_api_implementation` | Executing |
-| 9 | `reference_model_implementation` | Executing when `NEED_REF_MODEL=true` |
-| 10 | `reference_model_fixture_imp` | Executing when `NEED_REF_MODEL=true` |
+| 9 | `reference_model_implementation` | Enabled by `runtime_options.ut_reference_model=true` |
+| 10 | `reference_model_fixture_imp` | Enabled by `runtime_options.ut_reference_model=true` |
 | 11 | `basic_api_functional_test` | Executing |
 | 12 | `create_test_case_templates` | Executing |
 | 13 | `comprehensive_verification_and_bug_analysis`: batch implementation of test cases | Executing |
 | 14 | `refine_test_cases_based_on_functional_points` | Executing |
 | 15 | `static_bug_validation` | Executing |
-| 16 | `line_coverage_analysis_and_improvement` | Default skip |
+| 16 | `line_coverage_analysis_and_improvement` | Enabled by default: `runtime_options.ut_line_coverage=true` |
 | 17 | `generate_random_test_cases` | Executing |
 | 18 | `verification_review_and_summary` | Executing |
 | 19 | `record_and_report_bugs` | Executing |
 
-In the default configuration, `human_check_env_specification`, `human_check_env_implementation`, and `line_coverage_analysis_and_improvement` use `skip: true`; whether they actually execute is also subject to environment variables and project override configurations. Formal, Vibe, and Increment are independent configurations with different stage counts and names, and cannot be applied using the table above.
+Human environment-spec review, human environment-implementation review, and Mock stages are controlled by `runtime_options.ut_human_env_spec_review`, `runtime_options.ut_human_env_review`, and `runtime_options.ut_mock_components`; all default to false. Without documents, derived requirements remain inferred/open; a stage's presence or skipped status is not proof of verification. After loading their plugins, select Formal, Vibe, and Increment with `--plugin-workflow formal:formal`, `unittest:vibe`, and `unittest:incremental`. Their acceptance settings differ from the table above.
 
 ## 2. Stage Fields
 
@@ -81,12 +83,12 @@ Configuration is loaded in the following order, with later layers overriding ear
 
 1. `ucagent/setting.yaml`
 2. `~/.ucagent/setting.yaml`
-3. `ucagent/lang/<lang>/config/default.yaml`
+3. `ucagent/core/locales/<lang>.yaml`
 4. Workspace `./.ucagent/setting.yaml`
 5. File specified by `--config` (defaults to `config.yaml` if not specified)
 6. CLI arguments and `--override`
 
-When selecting a plugin workflow, its configuration baseline is inserted after the language default configuration and before the workspace configuration; see [Plugin Development and Release](09_plugins.md). The project configuration search scope includes the current startup directory, `~/.ucagent/`, and the language configuration directory; relative `--config` paths are not default relative to the workspace.
+When selecting a plugin workflow, its configuration baseline is inserted after the language default configuration and before the workspace configuration; see [Plugin Development and Release](09_plugins.md). The project configuration search scope includes the current startup directory, `~/.ucagent/`, `ucagent/application/presets/<lang>/`, and the repository root; relative `--config` paths are not default relative to the workspace.
 
 List fields (especially `stage`, `checker`, `reference_files`) are replaced as a whole, not merged item by item by project name. When modifying default stages, copy the complete list and edit.
 
@@ -95,12 +97,12 @@ Common template variables:
 | Variable | Meaning |
 | --- | --- |
 | `{DUT}` | DUT subdirectory name |
-| `{OUT}` | Output directory under the workspace, default `unity_test` |
+| `{OUT}` | Output directory under the workspace, default `unit_test` |
 | `{WORKSPACE}` | Absolute path of the current workspace |
 | `{GUIDE_DOC}` | Runtime `Guide_Doc` path in the workspace |
 | `{DOC_GEN_LANG}` | Document language, from template configuration |
 
-`{OUT}` is determined by `--output` (default `unity_test`) during the first configuration render. To change the output path, use this option; do not just modify `template_overwrite.OUT`.
+`{OUT}` is determined by `--output` (default `unit_test`) during the first configuration render. To change the output path, use this option; do not just modify `template_overwrite.OUT`.
 
 Environment variable substitution occurs during YAML loading, e.g., `$(NEED_REF_MODEL: false)`; template variables like `{DUT}` and `{OUT}` are rendered after configuration parsing. Do not re-read raw environment variables at runtime to infer the already-parsed configuration.
 
@@ -118,15 +120,17 @@ Used during runtime:
 ```text
 skip_stage <runtime_stage_index>
 unskip_stage <runtime_stage_index>
-tool_invoke GoToStage index=<runtime_stage_index>
+tool_invoke GoToStage {"index":2}
 hmcheck_set <runtime_stage_index> true
 ```
+
+Replace `2` with the target runtime index.
 
 The index is the flattened runtime index; do not continue using old numbers after modifying the workflow. `GoToStage` can only go back to stages already reached. Skipping a stage does not generate the files it should have produced; subsequent Checkers may fail as a result; only skip if the stage is confirmed not applicable.
 
 ## 5. Checker Configuration
 
-Checker classes are specified via `clss`, short names are imported from `ucagent.checkers`, and full paths can point to custom modules:
+Checker classes are specified via `clss`. Short names first resolve through the loaded plugins' Checker registry, then fall back to `ucagent.core.checkers`; full paths can point to custom modules. Load the providing plugin before using its short names: UnitTest domain Checkers are not generic core exports:
 
 ```yaml
 checker:
@@ -144,12 +148,12 @@ See [Custom Checker](07_checkers.md) for full implementation, lifecycle, and str
 
 ## 6. Batch Stages
 
-Stages for feature coverage, test templates, test cases, and line mapping use `UnityChipBatchTask` to manage progress. When configuring batch tasks:
+Stages for feature coverage, test templates, test cases, and line mapping use `BatchTask` to manage progress. When configuring batch tasks:
 
-- Set `batch_size` before constructing `UnityChipBatchTask`;
+- Set `batch_size` before constructing `BatchTask`;
 - Use the current source document and test files as the source of truth; checkpoints are only for recovery;
 - Resynchronize source/generated tasks after source file changes, delete or mark expired tasks;
-- Complete the current batch with `Check` and expose the next batch; `Complete` is used only after all batches pass;
+- Use `Check` to finish the current batch and expose the next one; in single the Agent calls `Complete`, while multi completes authorized substages and submits for framework finalization, without creating a new Sub for each batch;
 - Failure diagnosis returns only a bounded missing range and the next step; do not dump the entire source or logs into the prompt.
 
 The functional line mapping stage has additional constraints: `file_list` is the authoritative input; do not treat `Guide_Doc` as a mapping target; every non-empty physical line must have FG/FC/CK or a justified `IGNORE`; an interval can have at most 100 lines. See `Guide_Doc/dut_line_func_map.md` and `functional_line_mapping_gap_analysis` in the default configuration.

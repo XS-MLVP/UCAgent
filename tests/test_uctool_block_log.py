@@ -11,9 +11,9 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import ucagent.util.functions as fc
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 from ucagent.util.config import load_yaml_with_env_vars
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
 
 
 class _IdleTool(UCTool):

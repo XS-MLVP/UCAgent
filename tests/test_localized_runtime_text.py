@@ -6,15 +6,22 @@ import sys
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
+sys.path.insert(
+    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "Formal" / "src")
+)
+sys.path.insert(
+    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "UnitTest" / "src")
+)
+sys.path.insert(
+    0, str(REPOSITORY_ROOT / "ucagent" / "plugins" / "common" / "src")
+)
 
-from ucagent.util.bug_analysis_contract import (
+from unit_test.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_TITLES,
-    BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_HEADING_COMPANIONS,
     DYNAMIC_BUG_DOCUMENT_PATH,
     NO_BUG_DOCUMENT_SECTIONS,
     NO_BUG_DOCUMENT_TITLE,
-    RELATED_BUGS_MARKER,
-    ROOT_ANALYSIS_SECTION_MARKERS,
     STATIC_BUG_DOCUMENT_PATH,
     TEST_CASE_SERIALIZATION,
     TEST_CASE_IDENTITY,
@@ -24,19 +31,28 @@ from ucagent.util.markdown import (
     ensure_markdown_heading_spacing,
     markdown_heading_spacing_errors,
 )
-from ucagent.lang.zh.skills.formal.lib import formal_tools
+from formal.skills.lib import formal_tools
 
 
 IMPLEMENTATION_ROOT = REPOSITORY_ROOT / "ucagent"
-LANGUAGE_ROOT = IMPLEMENTATION_ROOT / "lang"
-CHINESE_LANGUAGE_ROOT = LANGUAGE_ROOT / "zh"
-LOCALE_CONTRACT = (
-    CHINESE_LANGUAGE_ROOT / "config" / "bug_analysis_contract.json"
+LANGUAGE_ROOT = IMPLEMENTATION_ROOT / "core/locales"
+CHINESE_LANGUAGE_ROOT = LANGUAGE_ROOT
+UNITTEST_PLUGIN_ROOT = REPOSITORY_ROOT / "ucagent" / "plugins" / "UnitTest"
+UNITTEST_PLUGIN_ASSETS = UNITTEST_PLUGIN_ROOT / "src" / "unit_test"
+FORMAL_PLUGIN_ASSETS = (
+    REPOSITORY_ROOT / "ucagent" / "plugins" / "Formal" / "src" / "formal"
 )
-BUG_HEADING_COMPANIONS = frozenset(
-    [marker for _field, marker in BUG_ANALYSIS_SECTION_MARKERS]
-    + [marker for _field, marker in ROOT_ANALYSIS_SECTION_MARKERS]
-    + [RELATED_BUGS_MARKER]
+LOCALE_CONTRACT = (
+    REPOSITORY_ROOT
+    / "ucagent"
+    / "plugins"
+    / "UnitTest"
+    / "src"
+    / "unit_test"
+    / "lang"
+    / "zh"
+    / "config"
+    / "bug_analysis_contract.json"
 )
 
 
@@ -63,8 +79,14 @@ def _contains_han(value: str) -> bool:
 
 def test_generic_implementation_python_has_no_chinese_literals():
     failures = []
+    # The bundled workflow trees under ucagent/plugins/ are plugin code with
+    # their own locale rules (plus unrendered {{DUT}} templates); this guard
+    # covers the framework implementation only.
+    bundled_workflows = IMPLEMENTATION_ROOT / "plugins"
     for path in sorted(IMPLEMENTATION_ROOT.rglob("*.py")):
         if path.is_relative_to(CHINESE_LANGUAGE_ROOT):
+            continue
+        if path.is_relative_to(bundled_workflows):
             continue
         source = path.read_text(encoding="utf-8")
         for line_number, line in enumerate(source.splitlines(), start=1):
@@ -77,7 +99,7 @@ def test_generic_implementation_python_has_no_chinese_literals():
                     failures.append(
                         f"{path.relative_to(REPOSITORY_ROOT)}:{node.lineno} (decoded string)"
                     )
-    assert not failures, "Chinese literals found outside ucagent/lang/zh: " + ", ".join(
+    assert not failures, "Chinese literals found in framework Python: " + ", ".join(
         sorted(set(failures))
     )
 
@@ -88,15 +110,14 @@ def test_bug_analysis_titles_come_from_zh_locale_contract():
     assert dict(BUG_ANALYSIS_SECTION_TITLES) == payload["analysis_section_titles"]
 
     asset = (
-        CHINESE_LANGUAGE_ROOT
+        UNITTEST_PLUGIN_ASSETS
         / "skills"
-        / "unitytest"
         / "dynamic-bug-recording"
         / "assets"
         / "dynamic_bug_entry.md"
     ).read_text(encoding="utf-8")
     guide = (
-        CHINESE_LANGUAGE_ROOT / "doc" / "Guide_Doc" / "dut_bug_analysis.md"
+        UNITTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
     ).read_text(encoding="utf-8")
     for title in payload["analysis_section_titles"].values():
         assert asset.count(title) == 1
@@ -131,11 +152,17 @@ def test_bug_analysis_paths_tc_forms_and_no_bug_shape_come_from_locale_contract(
         ("<ROOT-CAUSES>", "</ROOT-CAUSES>"),
         ("<WAVEFORM-EVIDENCE>", "</WAVEFORM-EVIDENCE>"),
     ]
-    for relative_path in (
-        "template/unity_test/{{DUT}}_bug_analysis.md",
-        "skills/unitytest/dynamic-bug-recording/assets/bug_analysis_document.md",
+    for root, relative_path in (
+        (
+            UNITTEST_PLUGIN_ASSETS,
+            "templates/unit_test/{{DUT}}_bug_analysis.md",
+        ),
+        (
+            UNITTEST_PLUGIN_ASSETS,
+            "skills/dynamic-bug-recording/assets/bug_analysis_document.md",
+        ),
     ):
-        document = (CHINESE_LANGUAGE_ROOT / relative_path).read_text(encoding="utf-8")
+        document = (root / relative_path).read_text(encoding="utf-8")
         for start_marker, end_marker in expected_markers:
             assert f"{start_marker}\n{end_marker}" in document
 
@@ -236,10 +263,18 @@ def test_markdown_heading_spacing_has_no_preceding_blank_exceptions():
 def test_markdown_file_formatter_preserves_canonical_field_companions():
     sample = "# Bug\n###### Overview\n<BUG-OVERVIEW>\ncontent\n"
 
-    formatted = ensure_markdown_file_heading_spacing("bug.md", sample)
+    formatted = ensure_markdown_file_heading_spacing(
+        "bug.md", sample, BUG_HEADING_COMPANIONS
+    )
+    # Without declared companions the formatter is domain-neutral: a machine
+    # marker is treated like any other nonblank line.
+    neutral = ensure_markdown_file_heading_spacing("bug.md", sample)
 
     assert formatted == (
         "\n# Bug\n\n###### Overview\n<BUG-OVERVIEW>\ncontent\n"
+    )
+    assert neutral == (
+        "\n# Bug\n\n###### Overview\n\n<BUG-OVERVIEW>\ncontent\n"
     )
     assert ensure_markdown_file_heading_spacing("bug.txt", sample) == sample
 
@@ -258,6 +293,12 @@ def test_runtime_markdown_headings_are_surrounded_by_blank_lines():
         CHINESE_LANGUAGE_ROOT / "doc",
         CHINESE_LANGUAGE_ROOT / "template",
         CHINESE_LANGUAGE_ROOT / "skills",
+        UNITTEST_PLUGIN_ASSETS / "Guide_Doc",
+        UNITTEST_PLUGIN_ASSETS / "templates",
+        UNITTEST_PLUGIN_ASSETS / "skills",
+        FORMAL_PLUGIN_ASSETS / "Guide_Doc",
+        FORMAL_PLUGIN_ASSETS / "templates",
+        FORMAL_PLUGIN_ASSETS / "skills",
     )
     paths = {
         path
@@ -273,11 +314,10 @@ def test_runtime_markdown_headings_are_surrounded_by_blank_lines():
         companions = (
             BUG_HEADING_COMPANIONS
             if (
-                path == CHINESE_LANGUAGE_ROOT / "doc" / "Guide_Doc" / "dut_bug_analysis.md"
+                path == UNITTEST_PLUGIN_ASSETS / "Guide_Doc" / "dut_bug_analysis.md"
                 or path.is_relative_to(
-                    CHINESE_LANGUAGE_ROOT
+                    UNITTEST_PLUGIN_ASSETS
                     / "skills"
-                    / "unitytest"
                     / "dynamic-bug-recording"
                     / "assets"
                 )

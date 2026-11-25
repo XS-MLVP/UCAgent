@@ -11,7 +11,7 @@ Save the following code as an importable `my_tools.py`:
 """Example tool that greets a named recipient."""
 
 from pydantic import BaseModel, Field
-from ucagent.tools.uctool import UCTool
+from ucagent import UCTool
 
 
 class HelloArgs(BaseModel):
@@ -45,13 +45,13 @@ ex_tools:
 
 Temporary registration can be done using `--ex-tools my_tools.HelloTool`. Both configuration and CLI external tools are assembled; the `ex_tools` list across configuration files still follows the overall replacement rule. Tool classes or factories must support zero-argument invocation.
 
-Built-in short names are exported from `ucagent.tools` and are currently maintained via lazy export mapping in `ucagent/tools/__init__.py`. Project tools typically use the full module path. When runtime context, package resources, or independent distribution are required, use [plugins](09_plugins.md).
+Built-in short names are exported from `ucagent.core.tools` and are currently maintained via lazy export mapping in `ucagent/core/tools/__init__.py`. Project tools typically use the full module path. When runtime context, package resources, or independent distribution are required, use [plugins](09_plugins.md).
 
 Local testing:
 
 ```python
 from my_tools import HelloTool
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent import to_mcp_tool
 
 tool = HelloTool()
 assert tool.invoke({"who": "UCAgent"}) == {"greeting": "Hello, UCAgent!"}
@@ -59,7 +59,7 @@ mcp_tool = to_mcp_tool(tool)
 assert mcp_tool.name == "Hello"
 ```
 
-After startup, you can view tools using `tool_list` and invoke them using `tool_invoke Hello who='UCAgent'`.
+After startup, you can view tools using `tool_list` and invoke them using `tool_invoke Hello {"who":"UCAgent"}`.
 
 ## File Paths and Permissions
 
@@ -70,8 +70,8 @@ File tools should use the path and permission validation from `BaseReadWrite` to
 
 from pathlib import Path
 from pydantic import BaseModel, Field
-from ucagent.tools.fileops import BaseReadWrite
-from ucagent.tools.uctool import UCTool
+from ucagent import BaseReadWrite
+from ucagent import UCTool
 
 
 class TextLengthArgs(BaseModel):
@@ -111,7 +111,7 @@ The `to_mcp_tool` function requires `args_schema` to be a Pydantic `BaseModel` a
 - `--mcp-server-no-file-tools`: Omits this group; the basic `ReadTextFile` and external tools are still exposed, so custom tools must adhere to permissions themselves.
 - Default endpoint: `http://127.0.0.1:5000/mcp`, where the address is controlled by the MCP host/port parameters.
 
-The console can also execute `start_mcp_server [host] [port]` or `start_mcp_server --no-file-ops [host] [port]`.
+The console can also execute `start_mcp_server [host] [port]`. Use `--mcp-server-no-file-tools` or `start_mcp_server --no-file-ops [host] [port]` only when the workflow does not require the omitted tools; see [MCP Integration](../01_start/03_mcp_mode.md) for validation rules.
 
 The following example uses the MCP SDK installed as a dependency of UCAgent, without needing to install the `fastmcp` client package separately:
 

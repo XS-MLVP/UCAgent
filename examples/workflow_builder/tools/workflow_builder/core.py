@@ -1265,7 +1265,7 @@ entry:
   class_name: JsonResultChecker
   method: do_check
 source: |
-  from ucagent.checkers.base import Checker
+  from ucagent.core.checkers.base import Checker
   class JsonResultChecker(Checker):
       def __init__(self, path, **kwargs):
           super().__init__()
@@ -2248,7 +2248,7 @@ def load_module(path):
 
 
 def check_one(spec_path):
-    from ucagent.checkers.base import Checker
+    from ucagent.core.checkers.base import Checker
 
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     entry = spec["entry"]
@@ -2356,7 +2356,7 @@ import json
 import os
 
 from pydantic import BaseModel, Field
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 from tools.read_text_file_tool import ReadTextFileTool
 from tools.run_command_tool import RunCommandTool

@@ -11,7 +11,7 @@
 """Example tool that greets a named recipient."""
 
 from pydantic import BaseModel, Field
-from ucagent.tools.uctool import UCTool
+from ucagent import UCTool
 
 
 class HelloArgs(BaseModel):
@@ -45,13 +45,13 @@ ex_tools:
 
 临时注册可以使用 `--ex-tools my_tools.HelloTool`。配置和 CLI 中的外部工具都会被装配；配置文件之间的 `ex_tools` 列表仍遵循整体替换规则。工具类或工厂需要支持零参调用。
 
-内置短名从 `ucagent.tools` 导出，目前通过 `ucagent/tools/__init__.py` 的延迟导出映射维护。项目工具通常使用完整模块路径即可。需要运行时上下文、包内资源或独立分发时，使用[插件](09_plugins.md)。
+内置短名从 `ucagent.core.tools` 导出，目前通过 `ucagent/core/tools/__init__.py` 的延迟导出映射维护。项目工具通常使用完整模块路径即可。需要运行时上下文、包内资源或独立分发时，使用[插件](09_plugins.md)。
 
 本地测试：
 
 ```python
 from my_tools import HelloTool
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent import to_mcp_tool
 
 tool = HelloTool()
 assert tool.invoke({"who": "UCAgent"}) == {"greeting": "Hello, UCAgent!"}
@@ -59,7 +59,7 @@ mcp_tool = to_mcp_tool(tool)
 assert mcp_tool.name == "Hello"
 ```
 
-启动后可以用 `tool_list` 查看工具，用 `tool_invoke Hello who='UCAgent'` 调用。
+启动后可以用 `tool_list` 查看工具，用 `tool_invoke Hello {"who":"UCAgent"}` 调用。
 
 ## 文件路径与权限
 
@@ -70,8 +70,8 @@ assert mcp_tool.name == "Hello"
 
 from pathlib import Path
 from pydantic import BaseModel, Field
-from ucagent.tools.fileops import BaseReadWrite
-from ucagent.tools.uctool import UCTool
+from ucagent import BaseReadWrite
+from ucagent import UCTool
 
 
 class TextLengthArgs(BaseModel):
@@ -111,7 +111,7 @@ class TextLength(UCTool, BaseReadWrite):
 - `--mcp-server-no-file-tools`：省略该组；基础 `ReadTextFile` 和外部工具仍会暴露，因此自定义工具必须自行遵守权限。
 - 默认端点：`http://127.0.0.1:5000/mcp`，地址由 MCP host/port 参数控制。
 
-控制台也可以执行 `start_mcp_server [host] [port]`，或 `start_mcp_server --no-file-ops [host] [port]`。
+控制台也可以执行 `start_mcp_server [host] [port]`。只有工作流不要求被省略的工具时，才能使用 `--mcp-server-no-file-tools` 或 `start_mcp_server --no-file-ops [host] [port]`；校验规则见 [MCP 接入](../01_start/03_mcp_mode.md)。
 
 下面使用随 UCAgent 依赖安装的 MCP SDK，无需另装 `fastmcp` 客户端包：
 

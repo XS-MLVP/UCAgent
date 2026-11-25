@@ -7,6 +7,8 @@ import os
 import sys
 from typing import Callable, Optional
 from datetime import datetime
+from contextvars import ContextVar
+from ucagent import output_source
 
 RESET = "\033[0m"
 GREEN = "\033[32m"
@@ -18,6 +20,8 @@ L_GREEN = "\033[92m"
 L_RED = "\033[91m"
 L_YELLOW = "\033[93m"
 L_BLUE = "\033[94m"
+
+MESSAGE_LOG_DEFERRED = ContextVar("ucagent_message_log_deferred", default=False)
 
 __silent__: bool = False
 __log_logger__: Optional[logging.Logger] = None
@@ -66,11 +70,7 @@ def _stream_chain_records_console(stream) -> bool:
     current = stream
     while current is not None and id(current) not in visited:
         visited.add(id(current))
-        if getattr(current, "_record_to_vpdb", False):
-            return True
-        if current.__class__.__name__ == "PersistentConsoleMirror" and hasattr(current, "_vpdb"):
-            return True
-        if current.__class__.__name__ == "_ConsoleCapture":
+        if getattr(current, "records_console", False):
             return True
         current = getattr(current, "_original", None)
     return False
@@ -118,6 +118,19 @@ def init_log_logger(name: str = "ucagent-log", level: int = logging.DEBUG,
     __log_logger__.addHandler(fh)
 
 
+class MessageFileHandler(logging.handlers.RotatingFileHandler):
+    """Preserve stream fragment boundaries under the logging handler's own lock."""
+
+    def emit(self, record):
+        """Use the caller's end marker instead of adding a newline to every token."""
+        previous = self.terminator
+        self.terminator = getattr(record, "end", "\n")
+        try:
+            super().emit(record)
+        finally:
+            self.terminator = previous
+
+
 def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
                 log_file:str="log/ucagent-msg.log"):
     """Initializes the message logger with the given name and level."""
@@ -129,7 +142,7 @@ def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
     log_path = os.path.dirname(log_file)
     if log_path and not os.path.exists(log_path):
         os.makedirs(log_path)
-    fh = logging.handlers.RotatingFileHandler(
+    fh = MessageFileHandler(
         log_file, maxBytes=10 * 1024 * 1024, backupCount
         =5)
     fh.setLevel(level)
@@ -137,8 +150,8 @@ def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
 
 
 def msg_msg(msg: str, end: str = "\n"):
-    """Prints a message with a newline at the end."""
-    if is_silent():
+    """Record exact message fragments once, after any frontend forwarding completes."""
+    if is_silent() or MESSAGE_LOG_DEFERRED.get():
         return
     logger = get_msg_logger()
     if logger:
@@ -172,6 +185,7 @@ def log_msg(msg: str, level = logging.INFO, end: str = "\n"):
             logger.critical(msg, extra=extra)
 
 
+@output_source(kind="log", level="DEBUG")
 def debug(msg: str):
     """Prints a debug message."""
     if is_silent():
@@ -201,6 +215,7 @@ def echo_g(msg: str):
     log_msg(msg, logging.INFO)
 
 
+@output_source(kind="log", level="ERROR")
 def echo_r(msg: str):
     """Prints an error message red."""
     rendered = f"{RED}%s{RESET}" % msg
@@ -209,6 +224,7 @@ def echo_r(msg: str):
     log_msg(msg, logging.ERROR)
 
 
+@output_source(kind="log", level="WARNING")
 def echo_y(msg: str):
     """Prints a warning message yellow."""
     if is_silent():
@@ -219,6 +235,7 @@ def echo_y(msg: str):
     log_msg(msg, logging.WARNING)
 
 
+@output_source(kind="log", level="INFO")
 def info(msg: str):
     """Prints an info message."""
     if is_silent():
@@ -229,6 +246,7 @@ def info(msg: str):
     log_msg(msg, logging.INFO)
 
 
+@output_source(kind="log", level="WARNING")
 def warning(msg: str):
     """Prints a warning message."""
     if is_silent():
@@ -239,6 +257,7 @@ def warning(msg: str):
     log_msg(msg, logging.WARNING)
 
 
+@output_source(kind="log", level="ERROR")
 def error(msg: str):
     """Prints an error message."""
     rendered = f"{RED}[{get_log_time_str()} ERROR] %s{RESET}" % msg

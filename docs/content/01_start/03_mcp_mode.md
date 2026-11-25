@@ -6,7 +6,7 @@ MCP 接入有两种用法：
 1. **命令行后端（推荐）**：用 `--backend=opencode`、`--backend=codex` 等启动 UCAgent。UCAgent 启动 MCP Server、渲染客户端配置并调用外部 Code Agent，通常只需一个终端。
 2. **手动双终端**：只启动 UCAgent MCP Server，再在另一个终端手动启动 MCP 客户端，适合调试连接和交互流程。
 
-普通模式的 LangChain 后端不需要 MCP。MCP Server 默认端点为 `http://127.0.0.1:5000/mcp`；需要共享文件操作时使用 `--mcp-server`，外部 Code Agent 自带编辑能力时，通常使用 `--mcp-server-no-file-tools`，省略 MCP 文件操作工具组。基础 `ReadTextFile` 仍会保留，用于登记阶段参考文件的阅读。
+普通模式的 LangChain 后端不需要 MCP。MCP Server 默认端点为 `http://127.0.0.1:5000/mcp`。本页的 UnitTest 示例统一使用 `--mcp-server`，提供工作流要求的文件工具；外部 Code Agent 自带编辑能力不能替代这份 MCP 工具契约。
 
 ## 3.1 前置准备
 
@@ -49,17 +49,17 @@ make mcp_Adder ARGS="--loop --backend=opencode"
 ```bash
 python3 ucagent.py output/workspace_Adder/ Adder \
   --config config.yaml -s -hm --tui \
-  --mcp-server-no-file-tools --loop --backend=opencode
+  --mcp-server --loop --backend=opencode
 ```
 
 使用 pip 安装时：
 
 ```bash
 ucagent output/ Adder -s -hm --tui \
-  --mcp-server-no-file-tools --loop --backend=opencode
+  --mcp-server --loop --backend=opencode
 ```
 
-命令行后端必须同时启用 `--mcp-server` 或 `--mcp-server-no-file-tools`，否则 CLI 会拒绝启动。其他后端名称和客户端命令见 `ucagent/setting.yaml` 的 `backend` 配置。
+本页的单任务命令行后端需要同时启用 `--mcp-server`；依赖校验依据最终 backend 配置。客户端配置准备和执行必须等 MCP 就绪。其他后端名称和客户端命令见 `ucagent/setting.yaml` 的 `backend` 配置。
 
 ## 3.3 手动双终端接入（以 Codex 为例）
 
@@ -69,10 +69,12 @@ ucagent output/ Adder -s -hm --tui \
 make mcp_Adder ARGS="--backend=codex"
 # 或使用已手动准备的 output/Adder/：
 ucagent output/ Adder -s -hm --tui \
-  --mcp-server-no-file-tools --backend=codex
+  --mcp-server --backend=codex
 ```
 
 不进入 `loop` 时，UCAgent 等待终端 B 的客户端调用工具。Codex 的登录和模型配置需在终端 B 完成，见其客户端文档。
+
+只提供工具服务且不需要本地界面时，可使用 `ucagent output/ Adder --mcp-server`。未指定 `--loop` 或其他模型执行命令时，服务等待客户端连接，不创建或探测主模型。显式启用的 embedding、审核等能力仍需各自的配置，见[运行控制](../02_usage/10_runtime_control.md)。
 
 终端 A 默认监听 `127.0.0.1:5000`。如果端口已占用，传入 `--mcp-server-port <port>`，并在客户端配置中使用同一个端口。
 
@@ -103,15 +105,19 @@ codex
 
 ## 3.4 端口、权限与安全
 
-- `--mcp-server-no-file-tools` 省略文件操作工具组，仍保留基础 `ReadTextFile`、阶段和已注册的扩展工具。客户端可以用自身工具编辑工作区。
+- single 中，`--mcp-server-no-file-tools` 省略文件操作工具组，仍保留基础 `ReadTextFile`、阶段和已注册的扩展工具。仅在最终工具集合满足工作流要求时可用；客户端原生工具不会计入 MCP 工具集合。
 - `--mcp-server` 额外暴露文件操作工具组。`--no-write` 限制 UCAgent 工具的写入；客户端自身的文件工具需单独配置权限。
 - 远程访问时显式设置 `--mcp-server-host`，同时在网络层限制来源；默认 `127.0.0.1` 只允许本机连接。
 - 端点地址、端口和客户端超时必须一致；连接失败时先检查 UCAgent 日志和端口占用，再检查客户端配置。
 
+MCP 调用共享当前实例的工具和阶段规则，但不等于 Console/HTTP 命令提交，不自动获得运行控制 API 的操作 ID。当前入口与取消边界见[运行控制](../02_usage/10_runtime_control.md)。
+
+普通任务工作流通过 `runtime_options.required_mcp_tools` 声明必需工具，MCP 启动前按过滤后的最终集合校验。UnitTest 的 unittest、incremental、vibe 要求 `ReadTextFile`、`EditTextFile`、`ReplaceStringInFile`、`DeleteTextLines`，不能关闭文件工具组。缺失时先检查启动开关、`tools.ignore_tools` / `tools.selected_tools` 和插件注册；此时尚未调用主模型。multi 的 Global/Super 端点提供角色专属工具，不套用业务端点的清单，见 [多 Agent](../02_usage/11_multi_agent.md)。
+
 ## 3.5 停止与重新启动服务
 
-在 PDB 或 TUI 控制台使用 `stop_mcp_server` 停止 MCP，使用 `mcp_server_status` 查询状态，再通过 `start_mcp_server [host] [port]` 重新启动。停止时会主动结束本服务的空闲 SSE 通知连接，其他 MCP 实例的连接不受影响；正在执行的工具请求仍按 HTTP 优雅关闭时限等待完成。该时限为 60 秒，超过时限的请求仍会被取消并记录超时错误。
+在 Console 或 TUI 控制台使用 `stop_mcp_server` 停止 MCP，使用 `mcp_server_status` 查询状态，再通过 `start_mcp_server [host] [port]` 重新启动。停止时会主动结束本服务的空闲 SSE 通知连接，其他 MCP 实例的连接不受影响；正在执行的工具请求仍按 HTTP 优雅关闭时限等待完成。该时限为 60 秒，超过时限的请求仍会被取消并记录超时错误。
 
 停止命令默认等待后台线程 5 秒。线程尚未退出时，命令明确返回 `still shutting down` 并保留服务状态，此时不能启动替代实例；等待当前调用结束后，再查询状态或重试 `stop_mcp_server`。只有线程实际退出才报告停止成功。启动超时后仍在清理的服务也保留相同的查询与停止入口。
 
-`cmd_api_start` 启动独立的 CMD API，不会停止 MCP；MCP、CMD 和 Master API 的启动不会重置进程共享的 Uvicorn 日志级别或处理器。退出 TUI 会返回 PDB，服务是否运行应以状态命令为准。
+`cmd_api_start` 启动独立的 CMD API，不会停止 MCP；MCP、CMD 和 Master API 的启动不会重置进程共享的 Uvicorn 日志级别或处理器。退出 TUI 会返回 Console，服务是否运行应以状态命令为准。

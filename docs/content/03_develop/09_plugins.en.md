@@ -1,13 +1,17 @@
 
 # Plugin Development and Release
 
-UCAgent plugins are designed for independent delivery of domain capabilities. A single plugin may provide one or more of the following capabilities as needed: Tool, Checker, Skill, Guide_Doc, and workflow. These contributions are all first-level options, independent of one another, and do not require the plugin to provide a complete workflow. Plugins are standard Python distributions: they are automatically discovered via standard entry points after installation, and can also be discovered via explicitly configured search paths during source development. Plugins are imported and activated only after being selected by the user; UCAgent does not scan or execute arbitrary workspace Python files.
+UCAgent plugins are designed for independent delivery of domain capabilities. A single plugin may provide one or more of the following capabilities as needed: Tool, Checker, Skill, Guide_Doc, and workflow. These contributions are all first-level options, independent of one another, and do not require the plugin to provide a complete workflow. Plugins are standard Python distributions: they are automatically discovered via standard entry points after installation, and can also be discovered via explicitly configured search paths during source development. Single-Agent execution imports and activates selected plugins. Global imports discovered plugin declarations to build its catalog, and each Super activates only its selected plugin; UCAgent does not scan or execute arbitrary workspace Python files.
 
-The `plugins/RTL2Spec/` directory provides a documentation generation plugin; `plugins/DesignWithPPA/` demonstrates combinations of custom Tools, Checkers, templates, Skills, and workflows.
+The `ucagent/plugins/RTL2Spec/` directory provides a documentation generation plugin; `ucagent/plugins/DesignWithPPA/` demonstrates combinations of custom Tools, Checkers, templates, Skills, and workflows.
 
-## Co-located Optional Plugins
+## Co-located Bundled and Optional Plugins
 
-The `plugins/` directory is used to maintain plugins developed alongside UCAgent and packaged independently. Installing the core package does not install or enable these plugins. Plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
+An explicit `--plugin <ID>` first resolves installed distributions and configured search
+paths. Only when neither matches does it consult manifests in the framework's bundled
+`ucagent/plugins/` collection, independently of the current working directory.
+
+Co-located plugins are maintained under `ucagent/plugins/` (the plugin loader itself is `ucagent/core/plugins.py`). Distribution splits into two tracks: the framework wheel bundles default ToffeeUT and explicitly selected UnitTest (including its shared `common` library) as package data (the scope is pinned by the `ucagent.plugins` package-data key, the `packages.find` excludes, and the `MANIFEST.in` prunes in the repository), so installing the core provides the default ToffeeUT workflow with no separate installation; UnitTest requires a separate legacy-dependency environment; the remaining plugins do not ship with the core and are published as independent distributions on demand. In both tracks, plugin development should be confined to their own directories: dependencies, entry points, configurations, resources, tests, and maintenance commands are managed by the plugin itself, without adding plugin content to the core's dependency list, default configurations, or Tool/Checker export tables.
 
 | Content | Maintenance Location |
 | :--- | :--- |
@@ -23,17 +27,17 @@ The current co-located plugins are listed below. See the corresponding README fo
 
 | Project | Plugin ID / Workflow | Primary Purpose |
 | :--- | :--- | :--- |
-| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | Test-driven RTL design and PPA optimization |
-| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | Deliver Chinese design and functional checkpoint documentation based on XiangShan source and RTL generation evidence |
+| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | Test-driven RTL design and PPA optimization |
+| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | Deliver Chinese design and functional checkpoint documentation based on XiangShan source and RTL generation evidence |
 
-First install the core, then install plugins on-demand from the UCAgent repository root, for example:
+UnitTest and its shared `common` library are already bundled with the core package and need no separate installation. For the remaining plugins, first install the core, then install them on-demand from the UCAgent repository root, for example:
 
 ```bash
-python -m pip install ./plugins/RTL2Spec
+python -m pip install ./ucagent/plugins/RTL2Spec
 ucagent --validate-plugin rtl2spec
 ```
 
-Explicitly select `--plugin rtl2spec` and `--plugin-workflow rtl2spec:xiangshan-design-document` at runtime. During source development, you can replace the plugin ID with `--plugin ./plugins/RTL2Spec`; no prior installation of the plugin is required. The workspace is independent of the plugin implementation; selected workflows automatically locate and copy accompanying guide documents and other resources.
+Explicitly select `--plugin rtl2spec` and `--plugin-workflow rtl2spec:xiangshan-design-document` at runtime. During source development, you can replace the plugin ID with `--plugin ./ucagent/plugins/RTL2Spec`; no prior installation of the plugin is required. The workspace is independent of the plugin implementation; selected workflows automatically locate and copy accompanying guide documents and other resources.
 
 ### Repository Policy and Plugin-Specific Notes
 
@@ -96,7 +100,7 @@ DesignWithPPA/
 └── tests/
 ```
 
-Create only actual resource directories for release. Pure Tool, pure Checker, pure Skill, pure Guide_Doc, or pure workflow plugins are all valid. Additional contributions can be added in the same distribution later without modifying the UCAgent core package. Runtime scripts can be placed in `scripts/` within the package; test and maintenance configurations belong in the plugin project root. Co-located plugins follow the same structure, with the project root located at `plugins/<Project Directory>/`. The loader locates the project via the manifest, independent of the parent directory name. The standard structure does not require empty directories to be retained.
+Create only actual resource directories for release. Pure Tool, pure Checker, pure Skill, pure Guide_Doc, or pure workflow plugins are all valid. Additional contributions can be added in the same distribution later without modifying the UCAgent core package. Runtime scripts can be placed in `scripts/` within the package; test and maintenance configurations belong in the plugin project root. Co-located plugins follow the same structure, with the project root located at `ucagent/plugins/<Project Directory>/`. The loader locates the project via the manifest, independent of the parent directory name. The standard structure does not require empty directories to be retained.
 
 ## Local Source Manifest
 
@@ -141,7 +145,7 @@ Both the core and plugin must be installed in the same Python environment. Insta
 After installation, Python's distribution metadata provides discovery information. For example, run from the UCAgent root directory:
 
 ```bash
-python3 -m pip install ./plugins/DesignWithPPA
+python3 -m pip install ./ucagent/plugins/DesignWithPPA
 ucagent --list-plugins
 ucagent --validate-plugin design-with-ppa
 ucagent <workspace> <dut> --plugin design-with-ppa
@@ -172,9 +176,9 @@ Relative search paths are relative to the current working directory when UCAgent
 To force debugging of a specific source copy, pass the project path directly:
 
 ```bash
-ucagent --validate-plugin /opt/ucagent-plugins/DesignWithPPA
+ucagent --validate-plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ucagent <workspace> <dut> \
-  --plugin /opt/ucagent-plugins/DesignWithPPA
+  --plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ```
 
 Example using stable IDs for configuration:
@@ -190,12 +194,12 @@ The configuration list is processed according to UCAgent's overall replacement s
 
 ## Provider and Runtime Context
 
-A Provider returns `ucagent.plugins.Plugin`:
+A provider returns a `Plugin` descriptor:
 
 ```python
 from pathlib import Path
 
-from ucagent.plugins import CommandRequirement, Plugin, PluginContext
+from ucagent import CommandRequirement, Plugin, PluginContext
 
 from .checkers import TimingBudgetChecker
 from .my_tool import MyTool
@@ -242,6 +246,9 @@ All `Plugin` capability fields default to empty:
 | `guide_doc_paths` | Includes runtime `Guide_Doc` files or directories when the plugin is activated |
 | `skill_paths` | Copies the Skill collection directory when the plugin is activated and Skill functionality is enabled |
 | `workflows` | Optional complete configuration entry points and workflow-specific resources |
+| `manager_tools` | Contribute stage manager tools selectable by workflows |
+| `runtime_hooks` | Explicitly contribute configuration snapshot and stage-start hooks |
+| `command_factories` | Contribute Console/TUI/HTTP commands to the instance's shared registry |
 
 All capability fields are allowed to be empty, facilitating the initial release and validation of plugin metadata, dependencies, and asset contracts before gradually adding capabilities. Actual release versions should provide at least one capability or asset useful to the user.
 
@@ -258,9 +265,38 @@ All capability fields are allowed to be empty, facilitating the initial release 
 
 Tools must inherit `UCTool`, use `Pydantic` `BaseModel` as `args_schema`, and adhere to workspace path and read/write strategies. A factory may return a single tool or a list of tools. UCAgent will reject non-`UCTool` instances, tools with duplicate names across plugins, and tools sharing names with core or external tools. Plugin tools enter the same standard filtering process as Agent and MCP tools; therefore, both `tools.ignore_tools` and `tools.selected_tools` will take effect.
 
+## Runtime Commands
+
+Plugins can register interaction commands through `Plugin.command_factories` without changing Console, TUI, or HTTP. Each factory receives the instance's `Controller` and returns a sequence of `CommandSpec` declarations. `RuntimeHost` invokes the factories while assembling the registry and rejects names or aliases conflicting with core commands or other plugins.
+
+This read-only command reuses an existing stage query without creating tasks or threads:
+
+```python
+from ucagent import Argument, CommandSpec
+
+
+def create_commands(controller):
+    return (
+        CommandSpec(
+            name="project_stage",
+            summary="Inspect a stage in this instance.",
+            owner="project",
+            arguments=(Argument("index", "int", None),),
+            handler=controller.task_detail,
+            completion="stages",
+        ),
+    )
+```
+
+Add `command_factories=(create_commands,)` to the plugin's existing `Plugin(...)` declaration. Once activated, users can run `help project_stage` and `project_stage 2`; HTTP `/api/cmd` uses the same declaration. With `handler`, `owner` identifies responsibility. Without `handler`, a matching executor must already be injected by the runtime; the declaration does not create one.
+
+For ordinary slow handlers that do not reserve the model slot, declare `blocking=True` so the registry submits work to the shared executor. Commands needing model exclusion, progress, or cancellation context should explicitly submit an operation to that executor, use cancellation boundaries such as `context.checkpoint()`, and return serializable results. Do not own threads or manipulate TUI objects. `CommandSpec.model=True` is scheduling metadata and does not itself reserve the model slot; the operation submission must also specify `model=True`. The current reference implementation is `waveform_commands` in UnitTest's `operations/waveform_replay.py`.
+
+A command contribution does not automatically become an MCP Tool. Use `tool_factories` or the stage manager tool contract for MCP exposure. Both interfaces can reuse a business implementation without bypassing Check/Complete gates. See [Architecture](02_architecture.md) for ownership and [Runtime Control](../02_usage/10_runtime_control.md) for usage.
+
 ## Checker
 
-Each item in `checkers` must be a subclass of `ucagent.checkers.base.Checker`. After activating a plugin, any valid configuration file can reference it by its short name, regardless of whether the configuration belongs to the plugin's workflow:
+Each item in `checkers` must be a subclass of `ucagent.core.checkers.base.Checker`. After activating a plugin, any valid configuration file can reference it by its short name, regardless of whether the configuration belongs to the plugin's workflow:
 
 ```yaml
 stage:
@@ -273,7 +309,7 @@ stage:
         args: {}
 ```
 
-UCAgent explicitly passes the plugin Checker registry to the stage parser, without writing the class to the global `ucagent.checkers` module. Checker class names must be unique across all activated plugins and cannot match core Checker names. Full dotted paths can still be used for regular importable classes, but formal `checkers` declarations provide startup type checking, short-name referencing, conflict detection, and plugin summaries.
+UCAgent explicitly passes the plugin Checker registry to the stage parser, without writing the class to the global `ucagent.core.checkers` module. Checker class names must be unique across all activated plugins and cannot match core Checker names. Full dotted paths can still be used for regular importable classes, but formal `checkers` declarations provide startup type checking, short-name referencing, conflict detection, and plugin summaries.
 
 ### Isolated Execution Code Generation
 
@@ -348,7 +384,7 @@ All three fields must be present. `default_action` and explicit actions can only
 Plugins can declare `PluginWorkflow` to bind future workflows and packages:
 
 ```python
-from ucagent.plugins import CommandRequirement, PluginWorkflow
+from ucagent import CommandRequirement, PluginWorkflow
 
 workflow = PluginWorkflow(
     name="unit-design-tdd",
@@ -373,6 +409,13 @@ ucagent <workspace> <dut> \
 ```
 
 Both `--plugin-workflow` and `--config` can be used simultaneously. Workflow configuration is an independent baseline layer and does not impersonate user configuration files; the final priority order is: core global, user global, core language default, plugin workflow, workspace settings, explicit `--config`, CLI `--override`. Short workflow names without a specified plugin ID are only allowed if unique within the activated plugin. Runtime metadata separately preserves explicit configuration, plugin and workflow selector, and workflow configuration sources. The same information is also written to `launch_context` in `.ucagent/runtime_config.json`; non-secret final configuration scalars explicitly declared by the plugin are written separately to `plugin_options`, without copying the full configuration or credentials to the runtime snapshot.
+
+The default UT workflow is itself a local plugin at `ucagent/plugins/ToffeeUT`, selected
+by `workflow` in `ucagent/core/locales/zh.yaml`. For separately installed plugins, a selector
+such as `toffee_ut:workflows/ut.yaml` locates the YAML inside the importable package.
+Workspace configuration, `--config`, or `--override` can replace or null the default
+selector; null means framework-only. Explicit plugin workflow selection replaces the
+default baseline rather than stacking on top of it.
 
 Resources and dependency fields of `PluginWorkflow` are optional:
 
@@ -419,11 +462,11 @@ First, prepare external tools declared by the plugin. The following commands ver
 ```bash
 python3 -m pip install -e .
 python3 -m pip install build pytest
-python3 -m pip install -e ./plugins/DesignWithPPA
-python3 -m py_compile plugins/DesignWithPPA/src/design_with_ppa/*.py
-python3 -m pytest -q plugins/DesignWithPPA/tests
-ucagent --validate-plugin ./plugins/DesignWithPPA
-python3 -m build ./plugins/DesignWithPPA
+python3 -m pip install -e ./ucagent/plugins/DesignWithPPA
+python3 -m py_compile ucagent/plugins/DesignWithPPA/src/design_with_ppa/*.py
+python3 -m pytest -q ucagent/plugins/DesignWithPPA/tests
+ucagent --validate-plugin ./ucagent/plugins/DesignWithPPA
+python3 -m build ./ucagent/plugins/DesignWithPPA
 ```
 
 Other plugins should replace the above plugin path with their own project directory. The default process of `python3 -m build` first builds an sdist, then builds a wheel from the sdist, which can isolate the `build/` cache existing in the source tree to prevent stale files from entering the release package. The equivalent `uv build` default process can also be used. Do not run `python3 -m build --wheel` only on source trees that may contain old caches.
@@ -433,7 +476,7 @@ Installation-state verification must also be performed on the generated wheel; i
 ```bash
 python3 -m venv /tmp/design-with-ppa-verify
 /tmp/design-with-ppa-verify/bin/python -m pip install .
-/tmp/design-with-ppa-verify/bin/python -m pip install plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
+/tmp/design-with-ppa-verify/bin/python -m pip install ucagent/plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
 /tmp/design-with-ppa-verify/bin/ucagent --list-plugins
 /tmp/design-with-ppa-verify/bin/ucagent --validate-plugin design-with-ppa
 /tmp/design-with-ppa-verify/bin/ucagent <workspace> <dut> \
@@ -471,6 +514,8 @@ Release checklist:
 
 ## Open Contract for Workflow Execution
 
+The following requirements mix general principles with UnitTest domain examples. Resource preparation, backend permissions, and cleanup boundaries apply to plugin development; FG/FC/CK, line mapping, coverage predicates, Bug documents, and toffee report rules belong to UnitTest and workflows that explicitly reuse it, not every plugin. The generic batch engine is `BatchTask`; see [Custom Checkers](07_checkers.md). Declare plugin dependencies when reusing domain implementations rather than looking for those classes in core.
+
 Plugin workflows must include the specification files that the LLM actually needs to comply with in the current stage's `reference_files`, rather than relying solely on error messages after failure. For example, when using a line mapping Checker, the stage must simultaneously provide `Guide_Doc/dut_line_func_map.md` and the currently generated functional contract. Task prompts should also explicitly specify the single-line physical range using the complete `start-end` format, such as `10-10`, rather than a single number like `10`. Missing specification files will cause weaker models to repeatedly trial and error, and will count avoidable format errors as stage failures.
 
 Stage configuration, template context, and capability dependencies are parsed and copied to the runtime workspace in a single pass during UCAgent startup. After modifying plugin YAML, `Guide_Doc`, or templates, you must restart the workflow and regenerate the workspace; a running Agent does not hot-load these files. When recovering or retrying, verify that the generated files match the current parsed configuration's source, hash, and language selection. Do not treat artifacts from an old workspace as evidence of the new configuration.
@@ -483,7 +528,7 @@ Batch processing templates must also distinguish between "covering a CK already 
 
 The coverage predicate itself is also independent evidence and cannot be substituted by the existence of a bin name for "condition implemented." Workflows implementing predicates in batches should write a unique explicit false placeholder for the complete CK set in the structure stage. During the implementation stage, distinguish placeholders from non-constant predicates via AST or equivalent source code evidence, allowing replacement only of `CurrentTips`'s current batch. Constant-true callables, early implementation of future batches, and rolling back completed items to placeholders must all be rejected. Source code gates can only prove that a condition has been written; whether the predicate is reachable and matches real stimuli still requires proof from subsequent isolated pytest coverage hits.
 
-When reusing a core batch processing Checker, first confirm that its "report passed" semantics align with the plugin workflow. Verify that the workflow can retain DUT bugs exposed by correct tests, while design generation workflows typically require all current tests to pass; the two cannot share the same final report judgment. If different semantics are needed, inherit `UnityChipCheckerBatchTestsImplementation`, replace only the current batch's report gate via `_validate_current_batch_report(report)`, and continue reusing its source code resynchronization, precise node execution, checkpoint, and batch progression state machine. If the workflow does not use Bug documents, ensure `_cached_document_preflight(target_tests)` returns `None`, preventing irrelevant Bug document preflight checks from blocking test batches. The report gate must only check the status of the current precise node, CK association, and hit evidence; other CKs in the full coverage model not executed by this batch are normal misses in the local report and cannot be used to reject the current batch. When the gate fails, do not call batch completion or persist progress, and ensure regression tests cover "rebuilding the Checker after rejection still starts from the same batch."
+When reusing a batch processing Checker from the UnitTest plugin, first confirm that its "report passed" semantics align with the plugin workflow. Verify that the workflow can retain DUT bugs exposed by correct tests, while design generation workflows typically require all current tests to pass; the two cannot share the same final report judgment. If different semantics are needed, inherit `UnityChipCheckerBatchTestsImplementation`, replace only the current batch's report gate via `_validate_current_batch_report(report)`, and continue reusing its source code resynchronization, precise node execution, checkpoint, and batch progression state machine. If the workflow does not use Bug documents, ensure `_cached_document_preflight(target_tests)` returns `None`, preventing irrelevant Bug document preflight checks from blocking test batches. The report gate must only check the status of the current precise node, CK association, and hit evidence; other CKs in the full coverage model not executed by this batch are normal misses in the local report and cannot be used to reject the current batch. When the gate fails, do not call batch completion or persist progress, and ensure regression tests cover "rebuilding the Checker after rejection still starts from the same batch."
 
 When batch implementing Python tests, you must modify existing template functions specified by `CurrentTips` in-place, rather than appending a same-named `def` before or after the file. After each write, perform an AST-level top-level function name uniqueness check on the entire test file, and confirm that `mark_function` references this unique function; otherwise, the later definition will overwrite module attributes, causing pytest collection, coverage association, and the LLM's observed implementation to point to different functions, potentially hiding the real implementation behind an old placeholder assertion.
 
@@ -492,3 +537,11 @@ Fenced YAML in specification documents must be pre-validated with a real YAML pa
 External tool dependencies should declare the real console command, version parameters, and required subcommands, returning a clear next step when missing, version mismatched, or subcommands unavailable. When using only Tools, do not load workflow-specific dependencies; only check capabilities when selecting the corresponding workflow. Temporary files generated by testing, transformation, and analysis should be managed by trusted Check/Complete child processes, with the stage LLM contacting only public source code languages, Python tests, and result summaries.
 
 Cleanup entry points provided by plugins are development convenience features and should not be relied upon to determine deletion scope based on Git status. Cleanup targets must be listed output, build, and cache directories within the plugin root, and should refuse to expand scope via coverable workspace or output parameters; tracked source files and user modifications to source files must remain unchanged. Before release, verify in a temporary directory that "target caches are deleted, unrelated files are retained, and paths outside the plugin root are not touched."
+
+## Workflow workspace preparation
+
+`PluginWorkflow.prepare_workspace` optionally accepts one `WorkspacePreparation` context. Its `preparation_schema` must subclass `PreparationOptions` (strict Pydantic validation); Global exposes the schema through `ListWorkflows`. Without a hook the runtime copies the supplied workspace safely.
+
+The context supplies `source`, fresh `workspace`, `dut_name`, validated `options`, `progress(text)`, `check_cancelled()` and `run_command(argv, cwd=...)`. Use `copy(source, destination)` for bounded, cancellable copying; write only inside the destination, preserve original sources, check cancellation in loops, and run child commands through the supplied runner. Report failure by raising an exception. Hooks must not create Agents or mark verification stages complete. Preparation success only permits Super startup; normal Check/Complete gates still apply.
+
+Global executes preparation asynchronously under the Super profile's timeout/resource budget. The Make preparation entry also invokes the same hook. UnitTest and Formal provide reference implementations in their respective `preparation.py` modules; the framework does not branch on their plugin names. Test success, malformed options, source boundaries, failure, cancellation and retry. Operational behavior is documented in the [Global guide](../02_usage/13_global_agent.md).

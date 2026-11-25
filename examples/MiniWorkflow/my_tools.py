@@ -8,7 +8,7 @@ MiniWorkflow 自定义工具
 import os
 import re
 from pydantic import BaseModel, Field
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 
 class CountWordsArgs(BaseModel):

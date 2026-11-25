@@ -11,7 +11,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.util import diff_ops
-from ucagent.stage.vstage import VerifyStage
+from ucagent.core.stage.vstage import VerifyStage
 
 
 def _num_fds() -> int | None:

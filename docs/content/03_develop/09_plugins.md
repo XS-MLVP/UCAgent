@@ -4,17 +4,24 @@
 UCAgent 插件用于独立交付领域能力。一个插件可以按需提供 Tool、Checker、Skill、
 Guide_Doc 和工作流中的任意一种或多种能力；这些贡献都是一级可选项，互不依赖，也不
 要求插件提供完整工作流。插件是普通 Python 发行包：安装后通过标准 entry point 自动
-发现；源码开发时也可以通过显式配置的搜索路径发现。插件必须由用户选择后才会导入和
-激活，UCAgent 不会扫描或执行任意 workspace Python 文件。
+发现；源码开发时也可以通过显式配置的搜索路径发现。单 Agent 执行只导入并激活选中的插件；Global 会导入发现的插件声明建立目录，
+各 Super 只激活选中的插件。UCAgent 不会扫描或执行任意 workspace Python 文件。
 
-`plugins/RTL2Spec/` 提供文档生成插件；`plugins/DesignWithPPA/` 展示自定义
+显式 `--plugin <ID>` 优先解析已安装发行包与配置的搜索路径；两者均无匹配时，
+才按清单在框架随附的 `ucagent/plugins/` 集合中查找，不依赖当前工作目录。
+
+`ucagent/plugins/RTL2Spec/` 提供文档生成插件；`ucagent/plugins/DesignWithPPA/` 展示自定义
 Tool、Checker、模板、Skill 与工作流的组合。
 
-## 同仓维护的可选插件
+## 同仓维护的内置与可选插件
 
-`plugins/` 用于维护随 UCAgent 一同开发、独立打包的插件。安装核心包不会安装或启用
-这些插件。插件的日常开发应限定在自己的目录中：依赖、入口、配置、资源、测试和维护
-命令均由插件管理，不向核心的依赖清单、默认配置或 Tool/Checker 导出表添加插件内容。
+同仓插件维护在 `ucagent/plugins/` 下（插件加载器即 `ucagent/core/plugins.py`）。
+发行口径分两类：框架 wheel 把默认 ToffeeUT 和显式选择的 UnitTest（含共享库 `common`）作为 package data 一并
+打入（由 `pyproject.toml` 的 `ucagent.plugins` package-data 键、`packages.find`
+exclude 与 `MANIFEST.in` prune 共同圈定范围），安装核心即获得默认 ToffeeUT 工作流，
+无需单独安装；UnitTest 需另建旧版依赖环境；其余插件不随核心安装，作为独立发行包按需发布。无论哪种口径，插件的
+日常开发都应限定在自己的目录中：依赖、入口、配置、资源、测试和维护命令均由插件
+管理，不向核心的依赖清单、默认配置或 Tool/Checker 导出表添加插件内容。
 
 | 内容 | 维护位置 |
 | :--- | :--- |
@@ -33,19 +40,22 @@ Tool、Checker、模板、Skill 与工作流的组合。
 
 | 项目 | 插件 ID / 工作流 | 主要用途 |
 | :--- | :--- | :--- |
-| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
-| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
+| [unittest](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/UnitTest/README.md) | `unittest:unittest` / `unittest:incremental` / `unittest:vibe` | 默认单元验证工作流及增量验证、Vibe 协作两条同插件兄弟工作流 |
+| [formal](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/Formal/README.md) | `formal:formal` | SystemVerilog Assertions 形式化验证（规划/SVA/环境/覆盖率/反例/报告） |
+| [DesignWithPPA](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/DesignWithPPA/README.md) | `design-with-ppa:unit-design-tdd` | 测试驱动 RTL 设计与 PPA 优化 |
+| [RTL2Spec](https://github.com/XS-MLVP/UCAgent/blob/main/ucagent/plugins/RTL2Spec/README.md) | `rtl2spec:xiangshan-design-document` | 基于 XiangShan 源码和生成 RTL 的证据，交付中文设计与功能检测点文档 |
 
-先安装核心，再从 UCAgent 仓库根目录按需安装，例如：
+UnitTest 及其共享库 `common` 已随核心包内置，无需单独安装。其余插件先安装核心，
+再从 UCAgent 仓库根目录按需安装，例如：
 
 ```bash
-python -m pip install ./plugins/RTL2Spec
+python -m pip install ./ucagent/plugins/RTL2Spec
 ucagent --validate-plugin rtl2spec
 ```
 
 运行时显式选择 `--plugin rtl2spec`
 和 `--plugin-workflow rtl2spec:xiangshan-design-document`。
-源码开发时可将插件 ID 换成 `--plugin ./plugins/RTL2Spec`，无需先安装插件。
+源码开发时可将插件 ID 换成 `--plugin ./ucagent/plugins/RTL2Spec`，无需先安装插件。
 工作区独立于插件实现；随包指导文档和其他资源由选中的工作流自动定位和复制。
 
 ### 仓库政策与插件专属说明
@@ -131,7 +141,7 @@ DesignWithPPA/
 只创建实际发布的资源目录。纯 Tool、纯 Checker、纯 Skill、纯 Guide_Doc 或纯工作流
 插件都是有效插件。后续可以在同一发行包中增加其他贡献，无需修改 UCAgent 核心包。
 运行时脚本可放在包内的 `scripts/`；测试和维护配置放在插件项目根目录。
-同仓插件遵守相同结构，项目根位于 `plugins/<项目目录>/`。加载器按清单定位项目，
+同仓插件遵守相同结构，项目根位于 `ucagent/plugins/<项目目录>/`。加载器按清单定位项目，
 不依赖父目录名称。标准结构不要求保留空目录。
 
 ## 本地引导清单
@@ -180,7 +190,7 @@ design-with-ppa = "design_with_ppa.plugin:get_plugin"
 安装后，Python 的 distribution metadata 会提供发现信息，例如从 UCAgent 根目录运行：
 
 ```bash
-python3 -m pip install ./plugins/DesignWithPPA
+python3 -m pip install ./ucagent/plugins/DesignWithPPA
 ucagent --list-plugins
 ucagent --validate-plugin design-with-ppa
 ucagent <workspace> <dut> --plugin design-with-ppa
@@ -216,9 +226,9 @@ plugin:
 需要强制调试某个源码副本时，直接传项目路径：
 
 ```bash
-ucagent --validate-plugin /opt/ucagent-plugins/DesignWithPPA
+ucagent --validate-plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ucagent <workspace> <dut> \
-  --plugin /opt/ucagent-plugins/DesignWithPPA
+  --plugin /opt/ucagent-ucagent/ucagent/plugins/DesignWithPPA
 ```
 
 使用稳定 ID 的配置示例：
@@ -235,12 +245,12 @@ ucagent <workspace> <dut> \
 
 ## Provider 与运行时上下文
 
-Provider 返回 `ucagent.plugins.Plugin`：
+Provider 返回 `ucagent.core.plugins.Plugin`：
 
 ```python
 from pathlib import Path
 
-from ucagent.plugins import CommandRequirement, Plugin, PluginContext
+from ucagent import CommandRequirement, Plugin, PluginContext
 
 from .checkers import TimingBudgetChecker
 from .my_tool import MyTool
@@ -287,6 +297,9 @@ def get_plugin():
 | `guide_doc_paths` | 插件激活时合入 runtime `Guide_Doc` 的文件或目录 |
 | `skill_paths` | 插件激活且 Skill 功能开启时复制的 Skill 集合目录 |
 | `workflows` | 可选择的完整配置入口及该工作流专属资源 |
+| `manager_tools` | 扩展可由工作流选择的阶段管理工具 |
+| `runtime_hooks` | 显式提供配置快照与阶段开始 hook |
+| `command_factories` | 向实例共享注册表贡献 Console/TUI/HTTP 命令 |
 
 允许所有能力字段为空，便于先发布和验证插件的 metadata、依赖及资产合同，再逐步增加
 能力。实际发行版本应至少提供一种对用户有用的能力或资产。
@@ -307,9 +320,38 @@ def get_plugin():
 插件间同名工具以及和核心/外部工具同名的工具。插件工具进入 Agent 与 MCP 的同一标准
 过滤流程，因此 `tools.ignore_tools` 和 `tools.selected_tools` 都会生效。
 
+## 运行控制命令
+
+插件可通过 `Plugin.command_factories` 注册交互命令，无需修改 Console、TUI 或 HTTP 的实现。工厂接收当前实例的 `Controller`，返回 `CommandSpec` 序列；`RuntimeHost` 组装注册表时调用它，拒绝命令名或别名与核心、其他插件冲突。
+
+以下只读命令复用已有阶段查询，不创建任务或线程：
+
+```python
+from ucagent import Argument, CommandSpec
+
+
+def create_commands(controller):
+    return (
+        CommandSpec(
+            name="project_stage",
+            summary="Inspect a stage in this instance.",
+            owner="project",
+            arguments=(Argument("index", "int", None),),
+            handler=controller.task_detail,
+            completion="stages",
+        ),
+    )
+```
+
+在插件已有的 `Plugin(...)` 声明中加入 `command_factories=(create_commands,)`。插件激活后，用户可以执行 `help project_stage`、`project_stage 2`，HTTP `/api/cmd` 也使用同一声明。传入 `handler` 时，`owner` 标记职责；省略 `handler` 则要求运行层已经注入同名执行器，不会自动创建执行器。
+
+耗时且不占模型槽位的普通处理可声明 `blocking=True`，由注册表提交到共享执行器。需要模型互斥、进度和取消上下文的命令，应显式向共享执行器提交操作，使用 `context.checkpoint()` 等取消边界，并返回可序列化结果；不要自行管理线程或操作 TUI 对象。`CommandSpec.model=True` 是调度元数据，不会单独完成模型槽位预留；实现还需在提交操作时指定 `model=True`。当前参考实现是 UnitTest 的 `operations/waveform_replay.py` 中的 `waveform_commands`。
+
+命令贡献不会自动成为 MCP Tool。需要 MCP 暴露时另用 `tool_factories` / 阶段管理工具契约；两种入口可以调用同一业务实现，不能绕过 Check/Complete 门禁。运行层归属见[架构与工作原理](02_architecture.md)，调用方式见[运行控制](../02_usage/10_runtime_control.md)。
+
 ## Checker
 
-`checkers` 中的每一项必须是 `ucagent.checkers.base.Checker` 的子类。激活插件后，任意
+`checkers` 中的每一项必须是 `ucagent.core.checkers.base.Checker` 的子类。激活插件后，任意
 正常配置文件都可以通过类的短名引用它，不要求配置属于该插件的工作流：
 
 ```yaml
@@ -324,7 +366,7 @@ stage:
 ```
 
 UCAgent 会显式地把插件 Checker 注册表传给阶段解析器，不会把类写入全局
-`ucagent.checkers` 模块。Checker 类名在所有已激活插件之间必须唯一，也不能与核心
+`ucagent.core.checkers` 模块。Checker 类名在所有已激活插件之间必须唯一，也不能与核心
 Checker 同名。完整 dotted path 仍可用于普通可导入类，但正式的 `checkers` 声明提供
 启动时类型校验、短名引用、冲突检测和插件摘要。
 
@@ -425,10 +467,13 @@ guide_doc:
 
 ## 工作流及其专属资源
 
-插件可以声明 `PluginWorkflow`，把未来工作流和发行包绑定：
+插件可以声明一个或多个 `PluginWorkflow`，把工作流和发行包绑定。同一插件内的多条工作流
+共享插件的检查器与资产（如 `ucagent/plugins/UnitTest` 提供 `unittest`、`incremental`、`vibe`
+三条工作流）；兄弟工作流之间同样是整体替换关系，因此每条工作流都要自带完整的工具、
+运行时和 Skill 声明（自足基线）：
 
 ```python
-from ucagent.plugins import CommandRequirement, PluginWorkflow
+from ucagent import CommandRequirement, PluginWorkflow
 
 workflow = PluginWorkflow(
     name="unit-design-tdd",
@@ -453,9 +498,17 @@ ucagent <workspace> <dut> \
 ```
 
 `--plugin-workflow` 和 `--config` 可以同时使用。工作流配置是独立基线层，不会冒充用户
-配置文件；最终优先级为：核心全局、用户全局、核心语言默认、插件工作流、workspace
-设置、显式 `--config`、CLI `--override`。未限定插件 ID 的短工作流名只有在已激活插件
-中唯一时才允许。运行元数据会分别保留显式配置、插件与工作流选择器和工作流配置来源。
+配置文件；最终优先级为：核心全局、用户全局、核心语言默认、任务工作流基线（显式选择的
+插件工作流，或启动时由 `workflow` 指针解析出的默认任务工作流）、workspace 设置、显式
+`--config`、CLI `--override`。`workflow` 指针是启动期选择数据，由命令行在启动时解析，
+任何后层（工作区配置、`--config`、`--override`）都可以重定义或置空它（置空即纯框架运
+行）。仓库自带的默认 UT 工作流本身就是一个本地插件（`ucagent/plugins/ToffeeUT`），由
+`ucagent/core/locales/zh.yaml` 的 `workflow` 指针自动解析并激活；pip 安装场景下指针可写成
+`<可导入模块>:<包内相对路径>`（如 `toffee_ut:workflows/ut.yaml`）以定
+位已安装插件包内的配置。显式选择某个插件工作流时，默认工作流被整体替换而非叠加，因此
+每个插件工作流应自带其工具、运行时和 Skill 配置。未限定插件 ID 的短工作流名只有在已激
+活插件中唯一时才允许。运行元数据会分别保留显式配置、插件与工作流选择器和工作流配置来
+源。
 同一信息也写入 `.ucagent/runtime_config.json` 的 `launch_context`；插件显式声明的非秘密
 最终配置标量单独写入 `plugin_options`，不会把完整配置或凭据复制到运行时快照。
 
@@ -522,11 +575,11 @@ sdist 还应通过 `MANIFEST.in` 递归包含同一资源集合以及本地 `uca
 ```bash
 python3 -m pip install -e .
 python3 -m pip install build pytest
-python3 -m pip install -e ./plugins/DesignWithPPA
-python3 -m py_compile plugins/DesignWithPPA/src/design_with_ppa/*.py
-python3 -m pytest -q plugins/DesignWithPPA/tests
-ucagent --validate-plugin ./plugins/DesignWithPPA
-python3 -m build ./plugins/DesignWithPPA
+python3 -m pip install -e ./ucagent/plugins/DesignWithPPA
+python3 -m py_compile ucagent/plugins/DesignWithPPA/src/design_with_ppa/*.py
+python3 -m pytest -q ucagent/plugins/DesignWithPPA/tests
+ucagent --validate-plugin ./ucagent/plugins/DesignWithPPA
+python3 -m build ./ucagent/plugins/DesignWithPPA
 ```
 
 其他插件将上述插件路径替换为自己的项目目录。`python3 -m build` 的默认流程先构建 sdist、再由
@@ -539,7 +592,7 @@ sdist 构建 wheel，可以隔离源码树中既有的 `build/` 缓存，避免�
 ```bash
 python3 -m venv /tmp/design-with-ppa-verify
 /tmp/design-with-ppa-verify/bin/python -m pip install .
-/tmp/design-with-ppa-verify/bin/python -m pip install plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
+/tmp/design-with-ppa-verify/bin/python -m pip install ucagent/plugins/DesignWithPPA/dist/ucagent_design_with_ppa-*.whl
 /tmp/design-with-ppa-verify/bin/ucagent --list-plugins
 /tmp/design-with-ppa-verify/bin/ucagent --validate-plugin design-with-ppa
 /tmp/design-with-ppa-verify/bin/ucagent <workspace> <dut> \
@@ -580,6 +633,8 @@ python3 -m venv /tmp/design-with-ppa-verify
 
 ## 运行工作流的开放契约
 
+以下要求分为通用原则和 UnitTest 领域示例。资源准备、后端权限及清理边界适用于插件开发；FG/FC/CK、行映射、coverage predicate、Bug 文档和 toffee 报告规则属于 UnitTest 及显式复用它的工作流，不是所有插件的必选协议。通用批次引擎是 `BatchTask`，见 [自定义 Checker](07_checkers.md)；复用领域实现时应声明插件依赖，而不是从核心包寻找这些类。
+
 插件工作流必须把 LLM 实际需要遵守的规范文件列入当前阶段的 `reference_files`，不能
 只依赖失败后的错误提示。例如使用行映射 Checker 时，阶段必须同时提供
 `Guide_Doc/dut_line_func_map.md` 和当前生成的功能合同；任务提示还应明确单行物理范围也
@@ -614,7 +669,7 @@ AST 或等价源码证据区分占位与非恒定 predicate，只允许替换 `C
 callable、提前实现未来批次、已完成项回退为占位都必须拒绝。源码门禁只能证明条件已编写；
 predicate 是否可达以及是否与真实刺激匹配，仍要由随后隔离执行的 pytest coverage hit 证明。
 
-复用核心批处理 Checker 时，先确认它的“报告通过”语义是否与插件工作流一致。验证工作流
+复用 UnitTest 插件的批处理 Checker 时，先确认它的“报告通过”语义是否与插件工作流一致。验证工作流
 可以保留由正确测试暴露的 DUT Bug，而设计生成工作流通常要求当前测试全部 Pass；两者不能
 共用同一个最终报告判定。需要不同语义时，应继承
 `UnityChipCheckerBatchTestsImplementation`，通过 `_validate_current_batch_report(report)`
@@ -645,3 +700,11 @@ LLM 看到的实现可能指向不同函数，真实实现也可能被旧占位�
 插件根目录内列举的输出、构建和缓存目录，并拒绝通过可覆盖的 workspace 或 output 参数
 扩大范围；已跟踪源文件和用户对源文件的修改必须保持不变。发布前应在临时目录验证“目标
 缓存被删除、无关文件保留、插件根外路径不会被触碰”这三个边界。
+
+## 工作流工作区准备
+
+`PluginWorkflow.prepare_workspace` 可选声明一个接收 `WorkspacePreparation` 的准备函数。`preparation_schema` 必须继承 `PreparationOptions`（严格 Pydantic 校验）；Global 通过 `ListWorkflows` 暴露该参数结构。未声明钩子时，运行时安全复制指定源工作区。
+
+上下文提供 `source`、全新 `workspace`、`dut_name`、校验后的 `options`、`progress(text)`、`check_cancelled()` 和 `run_command(argv, cwd=...)`。使用 `copy(source, destination)` 进行可取消复制；只写目标目录、保留原始来源，在循环中检查取消，子命令统一通过提供的 runner 执行。失败直接抛出异常；准备函数不能创建 Agent 或标记验证阶段完成。准备成功只允许启动 Super，验证仍由原有 Check/Complete 把关。
+
+Global 在 Super profile 的超时和资源配额下异步执行准备；Make 准备入口复用同一钩子。UnitTest、Formal 各自的 `preparation.py` 是实现示例，框架不按插件名称分支。测试需覆盖成功、非法参数、来源边界、失败、取消和重试。运行行为见 [Global 指南](../02_usage/13_global_agent.md)。

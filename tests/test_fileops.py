@@ -21,9 +21,10 @@ from pydantic import ValidationError
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.tools.fileops import *
-from ucagent.tools import DeleteTextLines as ExportedDeleteTextLines
-from ucagent.tools.uctool import to_mcp_tool
+from ucagent.core.tools.fileops import *
+from ucagent.util.file_policy import is_file_writeable, write_entry_matches_anything, wildcard_entry_overlaps
+from ucagent.core.tools import DeleteTextLines as ExportedDeleteTextLines
+from ucagent.core.tools.uctool import to_mcp_tool
 
 
 class TestFileOpsTools(unittest.TestCase):
@@ -409,7 +410,7 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("Regular expression timed out", result)
 
     def test_search_text_reports_missing_regex_dependency(self):
-        with patch("ucagent.tools.fileops.regex_lib", None):
+        with patch("ucagent.core.tools.fileops.regex_lib", None):
             result = SearchText(workspace=self.workspace)._run(
                 pattern="Line.*",
                 directory="simple.txt",
@@ -1163,7 +1164,10 @@ class TestFileOpsTools(unittest.TestCase):
             self.assertEqual(file_obj.read(), "updated\n")
 
     def test_text_mutation_tools_normalize_markdown_heading_spacing(self):
-        edit = EditTextFile(workspace=self.workspace)
+        edit = EditTextFile(
+            workspace=self.workspace,
+            heading_companions=("<BUG-OVERVIEW>",),
+        )
         edit._run(
             path="document.md",
             content="# Title\ntext\n###### Field\n<BUG-OVERVIEW>\nbody\n",
@@ -1175,7 +1179,24 @@ class TestFileOpsTools(unittest.TestCase):
                 "\n# Title\n\ntext\n\n###### Field\n<BUG-OVERVIEW>\nbody\n",
             )
 
-        ReplaceStringInFile(workspace=self.workspace)._run(
+        # Without declared companions the tool is contract-neutral: the
+        # machine marker is spaced like any other nonblank line.
+        EditTextFile(workspace=self.workspace)._run(
+            path="neutral.md",
+            content="# Title\ntext\n###### Field\n<BUG-OVERVIEW>\nbody\n",
+        )
+        with open(
+            os.path.join(self.workspace, "neutral.md"), "r", encoding="utf-8"
+        ) as file_obj:
+            self.assertEqual(
+                file_obj.read(),
+                "\n# Title\n\ntext\n\n###### Field\n\n<BUG-OVERVIEW>\nbody\n",
+            )
+
+        ReplaceStringInFile(
+            workspace=self.workspace,
+            heading_companions=("<BUG-OVERVIEW>",),
+        )._run(
             path="document.md",
             old_string="body\n",
             new_string="body\n## Added\ndetail\n",

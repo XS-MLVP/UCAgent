@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ucagent.stage.vstage import VerifyStage
+from ucagent.core.stage.vstage import VerifyStage
 from ucagent.util import diff_ops
 from ucagent.util import functions as fc
 
@@ -134,8 +134,8 @@ def stage_tree(tmp_path):
     workspace = tmp_path / "workspace"
     output = workspace / "output"
     output.mkdir(parents=True)
-    history = tmp_path / "history"
-    history.mkdir()
+    history = workspace / ".ucagent/history"
+    history.mkdir(parents=True)
     diff_ops.init_git_repo(str(history))
     stage = VerifyStage.__new__(VerifyStage)
     stage.workspace = str(workspace)
@@ -143,6 +143,7 @@ def stage_tree(tmp_path):
     stage.hist_sav_dir = str(history)
     stage.hist_tgt_dir = str(history / "output")
     stage.hist_ign_list = []
+    stage.output_files = ["output/*"]
     stage.meta_data = {}
     stage.title_short = lambda: "links"
     return stage, output, history
@@ -165,24 +166,26 @@ def test_stage_completion_git_and_projections_preserve_link_identity(stage_tree,
     stage.on_complete()
     commit = stage.meta_data["commit"]["hash"]
     assert stage.is_complete and calls == [stage]
-    assert stage._workspace_output_changed_file_statuses() == {}
+    assert stage.history_query().workspace_changes() == {}
     with diff_ops.git.Repo(history) as repo:
         for name in ("external", "directory", "dangling"):
             text = os.readlink(output / name)
             blob = repo.commit(commit).tree / f"output/{name}"
             assert blob.mode == 0o120000 and blob.data_stream.read() == os.fsencode(text)
-            assert stage._workspace_file_content_payload(f"output/{name}")["content"] == text
+            assert stage.history_query().workspace_content(f"output/{name}")["content"] == text
+            assert stage.history_query().current_file(f"output/{name}")["content"] == text
+            assert stage.history_query().historical_file(f"output/{name}")["content"] == text
             for payload in (diff_ops.get_worktree_file_content_and_diff(str(history), f"output/{name}"),
                             diff_ops.get_current_file_content_and_diff_from_commit(str(history), commit, f"output/{name}"),
                             diff_ops.get_commit_file_content_and_diff(str(history), commit, f"output/{name}")):
                 assert payload["content"] == text and payload["error"] is None
     # A target change does not change a link node; retargeting the link does.
     outside.write_text("changed external data")
-    assert stage._workspace_output_changed_file_statuses() == {}
+    assert stage.history_query().workspace_changes() == {}
     (output / "external").unlink()
     (output / "external").symlink_to("new-target")
     (output / "directory").unlink()
-    assert stage._workspace_output_changed_file_statuses() == {
+    assert stage.history_query().workspace_changes() == {
         "output/directory": "deleted", "output/external": "modified"}
     stage.hist_sync()
     assert "new-target" in diff_ops.get_current_file_content_and_diff_from_commit(str(history), commit, "output/external")["diff"]
@@ -195,7 +198,7 @@ def test_stage_detects_link_file_mode_changes_with_identical_bytes(stage_tree):
     stage.hist_commit()
     (output / "node").unlink()
     (output / "node").symlink_to("missing")
-    assert stage._workspace_output_changed_file_statuses() == {"output/node": "modified"}
+    assert stage.history_query().workspace_changes() == {"output/node": "modified"}
 
 
 def test_history_projections_reject_paths_below_directory_links(stage_tree, tmp_path):
@@ -207,7 +210,9 @@ def test_history_projections_reject_paths_below_directory_links(stage_tree, tmp_
     (output / "alias").symlink_to(outside)
     stage.hist_commit()
     commit = stage.meta_data["commit"]["hash"]
-    assert stage._workspace_file_content_payload("output/alias/secret")["error"]
+    assert stage.history_query().workspace_content("output/alias/secret")["error"]
+    assert stage.history_query().current_file("output/alias/secret")["error"]
+    assert stage.history_query().historical_file("output/alias/secret")["error"]
     for reader, args in ((diff_ops.get_worktree_file_content_and_diff, (str(history), "output/alias/secret")),
                          (diff_ops.get_current_file_content_and_diff_from_commit, (str(history), commit, "output/alias/secret"))):
         with pytest.raises(ValueError, match="symlink parents"):
@@ -229,7 +234,7 @@ def test_history_rejects_fifo_without_reading_it(stage_tree):
     """A special node fails promptly instead of blocking an output content request."""
     stage, output, _ = stage_tree
     os.mkfifo(output / "pipe")
-    assert "Unsupported history node" in stage._workspace_file_content_payload("output/pipe")["error"]
+    assert "Unsupported history node" in stage.history_query().workspace_content("output/pipe")["error"]
 
 
 def test_stage_change_scan_rejects_linked_output_root(stage_tree, tmp_path):
@@ -238,7 +243,7 @@ def test_stage_change_scan_rejects_linked_output_root(stage_tree, tmp_path):
     output.rmdir()
     output.symlink_to(tmp_path)
     with pytest.raises(ValueError, match="real directory"):
-        stage._workspace_output_changed_file_statuses()
+        stage.history_query().workspace_changes()
 
 
 @pytest.mark.parametrize("old", ["file", "directory", "link"])
@@ -270,4 +275,4 @@ def test_stage_change_scan_handles_all_node_type_transitions(stage_tree, old, ne
     old_path = "output/node/data" if old == "directory" else "output/node"
     new_path = "output/node/data" if new == "directory" else "output/node"
     expected = {new_path: "modified"} if old_path == new_path else {old_path: "deleted", new_path: "added"}
-    assert stage._workspace_output_changed_file_statuses() == expected
+    assert stage.history_query().workspace_changes() == expected

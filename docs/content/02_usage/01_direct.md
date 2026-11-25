@@ -3,6 +3,8 @@
 
 直接使用适合希望由 UCAgent 自己连接模型、在一个终端内完成验证的场景。它使用默认的 `langchain` backend，不需要外部 Code Agent 或 MCP。
 
+> 当前默认工作流为 `toffee-ut:ut`，默认产物在 `<workspace>/ut_project/`。本文中的 `unit_test/` 产物示例对应显式选择的 Legacy UnitTest 工作流。
+
 ## 1. 配置模型
 
 推荐使用环境变量：
@@ -13,7 +15,7 @@ export OPENAI_API_KEY="<api_key>"
 export OPENAI_API_BASE="https://<provider>/v1"
 ```
 
-UCAgent 使用 OpenAI 兼容接口。LangChain 后端的 `OPENAI_API_MODE` 默认为 `auto`：启动时探测 Responses API，服务端明确不支持时才回退到 Chat Completions。需要固定协议时设置为 `responses` 或 `chat_completions`。`OPENAI_REASONING_EFFORT` 默认是 `xhigh`，值会原样传给服务端，请按模型支持的值填写。
+UCAgent 使用 OpenAI 兼容接口。LangChain 后端的 `OPENAI_API_MODE` 默认为 `auto`：首次模型工作前探测 Responses API，服务端明确不支持时才回退到 Chat Completions。需要固定协议时设置为 `responses` 或 `chat_completions`。`OPENAI_REASONING_EFFORT` 默认是 `xhigh`，值会原样传给服务端，请按模型支持的值填写。
 
 需要语义检索或记忆工具时，再配置嵌入模型：
 
@@ -81,7 +83,7 @@ ucagent output/ Adder -s -hm --tui -l
 常用参数：
 
 - `--config <path>`：指定项目配置；不指定时使用分层默认配置。
-- `--output <name>`：修改工作区下的输出目录，默认 `unity_test`。
+- `--output <name>`：修改工作区下的输出目录；未指定时取工作流声明的 `output`（默认工作流为 `unit_test`）。
 - `--human` / `-hm`：启动人工可干预模式。
 - `--tui`：打开 TUI；不使用 TUI 时可用 `--web-console` 或 `--web-terminal`。
 - `--skip <index>`、`--unskip <index>`：按运行时阶段索引控制阶段；索引以 `status`/`hmcheck_list` 显示为准。
@@ -95,17 +97,17 @@ current_tips
 loop
 ```
 
-阶段失败时先查看 Checker 返回的具体文件和下一步，再修复后调用：
+阶段失败时，先等待当前操作结束，阅读 Checker 返回的具体文件和下一步，修复后逐条调用并等待结果：
 
 ```text
 tool_invoke Check
 tool_invoke Complete
 ```
 
-检查进程无输出时：
+如果检查没有输出，先查看日志；若仍有活动模型/工具操作，用 `Ctrl+C` 或 [HTTP 操作取消](10_runtime_control.md)请求取消并等待结束。下列工具调用同样占用模型操作槽位，忙碌时会被拒绝：
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 ```
 
@@ -122,7 +124,7 @@ HTTP 408、409、429、5xx 以及未分类的连接/运行错误仍按现有重�
 
 ## 5. 产物和下一步
 
-默认产物位于 `<workspace>/unity_test/`，toffee-test 报告（若已运行测试）位于 `<workspace>/uc_test_report/`。工作流决定具体文档和测试文件名；不要预设一定会生成 Bug、波形或覆盖率文件。
+默认产物位于 `<workspace>/unit_test/`，toffee-test 报告（若已运行测试）位于 `<workspace>/uc_test_report/`。工作流决定具体文档和测试文件名；不要预设一定会生成 Bug、波形或覆盖率文件。
 
 - 想让外部 Code Agent 参与：阅读 [MCP 接入](../01_start/03_mcp_mode.md)。
 - 想集中管理多个任务：阅读 [Master 模式](../01_start/04_master_mode.md)。

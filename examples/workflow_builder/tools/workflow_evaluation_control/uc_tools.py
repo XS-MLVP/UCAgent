@@ -13,7 +13,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 from .core import EvaluationControlError, evaluation_control_action
 from .incremental import IncrementalDeploymentError, deploy_incremental_changes

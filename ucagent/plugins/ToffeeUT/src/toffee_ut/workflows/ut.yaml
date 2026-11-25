@@ -1,0 +1,802 @@
+output: ut_project
+template: null
+call_time_out: 3660
+manager_tools: [RunToffee]
+loop_settings:
+  autonomous_stage_work: true
+  max_stalled_rounds: 2
+runtime_options:
+  ut_task: ""
+  ut_task_stages: null
+  ut_document_mode: auto
+  ut_documents: null
+  ut_rtl_dirs: null
+  ut_dut_package: null
+  ut_workers: 1
+  ut_timeout: 1200
+  ut_reference_model: false
+  ut_mock_components: false
+  ut_line_coverage: true
+  ut_coverage_batch_preflight: true
+  ut_human_env_spec_review: false
+  ut_human_env_review: false
+write_dirs: ['{OUT}']
+un_write_dirs: ['{GUIDE_DOC}', inputs, '{DUT}_RTL', .ucagent/toffee_ut.key]
+tools:
+  ignore_tools: [WorkDiff, WorkCommit, RunBashCommand]
+  selected_tools: []
+guide_doc:
+  enable: true
+  core_copy_policy:
+    default_action: ignore
+    retain: []
+    override: []
+    ignore: []
+  plugin_copy_policy:
+    default_action: retain
+    retain: []
+    ignore: []
+skill:
+  general_skill_list:
+    - ext/toffee-ut/requirements-boundary
+    - ext/toffee-ut/observation-precision
+    - ext/toffee-ut/behavior-equivalence
+    - ext/toffee-ut/traceability-and-implementation
+    - ext/toffee-ut/closure-and-residuals
+    - ext/toffee-ut/package-layout
+    - ext/toffee-ut/legal-stimulus
+    - ext/toffee-ut/independent-oracle
+    - ext/toffee-ut/checker-and-runtime
+    - ext/toffee-ut/triage-and-evidence
+    - ext/toffee-ut/verification-completeness
+    - ext/toffee-ut/rtl-verification-soundness
+    - ext/toffee-ut/ucv4xs-workflow
+mission:
+  name: '{DUT} Toffee UT'
+  prompt:
+    system: |
+      你负责 {DUT} 的真实 RTL 单元验证。先调用 CurrentTips，按阶段读取参考文件。
+      本次任务数据：{UT_TASK}。当前选择范围：{UT_TASK_SCOPE}。明确选择阶段时，只处理本次目标和所选节点；未涉及阶段不是已完成或通过，局部任务结束不表示完整 DUT 验收。
+      选择父阶段包含其已启用子阶段；只选择子阶段不执行父阶段汇总检查或无关兄弟任务。缺少必要前提时说明依赖和影响，请用户确认补做或报告阻塞，不暗中扩展范围，也不放松所选阶段的检查。
+      工程位于 {OUT}，testbenches/{TB}/ 下按 env、transactions、model、checker、coverage、tests 区分职责；简单职责用单文件，真正跨 DUT 复用时才建 shared。沿用已登记工程的路径、fixture 和构建配方，不为整理目录重写正确实现。
+      docs/spec/design 保存设计要求和来源，docs/spec/verification 保存场景、独立判据、完成义务和未证明范围；问题归 docs/bugs/open 或 closed，真实运行归 results。
+      当前输入准备路径为 {DOCUMENT_MODE}。有文档时核对版本与缺口，不为符合 RTL 擅改要求；没有文档时从源码与上下游补建候选规格，区分 confirmed/inferred/open。仅从 RTL 推断的结果不能成为独立正确性证明。
+      confirmed 仅引用启动时已提供且未变化的独立输入文件；HTTP(S) 地址或本轮自写文档不能独立确认要求。缺来源时保留 inferred/open 和 next_action，请用户提供资料后重启；先调用 UTProject(action="inspect")。
+      设计阶段定义要求、检查方案和未决项；实现阶段接通环境、判据与采样；执行和复核阶段才核对实际节点及同轮证据。不要提前宣称未执行场景已通过，也不要为前阶段验收另建演示 DUT。
+      资料盘点、建骨架、编译、测试和汇总由 UTProject、BuildToffeeDUT、RunToffee 执行，不用 Skill 脚本重复实现。不能用临时测试修改文档或伪造报告。
+      按 Guide_Doc/ut-methods.md 选择当前问题的方法；Skill 可用时选用相关方法，不必每轮全读。不可用或被禁用时，直接按本阶段任务与 Guide_Doc 完成相同要求，不停止、不降低验收。Skill 和待审参考不授权扩大任务、改变覆盖目标、启用被跳过阶段或执行升级迁移。
+      测试只描述事务场景；优先复用 Toffee 的 Driver、Monitor、Scoreboard 和覆盖能力，明确采样、独立 expected 和结束义务，不把目录完整、bin 命中、退出码 0 当作设计正确。
+      覆盖目标按本任务约定执行，不默认要求所有指标 100%；缺口要区分缺要求、缺用例、缺观察或有依据的不适用。不得靠删 bin、降低 goal、缩小交叉或扩大排除范围取得绿色结果；必要修订须说明依据和影响，涉及验收范围变化时请用户确认。
+      已实现测试不得保留 assert False 占位或放宽断言掩盖失败。验证设施错误先修复；合法输入下真实设计失败保留 FAIL 并归因。已执行但依据不足可用 uncertain；未运行或不可观察的范围在规格中写明，不能冒充 PASS。
+      发现缺口先定位应修的规格、环境、模型或用例；需要返回时先用 Status 确认已到达且未跳过的阶段索引，再用 GoToStage。返回不代表旧结果已自动作废或重验；按变更影响重新审计对应工件。
+      增量处理：先以已验签的完整运行为基线，列出新增、删除、修改及受影响依赖（要求、场景、共享设施和证据绑定）。只改、只复查变动和受影响项；未变部分复用仍有效的证据。只改审阅时局部修正条目并核对引用和哈希，不重跑；没有有效基线时不能推定未查项通过。
+      同类合批：把能用同一判据核对的改动合批。开跑前在现有阶段日志或待办里写清适用全量数据的预期，分应变项、不得退化项、仍未知项，保留旧失败和未证范围；不只挑容易通过的节点。定向结果只证明受影响子集，未变项对照有效基线，不能拼成新全量。影响范围不能证明或正式门禁需要新完整签名时，合并已稳定的同类改动后再跑一次完整选择。
+      证据维护：同一证据引用同一原件，按回执 run、精确 nodeid、波形窗口或来源路径及已有哈希定位。已有结论且依据和适用范围未变时，直接引用，不重复分析或抄录。迭代只维护一份当前审阅和清单，在原条目记录变更、依据与残余，不逐轮另存副本。
+      已签发回执、原始波形、失败证据和已交付报告不可覆盖或删除。若更新会使正式绑定、交付或必要复原所引用的版本不可取回，优先引用已有可验证的历史；确无可用历史时，只留一份能按哈希定位的原件。同一内容不在日志、清单和报告间重复归档，正式留存要求不变。
+      Python 环境、模型、用例或覆盖定义改变后按批复验受影响测试；RTL、参数或原生构建输入改变时先按既有配方重建。正式 Check/Complete、签名、覆盖目标、人工审批与硬件验收仍按原要求执行；复杂配方没有可用执行入口时交操作者处理。
+      失败定位用 WaveInfo 查看真实节点、信号及时间窗口，按 Guide_Doc/ut-waveform.md 引用观察并解释根因；CoverageInfo 查询本轮原生覆盖与缺口。读取工具不自动重跑，不改变时钟或引脚写入方式。
+      每阶段按 Check 诊断修复，记录 SetCurrentStageJournal，再用 Complete 推进。有效完整运行可直接复核，不因读了 Skill 或重复 Check 而重跑。工具受限或正确 FAIL 被验收阻塞时保留证据并报告，不跳过或放宽检查。
+      最终按原任务区分验证报告交付与硬件验收。FAIL/INCOMPLETE 不因工作流结束而变成 PASS；必验缺口未解决、要求的根因未确认时不得宣称目标已达成，也不能仅登记为残余就自行豁免。
+      单 Agent 循环中若有 StageWork 工具，先查现有证据，把同一阶段可独立处理的事分开登记。ready 写实际下一步和完成条件；done 写核对过的回执、波形、覆盖或规格位置；human 只记确实缺少的外部规格、权限或明确决定，说明谁需要给什么、影响哪一项。不要因为其中一项缺资料就停下；先执行其他项，不要只列计划。
+      每轮先看 StageWork(show)，用签名证据确定改动和受影响范围，按同类批次推进。已做完的事不重复登记；同一问题没进展就换办法，不能继续原样 Check 或重跑。报告可先写，但退出或交给人之前，用 StageWork(review) 说明核对过哪些范围、还有哪些真要负责人提供输入。此工具不改变 Check、Complete、覆盖目标或报告结论。
+      StageWork 的空待办不是验收。只要本轮产生新全量，在 StageWork(review)、退出或交给人之前，都要用 UTProject(action="audit", phase="line_coverage") 核对当前全量对应的原生覆盖审阅（仅限已启用且已到达的原生覆盖阶段）。review_stale、selector_mismatch 或可处理的 review_incomplete 属于验证侧工作，先登记 ready，复用当前签名回执处理变动及受影响条目，再过原审计。按证据维护规则更新当前审阅并保持旧报告可追溯，不为每个 run 复制整份审阅。只改审阅不重跑；仍有真实 gap 时保留原判，把有独立依据的项和确实需要负责人提供依据的项分开。
+      StageWork(review) 前不只看已登记的列表：对照当前签名回执的 Checker 诊断、缺口清单和设施首错，沿用仍有效的核对结论，只补新增、变动及遗漏，拆出仍可执行的工作并登记 ready。缺口清单写完可以标清单项 done，不能同时给其中未执行的补测销项。有独立依据的对照与合法激励不等另一条私有规格。驱动、监控、采样相位、判据或工件读锁的问题不是缺 DUT 规格；能用已有证据修正的登记 ready，暂时无法推进且没有具体外部输入的登记 stalled 并换办法（如用已签名波形、缩小窗口、改为串行），不要改成 human。核对已有 human 项时逐项指出必需的外部材料或决定；若新证据表明其实是验证设施问题，把那一项改回可执行，不改其他真实依赖。
+      原生覆盖或交付阶段的交接前，按 Guide_Doc/ut-coverage.md 把当前签名全量、原生审阅哈希和逐项依据写入 handoff-inventory.md（文件名带 DUT）。有可做事项应执行而非仅登记；清单与 StageWork 对账，但不改阶段门禁或报告结论。
+    tips:
+      always:
+        - 先查看实际工具结果，再决定下一步；不要凭文件名或历史 PASS 推断当前证据。
+      random: []
+stage:
+- name: requirement_analysis_and_planning
+  desc: 验证规划与实际输入盘点
+  task:
+  - 读取 Guide_Doc/ut-project.md，调用 UTProject(action="inspect") 和 UTProject(action="scaffold")；核对 {OUT}/results/input_inventory.json 中的真实资料、RTL、DUT 映射和工程入口，不覆盖已有文件。
+  - 在 {DESIGN_SPEC} 正文明确本次 DUT、参数/版本、责任边界、主要风险、覆盖目标和退出约定；区分要求硬件通过还是允许披露未完成范围的报告交付，未明确的关键条件请用户确认。
+  - 本阶段完成输入准备和范围约定，不提前编写全量用例或声称已验证；设计依据、行为分组和场景由后续独立阶段逐步补全。
+  skill_list:
+  - ext/toffee-ut/requirements-boundary
+  - ext/toffee-ut/closure-and-residuals
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-project.md
+  - Guide_Doc/ut-contracts.md
+  checker:
+  - name: requirements_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: requirements
+      project: '{OUT}'
+      dut: '{DUT}'
+  output_files:
+  - '{OUT}/results/input_inventory.json'
+  - '{DESIGN_SPEC}'
+- name: dut_function_understanding
+  desc: DUT 功能与端口理解
+  task:
+  - 对照真实 RTL、适用资料和已有端口说明，在 {DESIGN_SPEC} 的 requirements 中写清行为、合法前提、观察、时序及独立来源；资料不足保持 inferred/open 并注明下一步。
+  - 核对时钟/复位、输入输出方向、位宽和上下游责任；没有握手或时钟的 DUT 不虚构对应义务，缺观察字段不能按现有端口改小要求。
+  - 此阶段形成可供分组和检查点设计使用的功能理解，不要求已运行 DUT；后续发现来源、合法域或观察不足时回补本规格并同步受影响场景。
+  skill_list:
+  - ext/toffee-ut/requirements-boundary
+  - ext/toffee-ut/observation-precision
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-contracts.md
+  - '{DESIGN_SPEC}'
+  checker:
+  - name: dut_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: dut
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: functional_specification_analysis
+  desc: 功能组、检查点与逐行追溯
+  task:
+  - 按四个子阶段依次完成行为分组、功能定义、检查点方案和来源逐行追溯；统一维护 {DESIGN_SPEC}，不从已有用例反推功能全集，也不在此阶段要求运行结果。
+  - 子阶段完成后核对要求、behavior_groups、checkpoints 和适用的来源映射；新增或拆分要求时同步引用，不通过重新合并独立行为来消掉缺项。
+  - 无输入文档时不制造逐行映射；有资料但范围或语义不清时保留缺口，不能一律 IGNORE。结构检查通过仍需自行核对每项关联的语义。
+  reference_files:
+  - Guide_Doc/ut-stages.md
+  - '{DESIGN_SPEC}'
+  output_files:
+  - '{DESIGN_SPEC}'
+  checker:
+  - name: specification_analysis_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: line_map
+      project: '{OUT}'
+      dut: '{DUT}'
+  skill_list:
+  - ext/toffee-ut/requirements-boundary
+  force_use_skill: false
+  stage:
+  - name: dut_function_grouping
+    desc: 行为族与来源归属
+    task:
+    - 在 {DESIGN_SPEC} 的 behavior_groups 中列真实行为族、来源、本层责任及 requirements 引用；覆盖现有要求，未分类来源明确留项，不能用“其他”掩盖遗漏。
+    - 本阶段只建立分组与责任，不定义具体激励代码；发现缺要求时先回补 requirements，再调用 Check 核对归属。
+    skill_list:
+    - ext/toffee-ut/requirements-boundary
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-contracts.md
+    checker:
+    - name: groups_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: groups
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: function_point_definition
+    desc: 独立要求与可观察功能点
+    task:
+    - 在 {DESIGN_SPEC} 逐条澄清 requirements 的行为、合法前提、可观察结果、时序和来源；按可独立判定的承诺拆分，端口名或已有 TC 不替代功能定义。
+    - 为这些功能点补齐当前 checkpoints 格式所需的初稿；这里只确定拟激励、拟观察与拟比较，下一子阶段再细化检查方案，不提前要求实际采样或运行。
+    skill_list:
+    - ext/toffee-ut/requirements-boundary
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-contracts.md
+    checker:
+    - name: points_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: points
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: check_point_design
+    desc: 实际字段、比较器和完成义务
+    task:
+    - 细化 {DESIGN_SPEC} 中具有唯一 ID 的 checkpoints；为关联要求明确合法刺激、观察字段与有效相位、独立比较规则和必要的完成义务。
+    - 将方案与真实端口及独立语义对照；无法观察或尚无独立判据的部分保留未决项，后续在 {VERIFICATION_SPEC} 中安排场景或范围处置，不以设计方案冒充 checked。
+    skill_list:
+    - ext/toffee-ut/observation-precision
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-contracts.md
+    checker:
+    - name: checkpoints_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: checkpoints
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: functional_line_mapping_gap_analysis
+    desc: 逐行审阅来源规格
+    task:
+    - 仅对 {OUT}/results/input_inventory.json 盘点的原始资料建立 {OUT}/docs/spec/verification/{DUT}-line-map.md；按 Guide_Doc/ut-stages.md 的当前格式覆盖非空物理行，每个区间不超过 100 行，功能内容关联 checkpoint，IGNORE 给具体理由。
+    - 按 Check 返回的批次读取来源并核对哈希；资料变化先刷新盘点并重审受影响映射，不修改或重排原文以迁就行号。
+    - 一行含多个独立承诺时核对它们均已进入要求和检查方案，并在正文说明当前映射的代表关系；物理行有处置不证明所有子承诺都已实现或验证。
+    reference_files:
+    - Guide_Doc/ut-stages.md
+    checker:
+    - name: line_map_gate
+      clss: ToffeeUTBatchChecker
+      args:
+        phase: line_map
+        project: '{OUT}'
+        dut: '{DUT}'
+- name: functional_specification_refine
+  desc: 边界与等价类细化
+  task:
+  - 根据 {DESIGN_SPEC} 在 {VERIFICATION_SPEC} 维护 scenarios 和 behavior_matrix；为适用行为补合法边界、历史、响应结果、独立 oracle 与 completion，大空间说明定向或抽样理由，不要求全笛卡尔积。
+  - 结构化矩阵使用 planned/gap/na/out-of-domain；planned 是计划而非 PASS，其他状态写清 reason。场景按 active/deferred/out-of-domain 处置，每条要求都要有场景或明确范围承接。
+  - 此阶段不填写尚未执行的 pass/fail；实际结果由后续同轮运行和报告给出。独立判据或观察不足时保留 gap，不为追覆盖率扩大非法激励或删掉难验行为。
+  skill_list:
+  - ext/toffee-ut/behavior-equivalence
+  - ext/toffee-ut/independent-oracle
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-contracts.md
+  - '{DESIGN_SPEC}'
+  - '{VERIFICATION_SPEC}'
+  checker:
+  - name: refine_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: refine
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: static_bug_analysis
+  desc: RTL 静态候选分析
+  task:
+  - 对照 {DESIGN_SPEC} 按 Check 批次逐个审阅真实 RTL 文件的控制、状态、位宽和时序；在 {OUT}/docs/reviews/{DUT}-static-review.md 记录每份来源哈希、分析和可证伪候选。
+  - 候选只说明怀疑、合法触发条件与后续实验，不在本阶段声称动态确认；没有候选时保留真实逐源审阅，不能制造 Bug 或波形占位。
+  skill_list:
+  - ext/toffee-ut/observation-precision
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-static-review.md
+  - '{DESIGN_SPEC}'
+  checker:
+  - name: static_gate
+    clss: ToffeeUTBatchChecker
+    args:
+      phase: static
+      project: '{OUT}'
+      dut: '{DUT}'
+  output_files:
+  - '{OUT}/docs/reviews/{DUT}-static-review.md'
+- name: dut_wrapper_implementation
+  desc: 原生 DUT 构建与 fixture
+  task:
+  - 完成两个子阶段后核对 {OUT}/dut/{DUT} 的实际导出类、构建输入和根 fixture 属于当前 DUT；已有复杂工程沿用自己的配方，不以 Python 替身通过。
+  - RTL、参数或导出接口变化时先请求按既有配方重建，再运行测试；仅有新运行记录不证明旧原生包已更新。不能覆盖已有包或删除历史失败日志来取得通过，构建证据冲突时报告阻塞。
+  reference_files:
+  - Guide_Doc/ut-environment.md
+  output_files:
+  - '{OUT}/conftest.py'
+  checker:
+  - name: wrapper_integration_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: wrapper
+      project: '{OUT}'
+      dut: '{DUT}'
+  - name: fixture_integration_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: fixture
+      project: '{OUT}'
+      dut: '{DUT}'
+  skill_list:
+  - ext/toffee-ut/package-layout
+  force_use_skill: false
+  stage:
+  - name: dut_creation_implementation
+    desc: 真实原生 DUT 构造器
+    task:
+    - 核对 {OUT}/dut/{DUT}/__init__.py 的真实导出类、top 与本次 RTL/参数；优先复用当前有效构建，只有本次实际简单 RTL 需要新包时才调用 BuildToffeeDUT。
+    - 复杂配方或已有包需要重建但没有可用执行入口时，列明输入变化和所需产物，请操作者处理；不要另造演示工程、覆盖现有包或把结构检查当作 RTL 与原生输出一致的证明。
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: wrapper_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: wrapper
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: pytest_fixture_dut_implementation
+    desc: 真实 DUT fixture 的注册与收尾
+    task:
+    - 在 {OUT}/conftest.py 保留唯一 fixture 注册入口，可复用已有 fixture 实现；核对真实 DUT 的创建、toffee_register_dut 登记、时钟/复位所有权和正常/异常路径 Finish。
+    - 新构造路径将请求 seed 传给原生构造器；沿用既有 fixture 时核对真实接线，不能只记录请求值便宣称原生 seed 已生效。此阶段不提前运行尚未实现的全部场景。
+    skill_list:
+    - ext/toffee-ut/checker-and-runtime
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: fixture_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: fixture
+        project: '{OUT}'
+        dut: '{DUT}'
+- name: coverage_model_implementation
+  desc: 覆盖组与功能点实现
+  task:
+  - 依据 {DESIGN_SPEC} 和 {VERIFICATION_SPEC} 实现功能覆盖定义与采样接口，保持 checkpoint、场景和覆盖项可追溯；不把定义完整或 bin 命中当作实际比较。
+  - 子阶段完成后核对覆盖定义、ID 和采样代码的关联；后续环境和真实用例阶段再核验采样路径确实执行。观察或行为定义不足时回补对应规格，不为本阶段提前宣称运行通过。
+  reference_files:
+  - Guide_Doc/ut-coverage.md
+  checker:
+  - name: coverage_integration_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: coverage_checks
+      project: '{OUT}'
+      dut: '{DUT}'
+  skill_list:
+  - ext/toffee-ut/traceability-and-implementation
+  force_use_skill: false
+  stage:
+  - name: coverage_group_creation
+    desc: 按行为族创建功能覆盖组
+    task:
+    - 在 {OUT}/testbenches/{TB}/coverage.py 或同名包按真实行为建立 CoverGroupDef，说明各组对应要求与观察对象；简单 DUT 不为凑目录创建空组。
+    - 目标采用本任务约定，辅助自检组显式 capture=False；已有全局 DUT 覆盖组可以复用，但不能混入模型或设施自检取得的覆盖信用。
+    skill_list:
+    - ext/toffee-ut/behavior-equivalence
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-coverage.md
+    checker:
+    - name: coverage_groups_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: coverage_groups
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: coverage_point_implementation
+    desc: 功能 bin 与真实采样点
+    task:
+    - 实现 CoverPointDef/Bin 及必要交叉，在现有规格或 coverage 注释中关联 checkpoint、合法激励、采样相位、有效条件与比较位置；只建立本合同适用的结果域。
+    - 核对 goal、命中门槛、weight、ignore 和交叉范围的含义；修订错误覆盖模型须说明依据与影响，不能为获取绿色结果删项或降低目标。
+    skill_list:
+    - ext/toffee-ut/traceability-and-implementation
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-coverage.md
+    checker:
+    - name: coverage_points_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: coverage_points
+        project: '{OUT}'
+        dut: '{DUT}'
+    stage:
+    - name: implemente_function_checks_in_batch
+      desc: 分批检查功能覆盖点
+      task:
+      - 按 Check 当前批次逐项核对 {DESIGN_SPEC} 中 checkpoints 到 coverage 实现和拟用采样入口的关联，修复缺 ID、缺定义或缺采样代码；不手写完成计数。
+      - 本阶段通过只说明代码关联已核对；随后在环境自检和真实用例中检查实际采样、字段比较及完成义务，不能用字符串出现或 .sample 名称替代执行证据。
+      reference_files:
+      - Guide_Doc/ut-coverage.md
+      checker:
+      - name: coverage_checks_gate
+        clss: ToffeeUTBatchChecker
+        args:
+          phase: coverage_checks
+          project: '{OUT}'
+          dut: '{DUT}'
+- name: test_environment_implementation
+  desc: 事务环境与自检
+  task:
+  - 按子阶段接通端口、唯一驱动、相关通道采样、根 env fixture 和必要自检；Mock 与人工复核仅在本任务已启用时执行，不自行增加外部系统或迁移工程。
+  - 设施自检验证当前交互和比较链，不替代后续 DUT 功能场景；发现合法域或独立答案不明时回补规格，不能按 actual 修改预期。
+  skill_list:
+  - ext/toffee-ut/package-layout
+  force_use_skill: false
+  stage:
+  - name: human_check_env_specification
+    desc: 人工复核环境合同
+    task:
+    - 仅在本阶段已启用时，依据 {DESIGN_SPEC} 和 {VERIFICATION_SPEC} 向人工专家说明合法域、驱动/采样所有权、独立判据与未决项。
+    - 按 Guide_Doc/ut-stages.md 在 {OUT}/docs/reviews/{DUT}-stage-evidence.md 记录 env_spec_review 的实际来源与意见，再等待真实人工批准；不能将自评当作批准。
+    reference_files:
+    - Guide_Doc/ut-stages.md
+    checker:
+    - name: env_spec_review_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: env_spec_review
+        project: '{OUT}'
+        dut: '{DUT}'
+    - name: human_approval
+      clss: HumanChecker
+    skip: true
+  - name: bundle_wrapper_design
+    desc: Bundle 端口映射和所有权
+    task:
+    - 针对本次真实导出端口实现 Bundle 的字段、方向、位宽和所有权核对；缺字段、重复驱动或 claim 冲突应报错，不静默补零。
+    - 复用已有正确绑定，发现观察不足时回查 {DESIGN_SPEC}；不为满足代码形状复制 shared 实现或擅自扩大导出接口，合法接入被检查拒绝时保留证据并报告。
+    skill_list:
+    - ext/toffee-ut/package-layout
+    - ext/toffee-ut/observation-precision
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: bundle_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: bundle
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: mock_design_and_implementation
+    desc: 上游替身设计与实现
+    task:
+    - 仅在 Mock 已启用且合同确需外部 producer/consumer 时实现最小替身；在既有环境说明中写清合法编码、许可、历史与责任边界，区分生产可达和端口压力。
+    - 不复制整套上游工程，也不将未确认的替身行为作为独立正确答案；资料不足回补规格，后续 Mock 自检再验证其已约定行为。
+    skill_list:
+    - ext/toffee-ut/legal-stimulus
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: mock_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: mock
+        project: '{OUT}'
+        dut: '{DUT}'
+    skip: true
+  - name: mock_fixture_implementation
+    desc: 上游替身 fixture
+    task:
+    - 在 {OUT}/conftest.py 注册当前 Mock fixture，可引用按职责组织的实现；按用例隔离状态，核对初始化、时钟所有权和异常清理。
+    - 此阶段只完成装配，不把 fixture 能创建等同 Mock 语义正确；组件行为由后续独立自检核对。
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: mock_fixture_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: mock_fixture
+        project: '{OUT}'
+        dut: '{DUT}'
+    skip: true
+  - name: mock_functional_test
+    desc: 上游替身自检
+    task:
+    - 用 @pytest.mark.selftest 和 @pytest.mark.mockcheck 分类真实组件自检；合法控制及预期拒绝的单错误控制均应正确 PASS，不能以 setup error 代替目标检查。
+    - 完成逐组件子阶段后核对本轮 Mock 节点及其比较位置，修复替身错误；这些结果不计作 DUT 功能通过，不因组件自检而运行尚未完成的全量场景。
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: mock_tests_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: mock_tests
+        project: '{OUT}'
+        dut: '{DUT}'
+    stage:
+    - name: test_mock_components_in_batch
+      desc: 逐组件完成 Mock 自检
+      task:
+      - 按 Check 返回的当前 Mock 组件批次，用 RunToffee(targets=[...]) 执行对应 mockcheck 自检；节点与组件名称保持可追溯，依据真实结果推进。
+      - 某组件失败先修该实现或测试，重跑受影响节点；不存在所需组件时报告配置/任务冲突，不制造无关自检或手填进度。
+      reference_files:
+      - Guide_Doc/ut-stages.md
+      checker:
+      - name: mock_batch_gate
+        clss: ToffeeUTBatchChecker
+        args:
+          phase: mock_batch
+          project: '{OUT}'
+          dut: '{DUT}'
+      skip: true
+    skip: true
+  - name: env_fixture_implementation
+    desc: 事务环境 fixture 和 checker
+    task:
+    - 在 {OUT}/conftest.py 注册 env，按当前 testbench 的环境入口装配驱动、监视和独立比较；简单接口按合法求值检查，不强造异步队列或重复生命周期实现。
+    - 按合同核对实际接受、首个有效响应、相关通道同沿快照和身份/完成义务；有 Execution 时只保留一个推进者，不额外 Step，也不在收尾时 reset 或补响应清债。
+    - 设施实现与采样检查写在现有代码和必要注释中；合法域或 expected 不明确就回补规格，正负自检留到下一子阶段，不声称仅靠文件或类名已证明运行语义。
+    skill_list:
+    - ext/toffee-ut/checker-and-runtime
+    - ext/toffee-ut/independent-oracle
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: environment_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: environment_impl
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: evaluate_env_fixture
+    desc: 环境设施的正负自检
+    task:
+    - 对关键采样、比较和完成路径编写 @pytest.mark.selftest 与 @pytest.mark.envcheck 自检；合法控制通过，单错误控制在约定检查点被预期识别，自检整体仍应 PASS。
+    - 用 RunToffee 定向执行这些节点并核对实际检查位置，保留正文首错和独立清理错误；标记或一个普通 PASS 不能替代正负控制。修设施后重跑相关自检，不给每条功能要求额外生成一套故障实验。
+    skill_list:
+    - ext/toffee-ut/checker-and-runtime
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-environment.md
+    checker:
+    - name: env_selftest_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: env_selftest
+        project: '{OUT}'
+        dut: '{DUT}'
+  - name: human_check_env_implementation
+    desc: 人工复核环境实现
+    task:
+    - 仅在已启用时，向人工专家展示 env 关键代码、实际采样/比较位置及合法和单错误控制原件。
+    - 在 {OUT}/docs/reviews/{DUT}-stage-evidence.md 记录 env_review 的当前来源与意见，等待实际批准；专家要求返修时修对应实现和受影响自检，不只补评语。
+    reference_files:
+    - Guide_Doc/ut-stages.md
+    checker:
+    - name: env_review_gate
+      clss: ToffeeUTChecker
+      args:
+        phase: env_review
+        project: '{OUT}'
+        dut: '{DUT}'
+    - name: human_approval
+      clss: HumanChecker
+    skip: true
+- name: basic_api_implementation
+  desc: 事务 API 实现
+  task:
+  - 在现有环境/事务职责内提供稳定 API，校验合法域、未知或缺失字段，并明确请求发射、接受、响应和结束的区别；测试不直接操作物理引脚或在 Execution 内额外 Step。
+  - 根据 {VERIFICATION_SPEC} 为后续基础 API 测试确定最小合法事务与独立判据；关闭可选模型阶段也不能取消独立 expected，简单固定答案或性质可以承担该职责。
+  - 本阶段实现接口，不运行尚未实现的全部功能模板；发现 producer 或终态合同不清时回补规格，不延长等待或缩小比较范围掩盖问题。
+  skill_list:
+  - ext/toffee-ut/legal-stimulus
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-environment.md
+  checker:
+  - name: api_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: api
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: reference_model_implementation
+  desc: 独立参考模型与性质
+  task:
+  - 仅在模型阶段已启用时，依据 {DESIGN_SPEC} 的独立来源实现当前 testbench 的 model 或 checker，说明适用配置、输入身份、单位/粒度和状态；不读取 actual 自证，也不照抄 RTL 算法。
+  - 选取关键已知样本和可区分错误规则的样本，准备后续模型自检；规范保留实现自由度时不过严比较，关键预期未确认时回补规格并保留未证明范围。
+  skill_list:
+  - ext/toffee-ut/independent-oracle
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-environment.md
+  checker:
+  - name: model_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: model
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: reference_model_fixture_imp
+  desc: 模型 fixture 与自检
+  task:
+  - 在 {OUT}/conftest.py 注册或复用独立答案入口，保证逐用例状态隔离与清理，不要求模型实现全部搬到根文件。
+  - 用 @pytest.mark.selftest 与 @pytest.mark.modelcheck 定向验证关键已知样本和区分性控制；自检应 PASS 且不计 DUT 覆盖，普通带标记的 PASS 不能证明 oracle 独立。
+  skill_list:
+  - ext/toffee-ut/independent-oracle
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-environment.md
+  checker:
+  - name: model_fixture_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: model_fixture
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: basic_api_functional_test
+  desc: 基础事务 API 的 DUT 功能测试
+  task:
+  - 为已实现事务 API 编写 @pytest.mark.api 的真实 DUT 场景并关联已有 scenario；用 RunToffee 定向执行，核对实际接受、首个合同响应、独立比较和有界收尾。
+  - 输入、时序、fixture、API 或判据错误先修复并复验；正确用例暴露设计违约时保留 FAIL，在 {OUT}/docs/bugs/open 按 Guide_Doc/ut-results.md 记录当前 run/nodeid、依据和下一动作。
+  - 验收接受 PASS，或满足 Guide_Doc/ut-stages.md 功能失败证据条件的当前 RTL FAIL；后者须有场景对应的 confirmed 要求、当前 open 问题、逐节点有效 WaveInfo 收据与分析及本 DUT 的 native 构建身份，已知空模板不能借问题记录获得实现信用。证据不足或设施错误仍须处理，不能删除 api 标记、改成自检、放宽 expected 或跳过阶段来推进；定向 API 验收不额外要求完整回归或覆盖达标。
+  skill_list:
+  - ext/toffee-ut/checker-and-runtime
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-environment.md
+  - Guide_Doc/ut-results.md
+  checker:
+  - name: api_tests_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: api_tests
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: create_test_case_templates
+  desc: 逐场景用例模板
+  task:
+  - 根据 {VERIFICATION_SPEC} 为各 active 场景在已登记测试路径建立有意义的入口，关联真实 scenario ID，并描述合法刺激、独立预期和完成条件；已有正确实现只核对关联，不重写。
+  - 新的未实现模板保留 assert False, "Not implemented" 以防意外 PASS；本阶段只建模板，后续批量实现再移除占位，不以模板 collection 或占位失败作为 DUT 功能证据。
+  - 实现验收不接受只含立即 pytest.fail、assert False、raise AssertionError，或 pass、常量断言、return None 的空体；注册 native fixture 或把问题改为 unconfirmed 不能替代实际场景实现。可以调用实际执行检查的 helper，无须把断言全部写在测试体内。合法场景执行后暴露的真实 FAIL 则保留原判定和证据。
+  skill_list:
+  - ext/toffee-ut/traceability-and-implementation
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-contracts.md
+  - '{VERIFICATION_SPEC}'
+  checker:
+  - name: templates_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: templates
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: comprehensive_verification_and_bug_analysis
+  desc: 全面验证与失败归因
+  task:
+  - 分批子阶段完成后，按全量 active 场景对账；只重新核对新增、删除、变更和受影响场景的合法刺激、独立 expected、真实字段比较和结束义务，不将原生注册或场景标签单独当作检查有效的证明。
+  - 执行前核对已有回执的输入、构建、选择范围和 seed；已有当前有效完整签名则复用，不重复全量运行。定向结果占用当前指针时，用明确的归档 run 读取有效证据，不手改签名或 latest.json。原门禁确需新全量时，合批后用 RunToffee() 执行完整选择；按批前全量预期对账变更、退化、未证项及旧失败，保留原始结果。
+  - 设施错误返修对应环境、模型或测试并复验；疑似设计失败按 Guide_Doc/ut-results.md 记录当前证据和未决原因，不能提前宣称缺少核验证据的 RTL 根因已确认。
+  reference_files:
+  - Guide_Doc/ut-results.md
+  - '{VERIFICATION_SPEC}'
+  checker:
+  - name: comprehensive_run_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: comprehensive
+      project: '{OUT}'
+      dut: '{DUT}'
+  skill_list:
+  - ext/toffee-ut/triage-and-evidence
+  force_use_skill: false
+  stage:
+  - name: test_case_implementation_in_batch
+    desc: 按场景批量实现真实用例
+    task:
+    - 按 Check 当前 scenario 批次逐项实现合法前态、输入、独立预期、实际比较与完成义务，再移除该用例的未实现占位；不让一个节点的 PASS 替代未执行的结果域。
+    - 收齐同类场景，先列受影响节点及全量预期，再用 RunToffee(targets=[...]) 定向执行这批并保留精确 nodeid 和实际结果；新增行为或观察限制只同步受影响的规格和覆盖定义。
+    - 目录、源码字符串或自检不能代替本 DUT 执行；全量回归留给父阶段，不为每个批次重复完整仿真，也不手填进度。
+    skill_list:
+    - ext/toffee-ut/traceability-and-implementation
+    - ext/toffee-ut/legal-stimulus
+    force_use_skill: false
+    reference_files:
+    - Guide_Doc/ut-results.md
+    checker:
+    - name: case_batch_gate
+      clss: ToffeeUTBatchChecker
+      args:
+        phase: case_batch
+        project: '{OUT}'
+        dut: '{DUT}'
+- name: refine_test_cases_based_on_functional_points
+  desc: 按功能点补充测试
+  task:
+  - 从 {DESIGN_SPEC} 的要求/checkpoints 与 {VERIFICATION_SPEC} 的场景反查当前节点、合法输入、观察/比较位置及禁止副作用；优先补缺失的必验行为，不因覆盖比例高而停止审查。
+  - 代码或受验合同改变时，把同类问题按独立判据合批，定向复验受影响场景；如原门禁要求新的当前完整运行，待批次稳定后一次签发。已有当前有效完整运行或只修审阅时不另跑。
+  - 按 Guide_Doc/ut-stages.md 在 {OUT}/docs/reviews/{DUT}-stage-evidence.md 写 refine_tests，关联当前 run、实际来源及哈希，说明断言和完成义务复核；保留仍未验证的项，不用一句“已复核”代替证据。
+  skill_list:
+  - ext/toffee-ut/traceability-and-implementation
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-results.md
+  - Guide_Doc/ut-stages.md
+  - '{DESIGN_SPEC}'
+  - '{VERIFICATION_SPEC}'
+  checker:
+  - name: refine_tests_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: refine_tests
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: static_bug_validation
+  desc: 静态候选动态验证
+  task:
+  - 逐项复核 {OUT}/docs/reviews/{DUT}-static-review.md 的候选；核对合法可达性、独立要求和现有原件，只对能区分假设且确有必要的项安排定向实验，不要求全部候选额外全量仿真。
+  - unconfirmed 写清缺失证据与下一实验；ruled-out 引用实际反证，out-of-domain 说明依据和承接。声称做过动态实验时给真实 run/nodeid，不能靠换标签或一句评语消除残余。
+  - 声称 rtl 根因已确认时，调用 WaveInfo 获取对应真实失败节点的信号窗口，按 Guide_Doc/ut-waveform.md 为候选记录 requirement、run、nodeids 和 waveform_evidence；证据不足不能改标签冒充完成。
+  skill_list:
+  - ext/toffee-ut/triage-and-evidence
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-static-review.md
+  - Guide_Doc/ut-waveform.md
+  checker:
+  - name: static_validation_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: static_validation
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: line_coverage_analysis_and_improvement
+  desc: 原生行覆盖复盘与补缺
+  task:
+  - 本阶段默认启用；用 CoverageInfo 读取当前有效运行的原生行覆盖与零命中，缺数据报告具体采集阻塞，不自动跳过或写 100%；分支/toggle 分别查看，不能从行覆盖推断它们已验收。
+  - 按 Guide_Doc/ut-coverage.md 和 Guide_Doc/ut-stages.md 在 {OUT}/docs/reviews/{DUT}-stage-evidence.md 记录全部已采集metric零点的 uncovered、gap/justified 与独立reason；物理行逐条，branch/toggle可用CoverageInfo的view=groups分页目录给出的显式source-line组。组理由必须适用于每个instance/bit，否则保留gap或拆精确point；多构建逐条写build，不允许遗漏或重叠。
+  - 同类缺口合批，先核对合法激励、独立判据与已有回执，再列全量预期（预期命中、不得回零、仍缺证据）。只有精确节点的当前签名定向命中声明的目标点且保住本批受影响的既有点，才可带 coverage_batch 调 RunToffee 签发新全量；没命中先查刺激、观察或判据。纯审阅复用原件；没有可比基线或确实只能全量验证时，说明具体原因请操作者决定，不绕过预检或门禁。
+  - 同构建的两份签名全量按原生点双向对账（新增命中与回零分列），对审阅只复核变动和受影响的审阅条目，保留仍适用的未变处置。无法证明影响范围时扩大复核，不沿用失效理由。当轮所有已采集零点仍须通过原审计，不以登记 gap 代替关闭，也不自动要求所有行 100%。
+  - 有 StageWork 时，不要被 Checker 报出的第一处缺口卡住。用 CoverageInfo 等查看其他组，先做有独立判据的项目；私有策略等缺规格的项目保持 gap，另记精确问题。对无需新仿真的记录修正也要收尾复查。任务范围内、不依赖该缺口的波形分析和失败归档可先做，后续阶段不得绕过检查提前记为通过。
+  - 原生覆盖报出 `coverage_gaps` 且未核对点为 0 只证明审阅已登记。把有合法刺激和独立 expected 的剩余组单列为执行项，明确节点、判据和复核方式；只挂起与缺失规格/权限直接相关的组。已有能区别假设的结果可直接核对，不能仅为了交接把仍有下一步的组并入人等待项。
+  skill_list:
+  - ext/toffee-ut/closure-and-residuals
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-coverage.md
+  checker:
+  - name: line_coverage_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: line_coverage
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: generate_random_test_cases
+  desc: 有约束的随机场景
+  task:
+  - 根据 {VERIFICATION_SPEC} 逐场景判断随机是否增加输入、历史或组合空间；在现有 stage-evidence.md 的 random.strategies 使用 tested 或有 reason 的 not-applicable，不为简单可穷举或不适用行为强造随机测试。
+  - 适用时用 @pytest.mark.random 分类真实 DUT 节点，通过 RunToffee(seed=...) 定向执行并关联 scenario、nodeid 和当前运行；核对实际 fixture 种子接线，请求值与声明一致仍不单独证明原生采用该 seed。
+  - 随机暴露真实 FAIL 时保留原判定和问题记录；满足 Guide_Doc/ut-stages.md 的功能失败证据条件且角色、场景、native 和 seed 均匹配时可作为 tested 验收，不改为 PASS。未确认、缺证据或设施错误仍阻塞，不换绿节点、伪造 tested 或写“不适用”掩盖失败。随机不能代替缺少的独立 expected 或关键定向组合。
+  skill_list:
+  - ext/toffee-ut/behavior-equivalence
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-coverage.md
+  - Guide_Doc/ut-stages.md
+  - Guide_Doc/ut-results.md
+  - '{VERIFICATION_SPEC}'
+  checker:
+  - name: random_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: random
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: verification_review_and_summary
+  desc: 综合复核与残余
+  task:
+  - 对当前工件依次调用 UTProject(action="audit", phase="groups")、UTProject(action="audit", phase="checkpoints") 和 UTProject(action="audit", phase="refine")；有输入文档时再核对 line_map，修复后期增删要求造成的引用遗漏，不把早期通过当作当前关系仍正确。
+  - 按全量范围对账需求、场景矩阵、实际比较、静态候选、功能覆盖目标和已启用的原生覆盖审阅。未受影响且证据仍有效的条目直接引用，只重新复核变动及受影响项；未确认依据、观察限制、必验 gap 或设施自检失败必须持续披露，登记残余不等于完成硬件验收。
+  - 在 {OUT}/docs/reviews/{DUT}-stage-evidence.md 记录 review 的当前 run、实际来源及哈希、观察和下一动作；核对前面复核是否仍对应当前运行，代码未变化且已有有效完整原件时不重复仿真。
+  - 若真实缺口与自动汇总结论不一致，保留两侧证据并报告冲突，不能删项、降低目标、修改生成统计或用 Check 通过替代原任务的退出条件。
+  skill_list:
+  - ext/toffee-ut/closure-and-residuals
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-results.md
+  - Guide_Doc/ut-contracts.md
+  - Guide_Doc/ut-stages.md
+  - '{DESIGN_SPEC}'
+  - '{VERIFICATION_SPEC}'
+  checker:
+  - name: review_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: review
+      project: '{OUT}'
+      dut: '{DUT}'
+- name: record_and_report_bugs
+  desc: 缺陷记录和交付
+  task:
+  - 对账当前有效完整运行与 open/closed 问题，保留历史原义；调用 UTProject(action="summary") 更新 {OUT}/docs/README.md 的生成摘要，不手写 PASS 计数或覆盖结果。
+  - 在生成摘要块之外说明本任务的实际验收范围、已知 gap、覆盖是否要求/采集/复核、设施状态及下一步；自动摘要未体现的缺口不能静默消失，也不能把原始 FAIL 改成 PASS。
+  - 有证据的 FAIL 或 INCOMPLETE 仅按原任务允许的交付范围如实报告；若要求硬件通过或 RTL 根因确认而尚未达到，明确未达成及阻塞，不以完成报告冒充完成该目标。
+  - 有 StageWork 时，交付之后新做的验证也要用本轮回执核对；不得拿旧报告的覆盖审阅证明新全量已复核。交接前分别记录当前回执、可独立完成的修正、需要负责人答复的问题。遇到覆盖复核引用旧回执时先修审阅再交接，不因其他项目缺协议定义而暂停这项工作。
+  skill_list:
+  - ext/toffee-ut/triage-and-evidence
+  force_use_skill: false
+  reference_files:
+  - Guide_Doc/ut-results.md
+  - Guide_Doc/ut-waveform.md
+  checker:
+  - name: final_gate
+    clss: ToffeeUTChecker
+    args:
+      phase: final
+      project: '{OUT}'
+      dut: '{DUT}'
+  output_files:
+  - '{OUT}/docs/README.md'

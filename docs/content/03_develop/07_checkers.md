@@ -34,7 +34,7 @@ workspace 和 stage。Stage Manager 之后才会注入；因此：
 ~~~python
 from pathlib import Path
 
-from ucagent.checkers.base import Checker
+from ucagent import Checker
 
 
 class FileExistsChecker(Checker):
@@ -77,7 +77,7 @@ class FileExistsChecker(Checker):
 ## 配置 Checker
 
 阶段配置通过 `clss` 指定类，`args` 传给构造函数，`extra_args` 在实例化后通过
-`set_extra` 设置。短名从 `ucagent.checkers` 导出；自定义类使用完整导入路径：
+`set_extra` 设置。短名优先匹配已加载插件的 Checker 注册表，再查找 `ucagent.core.checkers`；插件短名依赖提供方已加载。自定义类也可以使用完整导入路径：
 
 ~~~yaml
 stage:
@@ -114,7 +114,7 @@ stage:
 return False, {
     "error_code": "DOCUMENT_TOO_SHORT",
     "error": "the document contains 450 words; at least 500 are required",
-    "artifact": "unity_test/Adder_analysis.md",
+    "artifact": "unit_test/Adder_analysis.md",
     "observed": {"word_count": 450},
     "expected": {"minimum_word_count": 500},
     "next_action": "add at least 50 words of relevant content, then call Check",
@@ -131,10 +131,10 @@ return False, {
 
 ## 批量 Checker
 
-需要分批处理测试用例、功能点或行映射时，使用 `UnityChipBatchTask`，不要另写 checkpoint
+需要分批处理测试用例、功能点或行映射时，使用 `BatchTask`，不要另写 checkpoint
 和批次状态机：
 
-`UnityChipBatchTask` 从 `ucagent.checkers.base` 导入。完成输入与产物校验、同步任务列表后，调用：
+`BatchTask` 从 `ucagent.core.checkers.base` 导入。完成输入与产物校验、同步任务列表后，调用：
 
 ~~~python
 return self.batch_task.do_complete(
@@ -148,7 +148,7 @@ return self.batch_task.do_complete(
 
 这段调用用于已有批量 Checker 的 `do_check`，不能代替源数据扫描和产物校验。实际实现还需要：
 
-- 在构造 `UnityChipBatchTask` 前设置 `batch_size`；
+- 在构造 `BatchTask` 前设置 `batch_size`；
 - 保留并同步 `source_task_list`、`gen_task_list`、`tbd_task_list` 和 `cmp_task_list`；
 - 把源文件当作事实来源，checkpoint 只用于恢复；
 - 源数据改变时移除或标记过期任务；未知、重复或伪造的进度必须失败；

@@ -14,8 +14,8 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
-from ucagent.server.api_mcp import PdbMcpServer
-from ucagent.tools.uctool import UCTool, to_mcp_tool
+from ucagent.interfaces.server.api_mcp import McpServer
+from ucagent.core.tools.uctool import UCTool, to_mcp_tool
 from ucagent.util.config import Config
 
 
@@ -52,7 +52,7 @@ def mcp_server():
         tool_list_file=[],
         cfg=Config({"mcp_server": {"init_prompt": "MCP test"}, "tools": {}}),
     )
-    server = PdbMcpServer(SimpleNamespace(agent=agent), host="127.0.0.1", port=port)
+    server = McpServer(agent.tool_list_base, cfg=agent.cfg, host="127.0.0.1", port=port)
     ok, message = server.start(timeout=5)
     assert ok, message
     try:
@@ -148,7 +148,7 @@ def test_mcp_conversion_rejects_injected_arguments():
 
 
 def test_mcp_server_reports_missing_sdk(monkeypatch):
-    """A missing current SDK must identify the dependency and installation command."""
+    """Startup reports the exact missing SDK import without an alternate import path."""
     original_import = builtins.__import__
 
     def without_mcp(name, *args, **kwargs):
@@ -158,5 +158,62 @@ def test_mcp_server_reports_missing_sdk(monkeypatch):
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", without_mcp)
-    with pytest.raises(ImportError, match="mcp>=2.3.0,<3.0"):
-        PdbMcpServer(SimpleNamespace())
+    server = McpServer([], cfg=Config({}))
+    ok, message = server.start()
+    assert not ok and "mcp.server.mcpserver" in message
+    assert not server.is_running
+
+
+def test_mcp_file_tools_create_read_and_edit_with_workflow_requirements(tmp_path):
+    """The discovered file tools must write a real plan while retaining workspace permissions."""
+    from ucagent.core.tools.fileops import ReadTextFile, EditTextFile, ReplaceStringInFile, DeleteTextLines
+    from ucagent.interfaces.server.api_mcp import _collect_mcp_tools
+
+    output = tmp_path / "out"
+    output.mkdir()
+    cfg = Config({
+        "mcp_server": {"init_prompt": "File tools acceptance"}, "tools": {},
+        "runtime_options": {"required_mcp_tools": [
+            "ReadTextFile", "EditTextFile", "ReplaceStringInFile", "DeleteTextLines",
+        ]},
+    })
+    agent = SimpleNamespace(
+        cfg=cfg, tool_list_base=[ReadTextFile(str(tmp_path))],
+        tool_list_task=[], tool_list_ext=[],
+        tool_list_file=[cls(str(tmp_path), write_dirs=["out"]) for cls in
+                        (EditTextFile, ReplaceStringInFile, DeleteTextLines)],
+    )
+    with pytest.raises(ValueError, match="Required workflow MCP tools"):
+        _collect_mcp_tools(agent, True)
+    server = McpServer(_collect_mcp_tools(agent, False), cfg=cfg, port=0)
+
+    async def exercise():
+        """Use the actual MCP client to discover tools, create a plan and refine it."""
+        async with streamable_http_client(server.url() + "/mcp") as (read, write):
+            async with ClientSession(read, write, read_timeout_seconds=5) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                assert {tool.name for tool in tools.tools} == set(cfg.runtime_options.required_mcp_tools)
+                content = "\n# Verification plan\n\nCheck reset behavior.\n"
+                result = await session.call_tool("EditTextFile", {"path": "out/plan.md", "content": content})
+                assert not result.is_error, result
+                assert (output / "plan.md").read_text() == content
+                result = await session.call_tool("ReadTextFile", {"path": "out/plan.md"})
+                assert not result.is_error, result
+                assert "Check reset behavior." in result.content[0].text
+                result = await session.call_tool("ReplaceStringInFile", {
+                    "path": "out/plan.md", "old_string": "Check reset behavior.",
+                    "new_string": "Check reset and addition behavior.",
+                })
+                assert not result.is_error, result
+                assert "Check reset and addition behavior." in (output / "plan.md").read_text()
+                await session.call_tool("EditTextFile", {"path": "blocked.txt", "content": "denied"})
+                assert not (tmp_path / "blocked.txt").exists()
+
+    try:
+        ok, message = server.start()
+        assert ok, message
+        asyncio.run(exercise())
+    finally:
+        ok, message = server.stop()
+        assert ok, message

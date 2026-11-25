@@ -156,7 +156,7 @@ Analyze only, do not modify; unless the user says `Check and fix failure cause`.
 
 ### 3.9 `Stop Execution`
 
-Send a single `Ctrl-C` to the agreed tmux pane, wait for UCAgent to clean up and exit. Continue observing until the business process truly terminates. By default, retain the tmux shell and formal artifacts; do not kill the session, do not delete history, do not clean tmp. If still in the framework cleanup phase after one `Ctrl-C`, wait, do not send signals consecutively.
+Enter `shutdown` and press Enter in the agreed tmux pane's UCAgent Console/TUI, then wait for cleanup and actual process exit. `Ctrl-C` only requests foreground cancellation; TUI `q` only detaches the view, so neither establishes process exit. If no input interface is available, verify the target UCAgent PID and send `SIGTERM` for normal shutdown. Retain the tmux shell and formal artifacts; do not kill the session, delete history, or clean tmp. Observe cleanup without repeatedly sending shutdown commands or signals.
 
 ### 3.10 `Deep Repair`
 
@@ -249,23 +249,23 @@ These files are for understanding the framework only and are not default modific
 
 | File | Content to Understand |
 |---|---|
-| `UCAGENT_ROOT/ucagent/cli.py` | CLI parameters, especially loop, TUI, MCP, history, config, output, guid-doc-path |
-| `UCAGENT_ROOT/ucagent/verify_agent.py` | Configuration initialization, template overwrite, tool registration, permission settings, and Verify Agent lifecycle |
-| `UCAGENT_ROOT/ucagent/stage/vstage.py` | Stage creation, reference file read tracking, output file checks, Checker invocation, and Complete conditions |
-| `UCAGENT_ROOT/ucagent/stage/vmanager.py` | Stage switching, tool commands, Complete, history synchronization, and failure handling |
-| `UCAGENT_ROOT/ucagent/checkers/base.py` | Checker base class, return protocol, and description requirements |
-| `UCAGENT_ROOT/ucagent/tools/uctool.py` | Interfaces and return content of UCAgent tools such as RoleInfo |
-| `UCAGENT_ROOT/ucagent/tools/fileops.py` | Read/Edit/Write tools and write_dirs/un_write_dirs boundaries |
+| `UCAGENT_ROOT/ucagent/interfaces/cli/arguments.py` | CLI parameters, especially loop, TUI, MCP, history, config, output, guid-doc-path |
+| `UCAGENT_ROOT/ucagent/core/agent/execution.py` | Configuration initialization, template overwrite, tool registration, permission settings, and Verify Agent lifecycle |
+| `UCAGENT_ROOT/ucagent/core/stage/vstage.py` | Stage creation, reference file read tracking, output file checks, Checker invocation, and Complete conditions |
+| `UCAGENT_ROOT/ucagent/core/stage/vmanager.py` | Stage switching, tool commands, Complete, history synchronization, and failure handling |
+| `UCAGENT_ROOT/ucagent/core/checkers/base.py` | Checker base class, return protocol, and description requirements |
+| `UCAGENT_ROOT/ucagent/core/tools/uctool.py` | Interfaces and return content of UCAgent tools such as RoleInfo |
+| `UCAGENT_ROOT/ucagent/core/tools/fileops.py` | Read/Edit/Write tools and write_dirs/un_write_dirs boundaries |
 | `UCAGENT_ROOT/ucagent/util/config.py` | YAML configuration objects and recursive replacement methods for template_overwrite |
-| `UCAGENT_ROOT/ucagent/server/api_mcp.py` | How MCP service starts, thread lifecycle, and port behavior |
-| `UCAGENT_ROOT/ucagent/tui/app.py` | TUI prerequisites, terminal display, and interaction entry points |
+| `UCAGENT_ROOT/ucagent/interfaces/server/api_mcp.py` | How MCP service starts, thread lifecycle, and port behavior |
+| `UCAGENT_ROOT/ucagent/interfaces/terminal/tui/app.py` | TUI prerequisites, terminal display, and interaction entry points |
 | `UCAGENT_ROOT/ucagent/setting.yaml` | UCAgent default settings and global behaviors that may affect execution |
 
 Read specifically when encountering concrete issues:
 
 - Path expansion or `reference_files` tracking anomalies: Continue reading template, path search, and directory synchronization functions in `ucagent/util/functions.py`.
 - History recovery, permissions, or `.ucagent/history` anomalies: Continue reading `hist_sync`, `hist_commit`, and UCAgent information saving logic in `vstage.py` and `vmanager.py`.
-- MCP integration issues: Continue reading the service startup section in `server/api_mcp.py` and `verify_pdb.py`.
+- MCP integration issues: Continue reading the service startup section in `server/api_mcp.py` and `control/runtime/services.py`.
 - TUI not appearing or color anomalies: Read `tui/` and the CLI handling of `--tui`, and check for a real TTY; do not modify business configuration first.
 
 ### 5.2 UCAgent Understanding Prompt
@@ -275,14 +275,14 @@ In this phase, read UCAgent only, do not modify source code, and do not start th
 
 Read in order:
 1. Definitions and passing locations of --loop, --loop-msg, --tui, --no-history, --mcp-server,
-   --mcp-server-port, --config, --output, --guid-doc-path in ucagent/cli.py.
-2. Config loading, template_overwrite, RoleInfo registration, write_dirs/un_write_dirs, and stage manager construction in ucagent/verify_agent.py.
-3. reference_files initialization, ReadTextFile callback, output_files lookup, checker execution, fail_count, Complete, and history status in ucagent/stage/vstage.py.
-4. Check/Complete/Status, stage switching, and history commit in ucagent/stage/vmanager.py.
-5. Checker/RoleInfo protocols in ucagent/checkers/base.py and ucagent/tools/uctool.py.
-6. Read/write permission checks in ucagent/tools/fileops.py.
+   --mcp-server-port, --config, --output, --guid-doc-path in ucagent/interfaces/cli/arguments.py.
+2. Config loading, template_overwrite, RoleInfo registration, write_dirs/un_write_dirs, and stage manager construction in ucagent/core/agent/execution.py.
+3. reference_files initialization, ReadTextFile callback, output_files lookup, checker execution, fail_count, Complete, and history status in ucagent/core/stage/vstage.py.
+4. Check/Complete/Status, stage switching, and history commit in ucagent/core/stage/vmanager.py.
+5. Checker/RoleInfo protocols in ucagent/core/checkers/base.py and ucagent/core/tools/uctool.py.
+6. Read/write permission checks in ucagent/core/tools/fileops.py.
 7. Template replacement model in ucagent/util/config.py.
-8. MCP lifecycle in ucagent/server/api_mcp.py.
+8. MCP lifecycle in ucagent/interfaces/server/api_mcp.py.
 
 Produce a framework understanding summary, answering:
 - When does UCAgent consider a stage complete?

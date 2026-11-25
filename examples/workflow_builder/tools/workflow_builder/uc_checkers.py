@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ucagent.checkers.base import Checker
+from ucagent.core.checkers.base import Checker
 
 from .core import (
     WorkflowBuildError,
@@ -1277,7 +1277,7 @@ class WorkflowGeneratedCheckerChecker(WorkflowBuildConfigChecker):
         source_text = source.read_text(encoding="utf-8")
         missing_source_text = [
             text
-            for text in ["from ucagent.checkers.base import Checker", f"class {entry.get('class_name')}(Checker)", "def do_check"]
+            for text in ["from ucagent.core.checkers.base import Checker", f"class {entry.get('class_name')}(Checker)", "def do_check"]
             if text not in source_text
         ]
         config = load_yaml_config(root / "config.yaml")

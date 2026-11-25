@@ -5,6 +5,8 @@
 
 ## 阶段与验收
 
+下表为 single 的阶段工具。multi 的 Sub 不暴露 `Complete`，Global/Super 也不直接使用这套业务工具；`Check`、`CompleteSubStage`、`SubmitTaskResult` 的角色范围和先后关系见 [角色工具矩阵](../02_usage/11_multi_agent.md#role-tool-matrix)。
+
 | 工具 | 用途 |
 | --- | --- |
 | `RoleInfo` | 获取角色、系统任务和约束 |
@@ -48,7 +50,6 @@
 | 工具 | 用途 |
 | --- | --- |
 | `RunPyTest` | 运行 Python 测试，可提供 pytest 参数和超时，并选择返回 stdout/stderr |
-| `RunUnityChipTest` | 运行 UnityChip/toffee 测试并生成相应报告 |
 | `RunTestCases` | 运行阶段支持的测试用例集合 |
 | `RunBashCommand` | 在工作区执行 Bash 命令；默认被工具过滤配置忽略 |
 | `WorkDiff` / `WorkCommit` | 查看 Git 工作区差异或提交允许的文件；默认被忽略 |
@@ -65,7 +66,7 @@
 | `ApplyWaveInfoEvidence` | 使用经过验证的 receipt 更新 Bug 文档中的中心波形记录 |
 | `ReviewWaveInfoEvidenceBatch` | 准备一组需要复核的波形上下文，并在全部审核完成后原子应用结果 |
 
-波形工具依赖可选的 `wavekit`。需要波形证据的阶段必须具备依赖和真实测试数据。探索性查询不能替代完整证据；参数、TC 节点和 Bug 文档格式按当前工具 schema 与运行时 `Guide_Doc/dut_bug_analysis.md` 执行。
+波形工具需要所选格式对应的读取后端和真实测试数据，不统一依赖某一种库。探索性查询不能替代完整证据；参数、TC 节点和 Bug 文档格式按当前工具 schema 与运行时 `Guide_Doc/dut_bug_analysis.md` 执行。
 
 默认按 FST、VCD、FSDB、USDB 顺序选择分析文件，可配置 `runtime_options.waveform_analysis_format_priority`。FSDB 运行依赖、浏览器限制及其他格式的读取器接口见[波形分析格式与扩展](10_waveform_analysis.md)。
 
@@ -84,6 +85,6 @@ ToDo 工具需由对应选项启用。检索和记忆工具依赖嵌入模型，
 
 ## 装配与 MCP 范围
 
-`--mcp-server-no-file-tools` 省略文件操作工具组，仍保留基础 `ReadTextFile`、阶段工具和已注册的扩展工具。因此，这个选项并非禁止所有文件写入：外部客户端和自定义工具都需要各自遵守工作区权限。
+single 中，`--mcp-server-no-file-tools` 省略文件操作工具组，仍保留基础 `ReadTextFile`、阶段工具和已注册的扩展工具；是否允许启动还取决于工作流必需工具，见 [MCP 接入](../01_start/03_mcp_mode.md)。因此，这个选项并非禁止所有文件写入：外部客户端和自定义工具都需要各自遵守工作区权限。multi 端点按角色提供工具，不能套用 single 的工具清单。
 
 默认配置的 `tools.ignore_tools` 包含 `RunBashCommand`、`WorkDiff`、`WorkCommit`。过滤规则由 `tools.ignore_tools` 和 `tools.selected_tools` 共同决定，调整后应以 `tool_list` 及 MCP 工具发现结果确认。CLI 选项见[参数说明](../02_usage/03_option.md)。

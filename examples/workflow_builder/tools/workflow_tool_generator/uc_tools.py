@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 from .core import ToolGenerationError, generate_tools, generate_tools_from_specs
 

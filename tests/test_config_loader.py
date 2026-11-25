@@ -10,8 +10,13 @@ from unittest import mock
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.cli import get_args, get_override_dict
-from ucagent.util.config import Config, load_yaml_with_env_vars, _merge_config_file
+from ucagent.interfaces.cli.arguments import get_args, get_override_dict
+from ucagent.util.config import (
+    Config,
+    load_yaml_with_env_vars,
+    _merge_config_file,
+    WORKFLOW_APPEND_KEYS,
+)
 
 
 class TestConfigLoader(unittest.TestCase):
@@ -29,22 +34,43 @@ class TestConfigLoader(unittest.TestCase):
 
         self.assertIs(default_env["ENABLE_LLM_SUGGESTION"], False)
 
-    def test_default_write_dirs_carve_out_simulator_artifacts(self):
-        """Simulator artifacts and waveform metadata stay writable inside protected DUTs."""
+    def test_default_write_dirs_stay_framework_generic(self):
+        """The framework default grants only the output directory; simulator
+        artifact write permissions belong to the test-running workflow baselines."""
 
         config_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
         config = load_yaml_with_env_vars(config_path)
         self.assertEqual(config["un_write_dirs"], ["{DUT}", "{GUIDE_DOC}"])
-        self.assertEqual(
-            config["write_dirs"],
-            ["{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.vdb.lock", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
-             "{DUT}/**/*.vpd", "{DUT}/**/*.usdb", "{DUT}/**/*.usdb.json"],
-        )
+        self.assertEqual(config["write_dirs"], ["{OUT}"])
 
+    def test_unittest_workflows_carve_out_simulator_artifacts(self):
+        """Simulator artifacts and waveform metadata stay writable inside protected DUTs."""
+
+        workflow_dir = os.path.join(
+            current_dir,
+            "..",
+            "ucagent",
+            "plugins",
+            "UnitTest",
+            "src",
+            "unit_test",
+            "workflows",
+        )
+        simulator_write_dirs = [
+            "{OUT}", "{DUT}/**/*.vdb", "{DUT}/**/*.vdb.lock", "{DUT}/**/*.fsdb", "{DUT}/**/*.fsdb.json",
+            "{DUT}/**/*.vpd", "{DUT}/**/*.usdb", "{DUT}/**/*.usdb.json",
+        ]
+        for name in ("unittest.yaml", "incremental.yaml", "vibe.yaml"):
+            workflow_config = load_yaml_with_env_vars(os.path.join(workflow_dir, name))
+            self.assertEqual(workflow_config["write_dirs"], simulator_write_dirs, name)
+
+        framework_config = load_yaml_with_env_vars(
+            os.path.join(current_dir, "..", "ucagent", "setting.yaml")
+        )
         values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
-        un_write_dirs = [entry.format(**values) for entry in config["un_write_dirs"]]
-        write_dirs = [entry.format(**values) for entry in config["write_dirs"]]
-        from ucagent.tools.fileops import is_file_writeable
+        un_write_dirs = [entry.format(**values) for entry in framework_config["un_write_dirs"]]
+        write_dirs = [entry.format(**values) for entry in simulator_write_dirs]
+        from ucagent.util.file_policy import is_file_writeable
 
         allowed = [
             "Adder/simv.vdb",
@@ -90,10 +116,17 @@ class TestConfigLoader(unittest.TestCase):
         import fcntl
         from ucagent.util.functions import chmode_ro_by_pattern
 
-        config = load_yaml_with_env_vars(os.path.join(current_dir, "..", "ucagent", "setting.yaml"))
+        framework = load_yaml_with_env_vars(os.path.join(current_dir, "..", "ucagent", "setting.yaml"))
+        workflow = load_yaml_with_env_vars(
+            os.path.join(
+                current_dir,
+                "..", "ucagent", "plugins", "UnitTest", "src", "unit_test",
+                "workflows", "unittest.yaml",
+            )
+        )
         values = {"DUT": "Adder", "OUT": "out", "GUIDE_DOC": "Guide_Doc"}
-        protected = [entry.format(**values) for entry in config["un_write_dirs"]]
-        writable = [entry.format(**values) for entry in config["write_dirs"]]
+        protected = [entry.format(**values) for entry in framework["un_write_dirs"]]
+        writable = [entry.format(**values) for entry in workflow["write_dirs"]]
         with tempfile.TemporaryDirectory() as workspace:
             dut = Path(workspace) / "Adder"
             nested = dut / "tests"
@@ -119,7 +152,15 @@ class TestConfigLoader(unittest.TestCase):
 
     def test_default_document_path_uses_template_overwrite(self):
         config_path = os.path.join(
-            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+            current_dir,
+            "..",
+            "ucagent",
+            "plugins",
+            "UnitTest",
+            "src",
+            "unit_test",
+            "workflows",
+            "unittest.yaml",
         )
         config_data = load_yaml_with_env_vars(config_path)
 
@@ -152,7 +193,15 @@ class TestConfigLoader(unittest.TestCase):
         self.assertIn("Adder_Doc/*.md", resolved_functional_stage["reference_files"])
 
         labeled_spec_path = os.path.join(
-            current_dir, "..", "ucagent", "lang", "zh", "config", "labeled_spec.yaml"
+            current_dir,
+            "..",
+            "ucagent",
+            "plugins",
+            "UnitTest",
+            "src",
+            "unit_test",
+            "presets",
+            "labeled_spec.yaml",
         )
         labeled_spec = load_yaml_with_env_vars(labeled_spec_path)
         self.assertIn("{DOC_PATH}/", "\n".join(labeled_spec["stage[2].task"]))
@@ -163,7 +212,7 @@ class TestConfigLoader(unittest.TestCase):
 
     def test_default_prompt_requires_stage_local_reference_file_reads(self):
         config_path = os.path.join(
-            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+            current_dir, "..", "ucagent", "core", "locales", "zh.yaml"
         )
 
         config = load_yaml_with_env_vars(config_path)
@@ -173,6 +222,121 @@ class TestConfigLoader(unittest.TestCase):
         self.assertIn("逐一用`ReadTextFile`读取其`reference_files`", system_prompt)
         self.assertIn("`count=1`轻量复核", system_prompt)
         self.assertIn("`count=0`仅登记已读而不返回正文", system_prompt)
+
+    def test_framework_layer_prompts_carry_no_workflow_domain_content(self):
+        """Framework prompts stay domain-neutral; workflows teach their own marks."""
+
+        default_path = os.path.join(
+            current_dir, "..", "ucagent", "core", "locales", "zh.yaml"
+        )
+        system_prompt = load_yaml_with_env_vars(default_path)["mission"]["prompt"][
+            "system"
+        ]
+        for domain_fragment in (
+            "<BUG-",
+            "<ROOT-",
+            "<RELATED-BUGS>",
+            "unhit_funct_point",
+            "unhit_check_point",
+        ):
+            self.assertNotIn(domain_fragment, system_prompt)
+
+        setting_path = os.path.join(current_dir, "..", "ucagent", "setting.yaml")
+        refinement = load_yaml_with_env_vars(setting_path)["vmanager"][
+            "llm_suggestion"
+        ]
+        advisor_prompts = [
+            refinement["check_fail_refinement"]["system_prompt"],
+            refinement["check_fail_refinement"]["suggestion_prompt"],
+            refinement["check_pass_refinement"]["system_prompt"],
+            refinement["check_pass_refinement"]["suggestion_prompt"],
+        ]
+        for prompt in advisor_prompts:
+            self.assertTrue(prompt.strip())
+            for domain_fragment in (
+                "Device Under Test",
+                "DUT",
+                "verification expert",
+                "functional points",
+                "{DUT}",
+            ):
+                self.assertNotIn(domain_fragment, prompt)
+
+    def test_workflow_pointer_appends_mission_prompts(self):
+        """The workflow layer extends mission prompts; later layers replace them."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            framework_file = os.path.join(temp_dir, "default.yaml")
+            workflow_file = os.path.join(temp_dir, "unittest.yaml")
+            override_file = os.path.join(temp_dir, "override.yaml")
+            with open(framework_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "mission:\n"
+                    "  name: framework\n"
+                    "  prompt:\n"
+                    "    system: |\n"
+                    "      framework part\n"
+                    "    tips:\n"
+                    "      always: [\"generic\"]\n"
+                    "      random: [\"g1\"]\n"
+                )
+            with open(workflow_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "mission:\n"
+                    "  name: workflow\n"
+                    "  prompt:\n"
+                    "    system: |\n"
+                    "      workflow part\n"
+                    "    tips:\n"
+                    "      always: [\"domain\"]\n"
+                    "      random: [\"d1\", \"d2\"]\n"
+                )
+            with open(override_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "mission:\n"
+                    "  prompt:\n"
+                    "    system: |\n"
+                    "      replacement\n"
+                )
+
+            cfg = Config()
+            _merge_config_file(cfg, framework_file, [])
+            _merge_config_file(
+                cfg, workflow_file, [], append_keys=WORKFLOW_APPEND_KEYS
+            )
+
+            self.assertEqual(cfg.mission.name, "workflow")
+            self.assertEqual(
+                cfg.mission.prompt.system, "framework part\n\nworkflow part\n"
+            )
+            self.assertEqual(cfg.mission.prompt.tips.always, ["generic", "domain"])
+            self.assertEqual(cfg.mission.prompt.tips.random, ["g1", "d1", "d2"])
+
+            _merge_config_file(cfg, override_file, [])
+            self.assertEqual(cfg.mission.prompt.system, "replacement\n")
+
+    def test_workflow_includes_preserve_framework_prompts_once(self):
+        """Included workflows extend the framework once while retaining local overrides."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_file = os.path.join(temp_dir, "base.yaml")
+            child_file = os.path.join(temp_dir, "child.yaml")
+            with open(base_file, "w", encoding="utf-8") as handle:
+                handle.write("mission:\n  prompt:\n    system: domain\n    tips:\n      always: [domain]\n")
+            for override in (False, True):
+                with self.subTest(override=override):
+                    with open(child_file, "w", encoding="utf-8") as handle:
+                        handle.write("include: base.yaml\n")
+                        if override:
+                            handle.write("mission:\n  prompt:\n    system: child\n    tips:\n      always: [child]\n")
+                    cfg = Config({"mission": {"prompt": {"system": "framework", "tips": {"always": ["framework"]}}}})
+                    loaded = []
+                    _merge_config_file(cfg, child_file, loaded, append_keys=WORKFLOW_APPEND_KEYS)
+                    expected = "child" if override else "domain"
+                    self.assertEqual(cfg.mission.prompt.system, f"framework\n\n{expected}\n")
+                    self.assertEqual(cfg.mission.prompt.tips.always, ["framework", expected])
+                    _merge_config_file(cfg, child_file, loaded, append_keys=WORKFLOW_APPEND_KEYS)
+                    self.assertEqual(cfg.mission.prompt.system, f"framework\n\n{expected}\n")
+                    self.assertEqual(cfg.mission.prompt.tips.always, ["framework", expected])
 
     def test_load_yaml_with_negated_bool_scalars(self):
         yaml_content = """

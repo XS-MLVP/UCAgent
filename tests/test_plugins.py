@@ -7,11 +7,18 @@ from types import SimpleNamespace
 import importlib
 import json
 import sys
+from dataclasses import replace
 from unittest import mock
 
 import pytest
+from ucagent.runtime.host import RuntimeHost
 
-from ucagent.plugins import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ucagent/plugins/UnitTest/src"))
+
+from unit_test.report_store import TestProtocolRuntimeHook
+from unit_test.test_runner import RunTestCasesManagerTool
+from unit_test.checkers import UnityChipCheckerTestMustPass
+from ucagent.core.plugins import (
     CommandRequirement,
     GuideDocCopyPolicy,
     PluginGuideDocCopyPolicy,
@@ -35,14 +42,23 @@ from ucagent.plugins import (
     validate_plugin,
     validate_workflow_dependencies,
 )
-import ucagent.plugins as plugin_module
-from ucagent.checkers.base import Checker
-from ucagent.cli import _plugin_discovery_overrides, run
-from ucagent.stage.vstage import parse_vstage
-from ucagent.tools.uctool import UCTool, to_mcp_tool
-from ucagent.tools.fileops import is_file_writeable as _is_file_writeable
+import ucagent.core.plugins as plugin_module
+from ucagent.core.checkers.base import Checker
+from ucagent.application.entry import run
+from ucagent.util.config import discovery_overrides
+from ucagent.core.stage.vstage import parse_vstage
+from ucagent.core.tools.uctool import UCTool, to_mcp_tool
+from ucagent.util.file_policy import is_file_writeable as _is_file_writeable
 from ucagent.util.config import Config
-from ucagent.verify_agent import VerifyAgent
+from ucagent import VerifyAgent
+
+
+def _close_agent(agent):
+    """Close test-owned resources through the same lifecycle owner as the application."""
+    host = RuntimeHost(agent)
+    host.start()
+    host.request_shutdown()
+    assert host.wait(3)["instance"] == "closed"
 
 
 @pytest.fixture(autouse=True)
@@ -103,8 +119,8 @@ def _write_local_plugin(
             [
                 '"""Temporary plugin provider."""',
                 "from pathlib import Path",
-                "from ucagent.plugins import Plugin, PluginContext",
-                "from ucagent.tools.uctool import UCTool",
+                "from ucagent.core.plugins import Plugin, PluginContext",
+                "from ucagent.core.tools.uctool import UCTool",
                 "",
                 "class LocalTool(UCTool):",
                 '    """Minimal local plugin tool."""',
@@ -149,7 +165,7 @@ def _write_local_plugin(
     return manifest
 
 
-def _context(workspace: Path) -> PluginContext:
+def _context(workspace: Path, dut_name: str = "") -> PluginContext:
     """Build a minimal resolved plugin context for tool factory tests."""
 
     return PluginContext(
@@ -159,6 +175,7 @@ def _context(workspace: Path) -> PluginContext:
         un_write_dirs=("rtl",),
         cfg=SimpleNamespace(),
         plugin_root=workspace,
+        dut_name=dut_name,
     )
 
 
@@ -190,28 +207,56 @@ def test_local_plugin_import_root_is_available_to_test_subprocesses(
     project = tmp_path / "DesignPlugin"
     _write_local_plugin(project)
     loaded = load_plugin(str(project), check_dependencies=False)
+    # Contribute the shared manager tool + snapshot hook the way a real
+    # workflow plugin's provider does; the workflow layer then opts in.
+    loaded = replace(
+        loaded,
+        plugin=replace(
+            loaded.plugin,
+            manager_tools=(RunTestCasesManagerTool,),
+            runtime_hooks=(TestProtocolRuntimeHook,),
+        ),
+    )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="empty",
-        output="unity_test",
+        output="unit_test",
         config_file="master.yaml",
         cfg_override=[
             {"backend.key_name": "blank"},
             {"guide_doc.enable": False},
             {"langfuse.enable": False},
+            # master.yaml disables the default task workflow; declare the
+            # manager tool and its free runner explicitly (dotted path
+            # resolves without a registry, like DesignWithPPA workflows do).
+            # A nested dict override is required: dotted override keys are
+            # fail-fast on missing intermediate sections.
+            {"manager_tools": ["RunTestCases"]},
+            {
+                "tools": {
+                    "RunTestCases": {
+                        "test_dir": "{OUT}/tests",
+                        "free_runner_clss": (
+                            "unit_test.checkers.UnityChipCheckerTestFree"
+                        ),
+                    }
+                }
+            },
         ],
         no_embed_tools=True,
         no_history=True,
         plugins=[loaded],
     )
     try:
-        assert agent.stage_manager.free_pytest_run.run_test.extra_python_paths == [
+        [tool] = agent.stage_manager.plugin_manager_tools
+        assert isinstance(tool, RunTestCasesManagerTool)
+        assert tool.free_pytest_run.run_test.extra_python_paths == [
             str((project / "src").resolve())
         ]
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_plugin_import_root_is_available_to_stage_checker_pytest(
@@ -244,7 +289,13 @@ def test_plugin_import_root_is_available_to_stage_checker_pytest(
         }
     )
     cfg._temp_cfg = {"OUT": "output", "DUT": "dut"}
-    stage = parse_vstage(cfg, cfg.stage, str(tmp_path), None)[0]
+    stage = parse_vstage(
+        cfg,
+        cfg.stage,
+        str(tmp_path),
+        None,
+        checker_registry={"UnityChipCheckerTestMustPass": UnityChipCheckerTestMustPass},
+    )[0]
     private_root = str(tmp_path / "private-python-dut")
     plugin_root = str(tmp_path / "plugin" / "src")
     stage.checker[0].run_test.set_extra_python_paths([private_root])
@@ -341,7 +392,7 @@ def test_validation_rejects_escaped_resources_and_missing_dependencies(
             CommandRequirement("missing", ("ucagent-command-that-does-not-exist",)),
         ),
     )
-    monkeypatch.setattr("ucagent.plugins.shutil.which", lambda executable: None)
+    monkeypatch.setattr("ucagent.core.plugins.shutil.which", lambda executable: None)
     with pytest.raises(PluginError, match="requires command"):
         validate_plugin(missing_command)
 
@@ -400,7 +451,7 @@ def test_workflow_dependencies_are_checked_only_after_selection(
         command_requirements=(CommandRequirement("Yosys", ("yosys",)),),
     )
     monkeypatch.setattr(
-        "ucagent.plugins.shutil.which",
+        "ucagent.core.plugins.shutil.which",
         lambda executable: executable if executable == "yosys" else None,
     )
     validated = validate_plugin(plugin)
@@ -427,7 +478,7 @@ def test_workflow_dependency_probes_version_and_subcommand(
             ),
         ),
     )
-    monkeypatch.setattr("ucagent.plugins.shutil.which", lambda executable: "/bin/picker")
+    monkeypatch.setattr("ucagent.core.plugins.shutil.which", lambda executable: "/bin/picker")
     calls = []
 
     def fake_run(command, **kwargs):
@@ -436,7 +487,7 @@ def test_workflow_dependency_probes_version_and_subcommand(
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout="picker 1.0", stderr="")
 
-    monkeypatch.setattr("ucagent.plugins.subprocess.run", fake_run)
+    monkeypatch.setattr("ucagent.core.plugins.subprocess.run", fake_run)
     validate_workflow_dependencies("sample", workflow)
     assert calls == [
         ["/bin/picker", "--version"],
@@ -635,7 +686,7 @@ def test_plugin_checker_short_name_is_resolved_without_global_injection(
     )[0]
 
     assert isinstance(stage.checker[0], PluginCheckerSample)
-    assert not hasattr(importlib.import_module("ucagent.checkers"), "PluginCheckerSample")
+    assert not hasattr(importlib.import_module("ucagent.core.checkers"), "PluginCheckerSample")
     assert stage._do_check(is_complete=True)[0] is True
 
 
@@ -670,7 +721,7 @@ def test_plugin_checker_validation_and_cross_plugin_conflicts_are_rejected(
     with pytest.raises(PluginError, match="Duplicate plugin Checker name"):
         create_plugin_checker_registry(loaded)
 
-    from ucagent.checkers import HumanChecker
+    from ucagent.core.checkers import HumanChecker
 
     core_conflict = Plugin(
         "core-conflict",
@@ -955,6 +1006,29 @@ def test_tool_factories_receive_plugin_root_and_enforce_unique_uctools(
         create_plugin_tools([first, second], _context(tmp_path))
 
 
+def test_tool_factories_receive_resolved_dut_name(tmp_path: Path) -> None:
+    """Tool creation must forward the resolved DUT name to every factory."""
+
+    observed = []
+
+    def factory(context: PluginContext) -> _TestTool:
+        """Record the per-plugin DUT name and return a valid tool."""
+
+        observed.append(context.dut_name)
+        return _TestTool()
+
+    root = tmp_path / "plugin"
+    root.mkdir()
+    loaded = LoadedPlugin(
+        Plugin("dut", "1.0.0", "DUT plugin.", root, (factory,)),
+        "dut",
+        "dut",
+    )
+    tools = create_plugin_tools([loaded], _context(tmp_path, dut_name="Adder"))
+    assert [tool.name for tool in tools] == ["TestPluginTool"]
+    assert observed == ["Adder"]
+
+
 def test_duplicate_plugin_selection_is_rejected(tmp_path: Path) -> None:
     """Selecting the same plugin through a path and configured ID must fail clearly."""
 
@@ -1053,12 +1127,13 @@ def test_plugin_discovery_uses_only_search_path_overrides() -> None:
         {"backend.key_name": "opencode"},
     ]
 
-    assert _plugin_discovery_overrides(overrides) == [
+    assert discovery_overrides(overrides) == [
         {"plugin.search_paths": ["/plugins"]},
         {"plugin.search_paths[0]": "/other-plugins"},
     ]
 
 
+@pytest.mark.usefixtures("cli_runtime")
 def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
     tmp_path: Path,
 ) -> None:
@@ -1084,8 +1159,8 @@ def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
     provider = project / "src" / "sample_plugin" / "provider.py"
     content = provider.read_text(encoding="utf-8")
     content = content.replace(
-        "from ucagent.plugins import Plugin, PluginContext",
-        "from ucagent.plugins import Plugin, PluginContext, PluginWorkflow",
+        "from ucagent.core.plugins import Plugin, PluginContext",
+        "from ucagent.core.plugins import Plugin, PluginContext, PluginWorkflow",
     ).replace(
         "        tool_factories=(create_tools,),",
         "        tool_factories=(create_tools,),\n"
@@ -1113,7 +1188,7 @@ def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
             "--override",
             "workflow_only.value=selected",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     kwargs = verify_agent.call_args.kwargs
@@ -1129,6 +1204,7 @@ def test_plugin_workflow_keeps_declared_skills_optional_when_disabled(
     ]
 
 
+@pytest.mark.usefixtures("cli_runtime")
 def test_cli_activates_plugin_level_docs_and_skills_without_a_workflow(
     tmp_path: Path,
 ) -> None:
@@ -1174,12 +1250,14 @@ def test_cli_activates_plugin_level_docs_and_skills_without_a_workflow(
             str(project),
             "--no-use-skill",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     kwargs = verify_agent.call_args.kwargs
-    assert kwargs["plugin_guide_doc_paths"] == [str(docs)]
-    assert kwargs["plugin_skill_paths"] == [("sample-plugin", str(skills))]
+    # The default workflow pointer auto-activates its owning plugin, so the
+    # explicit plugin's contributions are asserted by membership.
+    assert str(docs) in kwargs["plugin_guide_doc_paths"]
+    assert ("sample-plugin", str(skills)) in kwargs["plugin_skill_paths"]
     assert kwargs["cfg_override"] == [{"skill.use_skill": False}]
 
 
@@ -1223,7 +1301,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
         return VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[
                 {"backend.key_name": "blank"},
@@ -1250,7 +1328,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
             / "resource-plugin"
         ).exists()
     finally:
-        disabled_agent.exit()
+        _close_agent(disabled_agent)
 
     (docs / "plugin-api.md").write_text(
         "# Updated Plugin API\n", encoding="utf-8"
@@ -1261,7 +1339,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
             disabled_workspace / "Guide_Doc" / "plugin-api.md"
         ).read_text(encoding="utf-8") == "# Updated Plugin API\n"
     finally:
-        refreshed_agent.exit()
+        _close_agent(refreshed_agent)
 
     enabled_workspace = tmp_path / "enabled"
     enabled_agent = create_agent(enabled_workspace, True)
@@ -1276,7 +1354,7 @@ def test_verify_agent_direct_plugin_activation_copies_docs_and_optional_skills(
             / "SKILL.md"
         ).is_file()
     finally:
-        enabled_agent.exit()
+        _close_agent(enabled_agent)
 
 
 def test_verify_agent_refreshes_plugin_docs_after_interrupted_run(
@@ -1309,7 +1387,7 @@ def test_verify_agent_refreshes_plugin_docs_after_interrupted_run(
         return VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[
                 {"backend.key_name": "blank"},
@@ -1337,8 +1415,8 @@ def test_verify_agent_refreshes_plugin_docs_after_interrupted_run(
         assert runtime_doc.read_text(encoding="utf-8") == "# Updated Plugin API\n"
     finally:
         if second_agent is not None:
-            second_agent.exit()
-        first_agent.exit()
+            _close_agent(second_agent)
+        _close_agent(first_agent)
 
 
 def test_verify_agent_rejects_plugin_doc_conflicting_with_base_runtime_doc(
@@ -1362,6 +1440,13 @@ def test_verify_agent_rejects_plugin_doc_conflicting_with_base_runtime_doc(
         ),
         check_dependencies=False,
     )
+    # The core language defaults ship no documents anymore; supply the base
+    # runtime document through the caller-provided guid_doc_path.
+    core_docs = tmp_path / "core_docs"
+    core_docs.mkdir()
+    (core_docs / "dut_api_instruction.md").write_text(
+        "# Core API Contract\n", encoding="utf-8"
+    )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
@@ -1369,8 +1454,9 @@ def test_verify_agent_rejects_plugin_doc_conflicting_with_base_runtime_doc(
         VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
+            guid_doc_path=[str(core_docs)],
             cfg_override=[
                 {"backend.key_name": "blank"},
                 {"guide_doc.enable": True},
@@ -1404,13 +1490,27 @@ def test_verify_agent_composes_core_and_plugin_guide_docs_by_policy(
         ),
         check_dependencies=False,
     )
+    # The core language defaults ship no documents anymore; supply the base
+    # runtime documents through the caller-provided guid_doc_path.
+    core_docs = tmp_path / "core_docs"
+    core_docs.mkdir()
+    (core_docs / "dut_api_instruction.md").write_text(
+        "# Core API Contract\n", encoding="utf-8"
+    )
+    (core_docs / "dut_bug_analysis.md").write_text(
+        "# Core Bug Analysis\n", encoding="utf-8"
+    )
+    (core_docs / "dut_fixture.md").write_text(
+        "# Core Fixture\n", encoding="utf-8"
+    )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="empty",
-        output="unity_test",
+        output="unit_test",
         config_file="master.yaml",
+        guid_doc_path=[str(core_docs)],
         cfg_override=[
             {"backend.key_name": "blank"},
             {"guide_doc.enable": True},
@@ -1435,7 +1535,7 @@ def test_verify_agent_composes_core_and_plugin_guide_docs_by_policy(
         assert (runtime_docs / "dut_fixture.md").is_file()
         assert (runtime_docs / "plugin_only.md").is_file()
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_verify_agent_filters_plugin_guide_docs_after_template_resolution(
@@ -1468,11 +1568,19 @@ def test_verify_agent_filters_plugin_guide_docs_after_template_resolution(
     (runtime_docs / "coding_standard_verilog.md").write_text(
         "stale\n", encoding="utf-8"
     )
+    # The core language defaults ship no documents anymore; supply the base
+    # runtime document through the caller-provided guid_doc_path.
+    core_docs = tmp_path / "core_docs"
+    core_docs.mkdir()
+    (core_docs / "dut_fixture.md").write_text(
+        "# Core Fixture\n", encoding="utf-8"
+    )
     agent = VerifyAgent(
         workspace=str(workspace),
         dut_name="empty",
-        output="unity_test",
+        output="unit_test",
         config_file="master.yaml",
+        guid_doc_path=[str(core_docs)],
         cfg_override=[
             {"backend.key_name": "blank"},
             {"guide_doc.enable": True},
@@ -1494,7 +1602,7 @@ def test_verify_agent_filters_plugin_guide_docs_after_template_resolution(
         assert not (runtime_docs / "coding_standard_verilog.md").exists()
         assert (runtime_docs / "dut_fixture.md").is_file()
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_verify_agent_rejects_plugin_doc_symlink_parent(
@@ -1527,7 +1635,7 @@ def test_verify_agent_rejects_plugin_doc_symlink_parent(
         VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[
                 {"backend.key_name": "blank"},
@@ -1567,7 +1675,7 @@ def test_verify_agent_rejects_doc_contribution_when_runtime_docs_are_disabled(
         VerifyAgent(
             workspace=str(workspace),
             dut_name="empty",
-            output="unity_test",
+            output="unit_test",
             config_file="master.yaml",
             cfg_override=[{"backend.key_name": "blank"}],
             no_embed_tools=True,
@@ -1838,7 +1946,7 @@ def test_verify_agent_renders_resolved_template_override_values(
             encoding="utf-8"
         ) == "language=chisel dut=VectorUnit\n"
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_verify_agent_renders_dynamic_workflow_template_context(
@@ -1889,14 +1997,14 @@ def test_verify_agent_renders_dynamic_workflow_template_context(
             encoding="utf-8"
         ) == "language=chisel\n"
     finally:
-        agent.exit()
+        _close_agent(agent)
 
 
 def test_design_with_ppa_local_plugin_creates_mcp_compatible_tool(tmp_path: Path) -> None:
     """The shipped DesignWithPPA project must load, locate assets, and convert to MCP."""
 
     repository = Path(__file__).resolve().parent.parent
-    project = repository / "plugins" / "DesignWithPPA"
+    project = repository / "ucagent" / "plugins" / "DesignWithPPA"
     # Resource discovery and MCP schemas do not execute the external PPA tools.
     loaded = load_plugin(str(project), check_dependencies=False)
     tools = create_plugin_tools([loaded], _context(tmp_path))

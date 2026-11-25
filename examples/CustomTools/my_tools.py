@@ -1,7 +1,7 @@
 #coding=utf-8
 """Custom tools for UCAgent."""
 
-from ucagent.tools.uctool import UCTool
+from ucagent.core.tools.uctool import UCTool
 
 
 class MyCustomTool(UCTool):

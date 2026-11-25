@@ -4,6 +4,7 @@
 import os
 import re
 import yaml
+import importlib.util
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, List
 from yaml.constructor import SafeConstructor
@@ -16,12 +17,6 @@ from .functions import (
     save_json_file,
 )
 from .log import info
-from .waveform_formats import (
-    DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY,
-    DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY,
-    validate_waveform_analysis_format_priority,
-    validate_waveform_analysis_backend_priority,
-)
 import base64
 
 
@@ -31,12 +26,17 @@ _NEGATED_BOOL_PATTERN = re.compile(
 )
 _DELETE_OVERRIDE = object()
 RUNTIME_CONFIG_FILENAME = "runtime_config.json"
-CURRENT_TEST_REPORT_FILENAME = "current_test_report.json"
-CURRENT_TEST_REPORT_SCHEMA_VERSION = 1
-CURRENT_TEST_REPORT_RELATIVE_PATH = f".ucagent/{CURRENT_TEST_REPORT_FILENAME}"
-REQUIRED_RUNTIME_BOOL_OPTIONS = (
-    "need_ref_model",
-    "mock_components_enabled",
+# Top-level runtime snapshot keys owned by the framework itself; plugin
+# runtime-hook sections may extend the snapshot but never claim these.
+FRAMEWORK_RUNTIME_CONFIG_KEYS = (
+    "schema_version",
+    "DUT",
+    "OUT",
+    "ucagent_python_path",
+    "runtime_options",
+    "plugin_python_paths",
+    "plugin_options",
+    "launch_context",
 )
 
 
@@ -529,6 +529,8 @@ def build_runtime_config(
     cfg: Config,
     runtime_config_keys: Optional[List[str]] = None,
     launch_context: Optional[Dict[str, Any]] = None,
+    plugin_python_paths: Optional[List[str]] = None,
+    snapshot_hooks: Optional[List[Any]] = None,
 ) -> Dict[str, Any]:
     """Build the non-secret runtime snapshot shared with workspace consumers."""
     if not isinstance(cfg, Config):
@@ -536,25 +538,13 @@ def build_runtime_config(
 
     runtime_options = cfg.get_value("runtime_options", None)
     if runtime_options is None:
-        raise ValueError("Configuration is missing required 'runtime_options'.")
-    if isinstance(runtime_options, Config):
+        runtime_options = {}
+    elif isinstance(runtime_options, Config):
         runtime_options = runtime_options.as_dict()
     elif isinstance(runtime_options, dict):
         runtime_options = dict(runtime_options)
     else:
         raise TypeError("Configuration value 'runtime_options' must be a mapping.")
-
-    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
-        if type(runtime_options.get(key)) is not bool:
-            raise ValueError(
-                f"Configuration value 'runtime_options.{key}' must be a boolean."
-            )
-    runtime_options["waveform_analysis_format_priority"] = validate_waveform_analysis_format_priority(
-        runtime_options.get("waveform_analysis_format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
-    )
-    runtime_options["waveform_analysis_backend_priority"] = validate_waveform_analysis_backend_priority(
-        runtime_options.get("waveform_analysis_backend_priority", DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY)
-    )
 
     template_values = cfg.__dict__.get("_temp_cfg")
     if not isinstance(template_values, dict):
@@ -565,30 +555,31 @@ def build_runtime_config(
         raise ValueError("Resolved configuration value 'DUT' must be a non-empty string.")
     if not isinstance(output, str) or not output.strip():
         raise ValueError("Resolved configuration value 'OUT' must be a non-empty string.")
-    try:
-        test_output_dir = cfg.get_value("tools.RunTestCases.test_dir", None)
-    except AttributeError:
-        test_output_dir = None
-    if not isinstance(test_output_dir, str) or not test_output_dir.strip():
-        raise ValueError(
-            "Resolved configuration value 'tools.RunTestCases.test_dir' must be a "
-            "non-empty string."
-        )
     ucagent_python_path = str(_current_ucagent_python_path())
     if not (Path(ucagent_python_path) / "ucagent" / "__init__.py").is_file():
         raise ValueError(
             "Cannot resolve the current UCAgent Python import path."
         )
+    plugin_import_roots = [
+        str(path) for path in (plugin_python_paths or []) if str(path).strip()
+    ]
+    for plugin_root_text in plugin_import_roots:
+        if not Path(plugin_root_text).is_absolute() or not Path(plugin_root_text).is_dir():
+            raise ValueError(
+                "Plugin Python import path must be an existing absolute "
+                f"directory: {plugin_root_text}"
+            )
 
     result = {
         "schema_version": 1,
         "DUT": dut,
         "OUT": output,
-        "test_output_dir": test_output_dir,
         "ucagent_python_path": ucagent_python_path,
-        "current_test_report": CURRENT_TEST_REPORT_RELATIVE_PATH,
         "runtime_options": runtime_options,
     }
+    if plugin_import_roots:
+        # plugin import roots feed skill-script PYTHONPATH resolution
+        result["plugin_python_paths"] = plugin_import_roots
     plugin_options = {}
     for key in runtime_config_keys or []:
         value = cfg.get_value(key, None)
@@ -604,13 +595,60 @@ def build_runtime_config(
             )
     if plugin_options:
         result["plugin_options"] = plugin_options
+    for hook in snapshot_hooks or []:
+        snapshot_sections = getattr(hook, "snapshot_sections", None)
+        if snapshot_sections is None:
+            continue
+        sections = snapshot_sections(cfg)
+        if not isinstance(sections, dict) or not all(
+            isinstance(key, str) and key.strip() for key in sections
+        ):
+            raise ValueError(
+                f"Runtime snapshot hook {type(hook).__name__} must contribute "
+                "a mapping with non-empty string keys."
+            )
+        for key, value in sections.items():
+            if key in FRAMEWORK_RUNTIME_CONFIG_KEYS or key in result:
+                raise ValueError(
+                    f"Runtime snapshot hook {type(hook).__name__} cannot "
+                    f"contribute reserved or duplicate key {key!r}."
+                )
+            if not _is_json_safe(value):
+                raise ValueError(
+                    f"Runtime snapshot hook {type(hook).__name__} contributed "
+                    f"a non-JSON-safe value for {key!r}."
+                )
+            result[key] = value
     if launch_context is not None:
         result["launch_context"] = dict(launch_context)
     return result
 
 
-def validate_runtime_config(data: Any) -> Dict[str, Any]:
-    """Validate a runtime snapshot before it is consumed."""
+def _is_json_safe(value: Any) -> bool:
+    """Return whether *value* can round-trip through the JSON snapshot."""
+    if value is None or isinstance(value, (str, bool)):
+        return True
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return value == value and abs(value) != float("inf")
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_safe(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return all(_is_json_safe(item) for item in value)
+    return False
+
+
+def validate_runtime_config(data: Any, snapshot_hooks: Optional[List[Any]] = None) -> Dict[str, Any]:
+    """Validate a runtime snapshot before it is consumed.
+
+    Framework-owned keys are always validated; sections contributed by plugin
+    runtime hooks are validated by their owning hook when the hooks are
+    available, and by their owner's own consumers otherwise.
+    """
     if not isinstance(data, dict):
         raise ValueError("Resolved runtime config must be a JSON object.")
     if data.get("schema_version") != 1:
@@ -620,18 +658,6 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             raise ValueError(
                 f"Resolved runtime config value '{key}' must be a non-empty string."
             )
-    if not isinstance(data.get("test_output_dir"), str) or not data[
-        "test_output_dir"
-    ].strip():
-        raise ValueError(
-            "Resolved runtime config value 'test_output_dir' must be a non-empty string."
-        )
-    current_test_report = data.get("current_test_report")
-    if current_test_report != CURRENT_TEST_REPORT_RELATIVE_PATH:
-        raise ValueError(
-            "Resolved runtime config value 'current_test_report' must be "
-            f"'{CURRENT_TEST_REPORT_RELATIVE_PATH}'."
-        )
     ucagent_python_path = data.get("ucagent_python_path")
     if not isinstance(ucagent_python_path, str) or not ucagent_python_path.strip():
         raise ValueError(
@@ -656,21 +682,33 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             "currently running UCAgent package. Restart UCAgent for this workspace "
             "to regenerate .ucagent/runtime_config.json."
         )
+    plugin_python_paths = data.get("plugin_python_paths")
+    if plugin_python_paths is not None:
+        if not isinstance(plugin_python_paths, list) or not plugin_python_paths:
+            raise ValueError(
+                "Resolved runtime config value 'plugin_python_paths' must be a "
+                "non-empty list."
+            )
+        for plugin_root_text in plugin_python_paths:
+            if (
+                not isinstance(plugin_root_text, str)
+                or not plugin_root_text.strip()
+                or not Path(plugin_root_text).is_absolute()
+            ):
+                raise ValueError(
+                    "Resolved runtime config value 'plugin_python_paths' must "
+                    "contain non-empty absolute path strings."
+                )
+            if not Path(plugin_root_text).is_dir():
+                raise ValueError(
+                    f"Resolved runtime config plugin Python path was not found: "
+                    f"{plugin_root_text}. Restart UCAgent for this workspace "
+                    "to regenerate .ucagent/runtime_config.json."
+                )
 
     runtime_options = data.get("runtime_options")
     if not isinstance(runtime_options, dict):
         raise ValueError("Resolved runtime config has no runtime_options mapping.")
-    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
-        if type(runtime_options.get(key)) is not bool:
-            raise ValueError(
-                f"Resolved config value runtime_options.{key} must be a boolean."
-            )
-    validate_waveform_analysis_format_priority(
-        runtime_options.get("waveform_analysis_format_priority", DEFAULT_WAVEFORM_ANALYSIS_FORMAT_PRIORITY)
-    )
-    validate_waveform_analysis_backend_priority(
-        runtime_options.get("waveform_analysis_backend_priority", DEFAULT_WAVEFORM_ANALYSIS_BACKEND_PRIORITY)
-    )
     plugin_options = data.get("plugin_options")
     if plugin_options is not None:
         if not isinstance(plugin_options, dict):
@@ -716,6 +754,10 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
             raise ValueError(
                 "Resolved runtime launch_context.plugin_selectors must be a list of non-empty strings."
             )
+    for hook in snapshot_hooks or []:
+        validate_sections = getattr(hook, "validate_runtime_snapshot", None)
+        if validate_sections is not None:
+            validate_sections(data)
     return data
 
 
@@ -724,6 +766,8 @@ def save_runtime_config(
     cfg: Config,
     runtime_config_keys: Optional[List[str]] = None,
     launch_context: Optional[Dict[str, Any]] = None,
+    plugin_python_paths: Optional[List[str]] = None,
+    snapshot_hooks: Optional[List[Any]] = None,
 ) -> Path:
     """Persist resolved runtime values for skills and other workspace consumers."""
     runtime_path = Path(
@@ -734,7 +778,10 @@ def save_runtime_config(
             cfg,
             runtime_config_keys=runtime_config_keys,
             launch_context=launch_context,
-        )
+            plugin_python_paths=plugin_python_paths,
+            snapshot_hooks=snapshot_hooks,
+        ),
+        snapshot_hooks=snapshot_hooks,
     )
     save_json_file(str(runtime_path), runtime_data)
     return runtime_path
@@ -749,74 +796,6 @@ def load_runtime_config(workspace: str) -> Dict[str, Any]:
             "Start UCAgent for this workspace before using runtime consumers."
         )
     return validate_runtime_config(load_json_file(str(runtime_path)))
-
-
-def _current_test_report_path(workspace: str) -> Path:
-    """Return the workspace-local report shared by test consumers and Skills."""
-    runtime_config = load_runtime_config(workspace)
-    return Path(workspace) / runtime_config["current_test_report"]
-
-
-def clear_current_test_report(workspace: str) -> None:
-    """Invalidate a previous stage's report when a stage becomes active."""
-    target = Path(workspace) / CURRENT_TEST_REPORT_RELATIVE_PATH
-    try:
-        target.unlink()
-    except FileNotFoundError:
-        pass
-
-
-def save_current_test_report(
-    workspace: str,
-    report: Dict[str, Any],
-    context: Optional[Dict[str, Any]] = None,
-) -> Path:
-    """Publish the latest structured Unity test report for runtime consumers.
-
-    The report is deliberately kept outside the DUT output directory so a Skill
-    cannot accidentally bind itself to a stage-private or historical report.
-    ``context`` is diagnostic metadata only; the actual test report remains under
-    the stable ``report`` key.
-    """
-    if not isinstance(report, dict):
-        raise TypeError("Current test report must be a mapping.")
-    if context is not None and not isinstance(context, dict):
-        raise TypeError("Current test report context must be a mapping.")
-    target = _current_test_report_path(workspace)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": CURRENT_TEST_REPORT_SCHEMA_VERSION,
-        "report": report,
-        "context": context or {},
-    }
-    temporary = target.with_suffix(target.suffix + ".tmp")
-    save_json_file(str(temporary), payload)
-    os.replace(temporary, target)
-    return target
-
-
-def load_current_test_report(workspace: str) -> Dict[str, Any]:
-    """Load and validate the latest structured test report for a workspace."""
-    target = _current_test_report_path(workspace)
-    if not target.is_file():
-        raise FileNotFoundError(
-            f"Current test report not found: {target}. Run the current stage's "
-            "real test cases with Check or RunTestCases before using a test-report Skill."
-        )
-    payload = load_json_file(str(target))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Current test report {target} must be a JSON object.")
-    if payload.get("schema_version") != CURRENT_TEST_REPORT_SCHEMA_VERSION:
-        raise ValueError(
-            f"Current test report {target} has an unsupported schema_version."
-        )
-    report = payload.get("report")
-    if not isinstance(report, dict):
-        raise ValueError(f"Current test report {target} has no report object.")
-    context = payload.get("context", {})
-    if not isinstance(context, dict):
-        raise ValueError(f"Current test report {target} has invalid context metadata.")
-    return payload
 
 
 def find_file_in_paths(filename, search_paths):
@@ -880,7 +859,43 @@ def _resolve_include_file(include_file, parent_config_file):
     )
 
 
-def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
+# Mission prompt keys that a task workflow loaded through the framework
+# `workflow` pointer extends instead of replacing: the workflow's system prompt
+# is appended to the framework's and the tips lists are concatenated.
+WORKFLOW_APPEND_KEYS = (
+    "mission.prompt.system",
+    "mission.prompt.tips.always",
+    "mission.prompt.tips.random",
+)
+
+
+def _get_config_path_values(cfg, dotted_keys):
+    """Read current values for dotted key paths; unreachable paths map to None."""
+    values = {}
+    for dotted_key in dotted_keys:
+        try:
+            values[dotted_key] = cfg.get_value(dotted_key)
+        except AttributeError:
+            values[dotted_key] = None
+    return values
+
+
+def _set_config_path_value(cfg, dotted_key, value):
+    """Set a value at a dotted key path; intermediate sections must exist."""
+    keys = dotted_key.split(".")
+    target = cfg
+    for key in keys[:-1]:
+        target = getattr(target, key)
+    setattr(target, keys[-1], value)
+
+
+def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None, append_keys=None):
+    """
+    Merge a config file into cfg, honoring include directives and load dedup.
+    :param append_keys: Dotted keys whose effective str/list values after this
+        file and its includes are appended to the original configuration.
+        Includes retain ordinary override semantics within that layer.
+    """
     config_file = os.path.abspath(config_file)
     if config_file in loaded_configs:
         info(f"Config file '{config_file}' already loaded, ignore.")
@@ -897,16 +912,85 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
         if not isinstance(data, dict):
             raise TypeError(f"Config file '{config_file}' must contain a YAML mapping.")
 
+        append_bases = _get_config_path_values(cfg, append_keys or ())
+
         for include_file in _normalize_include_value(data.get("include"), config_file):
             include_config_file = _resolve_include_file(include_file, config_file)
             _merge_config_file(cfg, include_config_file, loaded_configs, loading_stack)
 
         cfg.merge_from_dict(data, skip_include=True)
+
+        for dotted_key, base in append_bases.items():
+            try:
+                merged = cfg.get_value(dotted_key)
+            except AttributeError:
+                merged = None
+            if base is None or merged is None or merged == base:
+                continue
+            if isinstance(base, str) and isinstance(merged, str):
+                value = base.rstrip("\n") + "\n\n" + merged.strip("\n") + "\n"
+            elif isinstance(base, list) and isinstance(merged, list):
+                value = base + merged
+            else:
+                raise TypeError(
+                    f"Cannot append configuration value of '{dotted_key}' from "
+                    f"'{config_file}': expected str+str or list+list, got "
+                    f"{type(base).__name__}+{type(merged).__name__}."
+                )
+            _set_config_path_value(cfg, dotted_key, value)
+
         loaded_configs.append(config_file)
         info(f"Load config from '{config_file}' completed.")
         return cfg
     finally:
         loading_stack.pop()
+
+
+def resolve_workflow_pointer_path(workflow_selector, lang):
+    """Resolve the 'workflow' pointer selector to an absolute config path.
+
+    Relative selectors resolve against core/locales first, then the
+    repository root, so the pointer can name workflow configs owned by
+    in-repo plugin projects (plugins/<name>/config/...). A
+    "<importable-module>:<relative-path>" selector resolves inside an
+    installed plugin package, which keeps the pointer working when the
+    repository tree is absent (pip-installed UCAgent plus a plugin wheel).
+    """
+    if os.path.isabs(workflow_selector):
+        return os.path.abspath(workflow_selector)
+    module_match = re.match(r"^([A-Za-z_][A-Za-z0-9_.]*):(.+)$", workflow_selector)
+    if module_match:
+        spec = importlib.util.find_spec(module_match.group(1))
+        if spec is not None:
+            base = (
+                next(iter(spec.submodule_search_locations))
+                if spec.submodule_search_locations
+                else os.path.dirname(spec.origin)
+            )
+            return os.path.abspath(os.path.join(base, module_match.group(2)))
+    config_dir = os.path.dirname(os.path.abspath(__file__))
+    lang_dir_candidate = os.path.abspath(
+        os.path.join(config_dir, "../core/locales", workflow_selector)
+    )
+    if os.path.isfile(lang_dir_candidate):
+        return lang_dir_candidate
+    return os.path.abspath(
+        os.path.join(config_dir, "../..", workflow_selector)
+    )
+
+
+def resolve_user_config_file(config_file, user_home, lang):
+    """Resolve the explicit --config file (default: config.yaml) against the
+    standard search paths: cwd, ~/.ucagent/, application presets for the selected language, repo root.
+    """
+    target_file = config_file
+    if config_file is None:
+        target_file = 'config.yaml'  # Default configuration file
+    return find_file_in_paths(target_file, [os.getcwd(),
+                                             os.path.join(user_home, '.ucagent/'),
+                                             os.path.join(os.path.dirname(__file__), f"../application/presets/{lang}/"),
+                                             os.path.join(os.path.dirname(__file__), "../..")
+                                             ])
 
 
 def get_config(
@@ -922,6 +1006,17 @@ def get_config(
     :param workspace: Workspace whose local settings are loaded.
     :param workflow_config_file: Optional plugin workflow baseline config.
     :return: Configuration dictionary.
+
+    Load order: setting.yaml layers -> core/locales/<lang>.yaml (framework prompts) ->
+    the task workflow baseline (an explicitly selected plugin workflow, or the
+    default workflow the launcher resolved from the 'workflow' selector),
+    whose mission system/tips prompts append to the framework layer ->
+    workspace config -> explicit config file -> overrides.
+
+    The 'workflow' key is launcher-side selection data, not something
+    get_config interprets: resolve it with resolve_default_task_workflow (or,
+    in the cli, the same fully merged read) and pass the resulting file as
+    workflow_config_file. Callers passing None get a framework-only config.
     """
     # ignore repeated loaded configs
     loaded_configs = []
@@ -946,36 +1041,47 @@ def get_config(
 
     # 3. load lang config
     lang = cfg.get_value('lang', 'zh')
-    lang_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/default.yaml"))
+    lang_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../core/locales/{lang}.yaml"))
     info(f"Load config from '{lang_config_file}'")
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
     _merge_config_file(cfg, lang_config_file, loaded_configs)
 
-    # 4. load the selected plugin workflow baseline
+    # framework mission prompts before the task workflow layer extends them;
+    # the workflow baseline appends to these values instead of replacing them
+    framework_mission_prompts = _get_config_path_values(cfg, WORKFLOW_APPEND_KEYS)
+
+    # 4. load the task workflow baseline: an explicitly selected plugin
+    # workflow, or the default workflow the launcher resolved from the
+    # 'workflow' selector and passed here as a plain file path. Its mission
+    # prompts extend the framework values directly. The 'workflow' key
+    # itself is launcher-side selection data — get_config never interprets
+    # it, so callers passing workflow_config_file=None get a framework-only
+    # config.
     if workflow_config_file is not None:
         workflow_config_path = os.path.abspath(os.fspath(workflow_config_file))
         if not os.path.isfile(workflow_config_path):
             raise FileNotFoundError(
                 f"Workflow config file '{workflow_config_file}' was not found."
             )
-        _merge_config_file(cfg, workflow_config_path, loaded_configs)
+        if workflow_config_path not in loaded_configs:
+            for dotted_key, framework_value in framework_mission_prompts.items():
+                if framework_value is not None:
+                    _set_config_path_value(cfg, dotted_key, framework_value)
+        _merge_config_file(
+            cfg, workflow_config_path, loaded_configs,
+            append_keys=WORKFLOW_APPEND_KEYS,
+        )
 
     # 5. load workspace config
     if workspace is not None:
-        cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")
+        cwd_setting_file = os.path.abspath(os.path.join(workspace, ".ucagent", "setting.yaml"))
         if os.path.isfile(cwd_setting_file):
             _merge_config_file(cfg, cwd_setting_file, loaded_configs)
         else:
             info(f"Workspace config file '{cwd_setting_file}' not found, ignore.")
 
     # 6. find user specified config file
-    target_file = config_file
-    if config_file is None:
-        target_file = 'config.yaml'  # Default configuration file
-    user_config_file_path = find_file_in_paths(target_file, [os.getcwd(),
-                                                             os.path.join(user_home, '.ucagent/'),
-                                                             os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/")
-                                                      ])
+    user_config_file_path = resolve_user_config_file(config_file, user_home, lang)
     if config_file is not None:
         assert user_config_file_path is not None, f"Config file '{config_file}' not found in current directory or default config path."
     if user_config_file_path is None:
@@ -988,3 +1094,49 @@ def get_config(
     cfg.set_values(cfg_override)
     object.__setattr__(cfg, "_loaded_config_files", list(loaded_configs))
     return cfg.freeze()
+
+
+def resolve_default_task_workflow(config_file=None, cfg_override=None,
+                                  workspace=None, lang=None):
+    """Decide which file the default task workflow is: read the fully merged
+    config's 'workflow' selector and resolve it to a path.
+
+    Any later layer (workspace config, --config, CLI overrides) may redefine
+    or null the selector — None means framework-only. Selection only: pass
+    the result to get_config as workflow_config_file. The launcher (cli)
+    makes the same decision and additionally activates the plugin owning the
+    resolved file.
+    """
+    cfg = get_config(config_file, cfg_override, workspace)
+    if lang is None:
+        lang = cfg.get_value("lang", "zh")
+    selector = cfg.get_value("workflow", None)
+    if not isinstance(selector, str) or not selector.strip():
+        return None
+    return resolve_workflow_pointer_path(selector.strip(), lang)
+
+
+def discovery_overrides(
+    overrides: object,
+) -> list[dict]:
+    """Return only overrides needed before a plugin workflow is selected."""
+
+    if overrides is None:
+        return []
+    values = overrides if isinstance(overrides, list) else [overrides]
+    return [
+        {key: value}
+        for item in values
+        for key, value in item.items()
+        if (
+            key == "plugin.search_paths"
+            or key.startswith("plugin.search_paths[")
+            # the default-workflow pointer is selection data too: without it
+            # here, --override workflow=... could not redirect or null the
+            # default task workflow
+            or key == "workflow"
+            or key == "runtime_options" or key.startswith("runtime_options.")
+            or key == "agent_run" or key.startswith("agent_run.")
+            or key == "global_agent" or key.startswith("global_agent.")
+        )
+    ]

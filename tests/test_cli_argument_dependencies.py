@@ -1,3 +1,6 @@
+"""Validate CLI option dependencies and service startup ordering."""
+
+from ucagent.application.plan import LaunchRequest
 import os
 import sys
 from unittest import mock
@@ -16,7 +19,10 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.cli import get_args, run
+from ucagent.interfaces.cli.arguments import get_args
+from ucagent.application.entry import run
+
+pytestmark = pytest.mark.usefixtures("cli_runtime")
 
 
 def _parse_args(*arguments):
@@ -49,7 +55,7 @@ def test_skill_cli_only_overrides_config_when_explicit(
     tmp_path, arguments, expected_overrides
 ):
     with mock.patch("sys.argv", ["ucagent", str(tmp_path), "dut", *arguments]), \
-            mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+            mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     assert verify_agent.call_args.kwargs["cfg_override"] == expected_overrides
@@ -68,7 +74,7 @@ def test_extra_skill_path_enables_skill_support(tmp_path):
             "--extra-skill-path",
             str(skill_path),
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         run()
 
     assert verify_agent.call_args.kwargs["cfg_override"] == [
@@ -107,18 +113,17 @@ def test_blank_backend_does_not_require_mcp_server():
     assert args.backend == "blank"
 
 
-def test_non_langchain_backend_requires_mcp_server(capsys):
-    with pytest.raises(SystemExit) as exc_info:
-        _parse_args("workspace", "dut", "--backend", "claude")
-
-    assert exc_info.value.code == 2
-    error = capsys.readouterr().err
-    assert (
-        "--backend='claude' requires '--mcp-server-no-file-tools' or '--mcp-server'"
-        in error
-    )
-    assert "communicate with UCAgent through MCP" in error
-    assert "'--mcp-server-no-file-tools' (recommended)" in error
+def test_command_backend_requires_mcp_after_final_config(tmp_path):
+    """Dependency validation uses the backend selected by merged configuration."""
+    from ucagent.application.preparation import prepare_launch
+    from ucagent.interfaces.cli.options import parse_launch_options
+    config = tmp_path / "launch.yaml"
+    config.write_text("workflow: null\nbackend:\n  key_name: claude\n")
+    args = _parse_args(str(tmp_path), "DUT", "--config", str(config))
+    with pytest.raises(ValueError, match="requires.*--mcp-server") as error:
+        prepare_launch(LaunchRequest(**parse_launch_options(args)))
+    assert "enable '--mcp-server' for the full configured tool set" in str(error.value)
+    assert "--mcp-server-no-file-tools' (recommended)" not in str(error.value)
 
 
 @pytest.mark.parametrize("mcp_option", ["--mcp-server", "--mcp-server-no-file-tools"])
@@ -149,7 +154,7 @@ def test_non_langchain_backend_allows_embed_tools_when_mcp_is_enabled():
     assert args.no_embed_tools is False
 
 
-def test_cli_starts_mcp_before_headless_backend_run(tmp_path):
+def test_cli_starts_mcp_before_headless_backend_run(tmp_path, cli_runtime):
     """Headless command-line backends must receive a ready MCP endpoint."""
 
     with mock.patch(
@@ -164,36 +169,31 @@ def test_cli_starts_mcp_before_headless_backend_run(tmp_path):
             "--mcp-server-port",
             "-1",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         agent = verify_agent.return_value
         agent.cfg.mcp_server.host = "127.0.0.1"
         lifecycle = []
 
         def start_mcp(**kwargs):
             lifecycle.append(("start_mcp", kwargs))
-            return True, "MCP server started"
+            return {"ok": True, "message": "MCP server started"}
 
         def run_agent():
             lifecycle.append(("run", {}))
 
-        agent.pdb.start_mcp_server.side_effect = start_mcp
-        agent.run.side_effect = run_agent
+        cli_runtime.services.start_mcp.side_effect = start_mcp
+        cli_runtime.startup.start.side_effect = lambda *args, **kwargs: run_agent()
 
         run()
 
-    kwargs = verify_agent.call_args.kwargs
-    assert not any(
-        command.startswith("start_mcp_server")
-        for command in kwargs["init_cmd"]
-    )
     assert lifecycle[0][0] == "start_mcp"
-    assert lifecycle[0][1]["host"] == "127.0.0.1"
+    assert lifecycle[0][1]["host"] is None
     assert isinstance(lifecycle[0][1]["port"], int)
     assert lifecycle[0][1]["no_file_ops"] is True
     assert lifecycle[1] == ("run", {})
 
 
-def test_cli_aborts_before_backend_run_when_mcp_start_fails(tmp_path):
+def test_cli_aborts_before_backend_run_when_mcp_start_fails(tmp_path, cli_runtime):
     """An unavailable MCP endpoint must stop command-line model execution."""
 
     with mock.patch(
@@ -206,14 +206,11 @@ def test_cli_aborts_before_backend_run_when_mcp_start_fails(tmp_path):
             "opencode",
             "--mcp-server-no-file-tools",
         ],
-    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+    ), mock.patch("ucagent.VerifyAgent") as verify_agent:
         agent = verify_agent.return_value
-        agent.pdb.start_mcp_server.return_value = (
-            False,
-            "MCP server failed to start",
-        )
+        cli_runtime.services.start_mcp.return_value = {"ok": False, "message": "MCP server failed to start"}
 
         with pytest.raises(RuntimeError, match="MCP server failed to start"):
             run()
 
-    agent.run.assert_not_called()
+    cli_runtime.registry.execute.assert_not_called()

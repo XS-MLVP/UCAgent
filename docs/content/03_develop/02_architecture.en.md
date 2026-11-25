@@ -1,29 +1,74 @@
 
 # Architecture and Operation
 
-UCAgent defines tasks using configuration, executes operations using tools, and accepts outputs using Checkers. The backend handles model interaction; the Stage Manager manages the current stage, checks, and progression. This chapter explains the component relationships that need to be understood for custom development.
+UCAgent defines tasks through workflows, executes them through an Agent and its tools, and accepts artifacts through stages and Checkers. The package groups existing capabilities by responsibility: a complete Agent in `core/`, startup in `application/`, instance ownership in `runtime/`, and human/network access in `interfaces/`.
 
-## Core Components
+## Directory Responsibilities
 
-| Component | Responsibility | Primary Code Entry Point |
-| --- | --- | --- |
-| `VerifyAgent` | Loads configuration, prepares workspace, assembles backend, tools, and stages | `ucagent/verify_agent.py` |
-| Backend | Interacts with the model or a Code Agent via CLI | `ucagent/abackend/` |
-| `StageManager` / `VerifyStage` | Provides stage tasks, manages Check, Complete, history, and skip states | `ucagent/stage/` |
-| Tool | Reads, edits, computes, runs tests, or calls external services | `ucagent/tools/` |
-| Checker | Determines if a task meets requirements based on files, configuration, test results, and evidence | `ucagent/checkers/` |
-| Guide_Doc / Template | Provides run instructions, complete format examples, and initial files | `ucagent/lang/<lang>/doc/`, `template/` |
-| Skill (Optional) | Provides task methods and scripts to help fulfill a set of acceptance requirements | `ucagent/lang/<lang>/skills/` |
+| Directory | Responsibility |
+| --- | --- |
+| `core/agent/` | Task configuration, Agent-owned construction, execution, messages and statistics |
+| `core/backends/` | LangChain, command-line and blank backends; client configuration templates in `assets/` |
+| `core/interaction/` | Enhanced execution, reflection and adaptive tool orchestration |
+| `core/stage/` | Stage progression, Check/Complete, history, human/model review |
+| `core/checkers/` | Checker lifecycle, diagnostics and BatchTask |
+| `core/multi_agent/` | Global/Super/Sub contracts, delegation, authorization and acceptance coordination |
+| `core/workflow/` | Embedded workflow handoff contracts and chain state; not the public multi Global orchestration entry |
+| `core/tools/` | Complete generic file, shell, planning, memory, context and Skill tools |
+| `core/workspace/` | Task documents/templates/skills, instruction generation and permission restoration |
+| `core/plugins.py` | Plugin declarations, discovery, validation and capability registries |
+| `core/locales/` | Framework language configuration; Chinese defaults are `zh.yaml` |
+| `application/` | Entry orchestration, launch requests/plans, workspace sources, logging and runtime wiring |
+| `application/presets/` | Application-mode presets, including `zh/master.yaml` |
+| `runtime/` | Host lifetime, operation scheduling/cancellation, service ownership, sessions and output buffers |
+| `runtime/control/` | Controller, command schemas, dispatch and plugin command registration |
+| `interfaces/cli/` | CLI syntax, management actions and conversion to launch data |
+| `interfaces/terminal/` | Console and result formatting; TUI lives in `tui/` |
+| `interfaces/server/` | HTTP, MCP, Master, Web Terminal, pages, static assets and viewer conversion |
+| `plugins/` | Independently owned workflow projects and their documents/templates/skills and domain implementations |
+| `util/` | Shared configuration, file policy, logging and other foundation functions |
 
-Tools execute actions, while Checkers verify results. For example, a write file tool succeeding only indicates that the write is complete; whether the document content complies with rules is still determined by the corresponding Checker.
+`core/` contains the full Agent implementation, including concrete backends and tools. It is not limited to abstract interfaces. Plugin resources stay with their workflow; core preparation selects and materializes them as one task contract. Root `setting.yaml` remains the cross-layer defaults file.
 
-## From Startup to Execution
+## Directory Dependency Direction
 
-1. Load configuration layer by layer, parsing environment variables and template variables. See [Workflow Configuration](03_workflow.md#3-configuration-loading-and-template-variables) for the complete order.
-2. Prepare runtime Guide_Doc, initial templates, optional skills, and configuration snapshots.
-3. Assemble backend, tools, and stages to restore available task states.
-4. Enter the console or execution loop. The Agent reads the current task and reference materials, calling tools to generate outputs.
-5. The Agent calls `Check` to get feedback, fixing failed items; calls `Complete` to request final acceptance and progression.
+The arrows below describe the main source dependency direction, not runtime callbacks. The application selects and wires existing concrete implementations; no new execution framework is introduced.
+
+```mermaid
+flowchart TB
+    APP["application/<br/>Startup and wiring"] --> IFACE["interfaces/<br/>CLI, terminal and network access"]
+    APP --> RUNTIME["runtime/<br/>Control, scheduling and lifetime"]
+    APP --> CORE["core/<br/>Complete Agent capabilities"]
+    APP --> PLUGINS["plugins/<br/>Workflow projects"]
+    IFACE --> RUNTIME
+    IFACE --> CORE
+    RUNTIME --> CORE
+    PLUGINS --> CORE
+    CORE --> UTIL["util/<br/>Shared foundations"]
+    APP --> UTIL
+    RUNTIME --> UTIL
+    IFACE --> UTIL
+```
+
+The core package does not import `application`, `runtime` or `interfaces`. Runtime does not import application or concrete interfaces. Interfaces do not call back into application startup. Utilities do not import these business packages. `tests/test_dependency_boundaries.py` checks absolute, relative and function-local imports. These package boundaries do not claim that every internal module or dynamically loaded plugin is globally acyclic.
+
+Service constructors are supplied by application wiring. Runtime sessions receive result-formatting callbacks from terminal/application callers, so shared session state has no frontend import. Plugin command declarations are registered by runtime control rather than the core plugin loader.
+
+## Startup, Execution and Shutdown
+
+1. `ucagent`, `python -m ucagent`, and source `ucagent.py` reach `application/entry.py`, which calls CLI parsing and handles management requests before constructing an Agent.
+2. CLI conversion supplies plain launch data; application creates a `LaunchRequest`, resolves workspace sources and logging, and invokes core task configuration. `core/locales/<language>.yaml` supplies framework prompts; `application/presets/<language>/` supplies named application presets. The [configuration precedence](03_workflow.md#3-configuration-loading-and-template-variables) is preserved.
+3. `core/agent/construction.py` prepares selected workflow resources and constructs stages, tools, backends and execution state. Python callers use the same path through `from ucagent import VerifyAgent`, without importing application startup.
+4. Application creates RuntimeHost and sessions, supplies concrete service constructors and presentation callbacks, and hands over cleanup. MCP and other requested services become ready before user/model startup commands execute.
+5. Startup commands retain their ordering. TUI readiness releases the display gate; runtime owns their execution. Tasks without an interface or service default to execution; service and interactive launches wait for explicit model work.
+6. Runtime schedules Agent work. Backends invoke tools; stage tools enter the same StageManager and Checkers. HTTP controls the runtime, while MCP exposes the same task tools. MCP calls do not automatically create HTTP operation IDs.
+7. TUI detaches without closing the task. Instance shutdown drains work and services, persists state, and restores acquired resources. Workspace-contained shared-library links retain their original target permissions.
+
+LangChain prepares models on first model work. Command-line backends prepare against a ready MCP endpoint. Queries and deterministic tools do not prepare the main model; explicitly enabled embedding/review capabilities retain their own requirements. See [Runtime Control](../02_usage/10_runtime_control.md).
+
+## Stage Execution Loop
+
+This diagram describes public tool calls in single mode. Multi reuses stage acceptance, but Sub checks/submits and the framework finalizes; see the [role tool matrix](../02_usage/11_multi_agent.md#role-tool-matrix) and [Multi-Agent Development Architecture](12_multi_agent_architecture.md) for permissions and ownership.
 
 ```mermaid
 flowchart TD
@@ -53,6 +98,22 @@ flowchart TD
 - `Complete` also requires applicable skills and human review for the current stage.
 
 Checkers do not automatically pass just because the Agent claims "completed." Custom Checkers should verify observable facts and return specific locations, expected conditions, and next steps on failure. Lifecycle and batch rules are detailed in [Custom Checkers](07_checkers.md).
+
+## Operation, Stage Control, and Persistence Boundaries
+
+- `OperationExecutor` records IDs, states, results, errors, cancellation flags, sessions, and parent/child relationships for long operations. One top-level model operation is admitted per instance; queries need not wait for it to finish.
+- Cancellation is cooperative. The model slot is released only after work actually ends. `RuntimeHost` initiates shutdown, drains operations, persists state, synchronizes the workspace, closes services, and restores resources. Detaching a view does not own these steps.
+- `StageCoordinator` coordinates stage writes and maintains `control_revision`. Human review and flag updates use the observed revision to reject conflicts and stale writes. Approve-and-continue saves approval before submitting continuation.
+- Check/Complete business rules remain in `StageManager` / `VerifyStage`. Coordination does not bypass Checkers, reading records, stage journals, skills, or human review gates.
+- Stage state, history, and tool evidence retain their existing persistence mechanisms. Operation records and output buffers are primarily in memory. Long-operation recovery across process restarts, unified decision-event replay, and remote TUI reattachment are not implemented.
+
+Plugins explicitly contribute tools, Checkers, resources, stage hooks, and commands; see [Runtime Commands](09_plugins.md#runtime-commands). Backends still load classes from configuration and service assembly retains dedicated entry points; the current implementation does not place every capability behind one plugin contribution contract.
+
+## Public API and Role Assembly
+
+`PUBLIC_API_NAMES` in `ucagent/api.py` defines the stable public subset; `_EXPORTS` also contains lazy forwarding targets used internally. Being importable from the root package does not make a name a stable extension interface. Dependency checks must resolve root aliases to their defining modules, not merely inspect the `ucagent` import spelling.
+
+Ordinary assembly selects services and tools by role during Agent construction: single retains business tools; Global exposes discovery, launch, and result tools; Super exposes delegation tools and assigns business tools to authorized Subs. The application injects process launchers, MCP endpoints, and presentation capabilities, without reverse imports from core. Global owns public multi workflow orchestration; see [Workflow Handoff](../02_usage/12_workflow_handoff.md) for the optional internal handoff startup branch.
 
 ## Boundaries of Configuration and Resources
 

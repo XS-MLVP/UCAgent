@@ -3,9 +3,9 @@
 
 `WaveInfo` 根据文件扩展名自动选择读取器，内置支持 FST、VCD、FSDB、USDB。文件清单、信号查询、事件分析和证据重放使用同一套格式配置。此配置只影响分析时搜索和选择已有波形，不改变模拟器、`SetWaveform` 或测试 fixture 生成的格式。
 
-## PDB 手动重放全部 Bug 波形
+## Console 手动重放全部 Bug 波形
 
-在 UCAgent 的 PDB 控制台执行：
+`waveform_replay` 由 UnitTest 插件通过命令注册表提供；插件未激活时该命令不可用。它可从 Console、TUI 或 HTTP 命令接口提交，由共享执行器管理操作和取消。在 Console 中执行：
 
 ```text
 (UnityChip) waveform_replay
@@ -18,7 +18,7 @@
 
 命令先执行该分类检查，重跑完整 DUT 测试集合并核对失败测试与 BG/TC/CK；正确复现 DUT Bug 的测试仍保持 Fail，分类检查失败则停止，不进入 replay。分类通过后，对所有非零置信度动态 Bug 关联的唯一 TC 逐一重放，每个 TC 只处理一次。签名语义未变的记录复用原有分析结论，自动原子刷新当前 receipt、波形路径和查看配置；已是当前证据时不重复写入。没有有效动态 Bug 时，校验规范空文档并报告无需重放。
 
-控制台和 UCAgent 运行日志使用 `[waveform_replay]` 前缀，记录目标文档、测试目录、测试超时、分类结果、每个 TC 的进度与状态、刷新数量，以及最终耗时和 `SUCCESS`、`FAILED` 或 `CANCELLED`。按 Ctrl+C 可取消执行。配置缺失或歧义、测试分类失败、波形缺失、receipt 无效或写入失败都会明确报告当前操作及完整诊断；按诊断修复后重试。
+控制台和 UCAgent 运行日志使用 `[waveform_replay]` 前缀，记录目标文档、测试目录、测试超时、分类结果、每个 TC 的进度与状态、刷新数量，以及最终耗时和 `SUCCESS`、`FAILED` 或 `CANCELLED`。本地前台执行时可按 Ctrl+C 请求取消；HTTP 提交的操作按返回 ID 取消，见[运行控制](../02_usage/10_runtime_control.md)。配置缺失或歧义、测试分类失败、波形缺失、receipt 无效或写入失败都会明确报告当前操作及完整诊断；按诊断修复后重试。
 
 TC 的断言、激励或对应测试源码变化时，即使重放出的波形完全一致，该 TC 仍必须报错，保留原分析记录并要求重新分析关联 Bug；测试路径、函数名或参数化 node ID 变化也不能自动建立等价关系。源码、timeline、信号值等签名语义变化返回 `WAVEFORM_SEMANTIC_BATCH_REVIEW_REQUIRED`，并包含 `requires_bug_reanalysis: true`、精确 TC、变化文件和完整 `review_batch_call`，供后续分析使用。先按返回调用使用 `ReviewWaveInfoEvidenceBatch` 准备全部上下文，结合当前 TC、规格、源码和波形重新分析全部关联 Bug，再一次原子提交全部 review；随后按诊断执行一次 `Check`。整次命令可能已刷新其他语义未变的记录，已完成的刷新会有独立日志；每次文档写入仍遵循原子提交约束。
 
@@ -30,7 +30,7 @@ TC 的断言、激励或对应测试源码变化时，即使重放出的波形�
 
 ## 测试产物的默认后缀
 
-测试 API 模板通过 `ucagent.get_default_subfix(dut, sub_type)` 选择产物后缀，`sub_type` 取 `"waveform"` 或 `"coverage"`，返回值不含前导点：
+测试 API 模板通过 `test_utils.get_default_subfix(dut, sub_type)` 选择产物后缀，`sub_type` 取 `"waveform"` 或 `"coverage"`，返回值不含前导点：
 
 | `dut.SIMULATOR` | 波形后缀 | 覆盖率后缀 |
 | --- | --- | --- |
@@ -42,11 +42,11 @@ TC 的断言、激励或对应测试源码变化时，即使重放出的波形�
 
 `get_coverage_data_path(request, dut, new_path)` 和 `get_waveform_path(request, dut, new_path)` 将返回的后缀用于每个测试的唯一产物路径。创建时使用 `new_path=True`，覆盖率上报时使用同一个 DUT 和 `new_path=False`，以取得原路径。VCS 的 `.vdb` 可以是目录，按完整路径传递即可。模板阶段的 fake DUT 与独立 Mock DUT 保留原 DUT 类声明的 `SIMULATOR`，无需启动真实仿真器。
 
-新增仿真器时，在 `ucagent/util/test_tools.py` 的 `_SIMULATOR_DEFAULT_SUFFIXES` 中补充 `waveform` 和 `coverage` 两项，并增加对应测试；路径模板无需增加分支。此映射只定义命名规则，实际产物依赖 DUT 构建及仿真器支持；新波形格式仍需按本页注册读取器。覆盖率解析由 `toffee-test` 提供，使用 VCS 时还需确认所用版本支持 `.vdb`；后缀选择本身不会增加覆盖率解析能力。
+新增仿真器时，在 `ucagent/plugins/UnitTest/src/unit_test/test_utils.py` 的 `_SIMULATOR_DEFAULT_SUFFIXES` 中补充 `waveform` 和 `coverage` 两项，并增加对应测试；路径模板无需增加分支。此映射只定义命名规则，实际产物依赖 DUT 构建及仿真器支持；新波形格式仍需按本页注册读取器。覆盖率解析由 `toffee-test` 提供，使用 VCS 时还需确认所用版本支持 `.vdb`；后缀选择本身不会增加覆盖率解析能力。
 
 ## 格式优先级
 
-默认配置位于 `ucagent/setting.yaml`：
+默认配置位于 UnitTest 工作流 `ucagent/plugins/UnitTest/src/unit_test/workflows/unittest.yaml`：
 
 ```yaml
 runtime_options:
@@ -115,8 +115,8 @@ FSDB 使用 `WavekitFsdbReader` 适配 wavekit。FSDB 还需要 Verdi NPI 运行
   "signals": ["TOP.dut.clk", "TOP.dut.result"],
   "source_files": ["../rtl/Demo.sv", "../src/Demo.scala"],
   "dut_python_path": "../Demo/__init__.py",
-  "test_file": "../unity_test/tests/test_demo.py",
-  "test_case": "unity_test/tests/test_demo.py::test_saturation",
+  "test_file": "../unit_test/tests/test_demo.py",
+  "test_case": "unit_test/tests/test_demo.py::test_saturation",
   "start": "100",
   "end": "200",
   "cursor": "150",
@@ -239,10 +239,10 @@ runtime_options:
 
 ## 注册其他格式
 
-`ucagent/util/waveform_formats/` 是一个 Python 包。公共协议与注册机制不依赖任何波形解析库；每个格式在独立文件中实现 reader，多个格式使用同一库时可以共享适配器：
+`ucagent/plugins/UnitTest/src/unit_test/waveform_formats/` 是一个 Python 包。公共协议与注册机制不依赖任何波形解析库；每个格式在独立文件中实现 reader，多个格式使用同一库时可以共享适配器：
 
 ```text
-ucagent/util/waveform_formats/
+ucagent/plugins/UnitTest/src/unit_test/waveform_formats/
 ├── __init__.py          # Public exports and built-in registration
 ├── protocols.py         # Reader, factory, scope, signal, and result contracts
 ├── registry.py          # Priority validation and extension dispatch
@@ -453,7 +453,7 @@ result = {
 # my_plugin/readers/read_wlf.py
 
 from contextlib import AbstractContextManager
-from ucagent.util.waveform_formats import (
+from unit_test.waveform_formats import (
     WaveformSignalMatches, WaveformValueChanges, WaveformBackendArgumentError,
     paginate_signal_matches,
 )
@@ -516,13 +516,14 @@ class ExampleWlfReader(AbstractContextManager):
 
 # Plugin initialization
 
-from ucagent.tools import WaveInfo, register_waveform_reader
+from unit_test.waveform import WaveInfo
+from unit_test.waveform_formats import register_waveform_reader
 from my_plugin.readers.read_wlf import ExampleWlfReader
 
 register_waveform_reader("wlf", ExampleWlfReader, backend="example")
 tool = WaveInfo(
     workspace="/path/to/workspace",
-    test_dir="unity_test/tests",
+    test_dir="unit_test/tests",
     format_priority=["fst", "vcd", "fsdb", "wlf"],
     backend_priority={"wlf": ["example"]},
 )

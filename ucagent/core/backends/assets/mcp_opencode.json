@@ -1,0 +1,39 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ucagent": {
+      "type": "remote",
+      "url": "http://127.0.0.1:{{PORT}}/mcp",
+      "enabled": true,
+      "timeout": 600000000
+    }
+  },
+  "permission": {
+    "bash": "deny",
+    "external_directory": "deny",
+    "edit": {
+      ".ucagent": "deny",
+      ".ucagent/**": "deny",
+      {{ (CWD ~ '/.ucagent') | tojson }}: "deny",
+      {{ (CWD ~ '/.ucagent/**') | tojson }}: "deny"
+    }
+  },
+  "provider": {
+    "ucagent": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "UCAgent",
+      "options": {
+        "baseURL": "{{OPENAI_API_BASE}}",
+        "apiKey": "{env:OPENAI_API_KEY}"
+      },
+      "models": {
+        "{{OPENAI_MODEL}}": {
+          "name": "{{OPENAI_MODEL}}"{% if OPENAI_CONTEXT_SIZE %},
+          "limit": {"context": {{OPENAI_CONTEXT_SIZE}}{% if OPENAI_OUTPUT_SIZE %}, "output": {{OPENAI_OUTPUT_SIZE}}{% endif %}}{% endif %}
+        }
+      }
+    }
+  }{% if OPENAI_API_BASE %}{% if OPENAI_MODEL %},
+  "model": "ucagent/{{OPENAI_MODEL}}"
+  {% endif %}{% endif %}
+}

@@ -27,8 +27,9 @@ dependencies = [
     "psutil>=7.1.0",
     "langfuse>=3.9.1",
     "gitpython>=3.1.43",
-    "pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master",
-    "toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master",
+    # Default toffee-ut workflow runtime: Toffee 2. Legacy UnitTest and
+    # DesignWithPPA use requirements-legacy-unittest.txt in a separate venv.
+    "uc-toffee[runner]>=2.2.0",
     "textual>=7.3.0",
     "Jinja2>=3.1.6",
     "fastapi>=0.135.0",
@@ -36,6 +37,7 @@ dependencies = [
     "aiohttp>=3.13.5,<4",
     "docker>=7.1.0",
     "kubernetes>=33.1.0",
+    # UnitTest default-workflow waveform-analysis reader (see above).
     "wavekit>=0.7.0,<0.8.0",
     "pywellen>=0.25.7,<0.26",
     "pylibfst>=0.2.1,<0.3",
@@ -46,7 +48,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.scripts]
-ucagent = "ucagent.cli:main"
+ucagent = "ucagent.application.entry:main"
 
 [project.urls]
 Homepage = "https://github.com/XS-MLVP/UCAgent"
@@ -62,28 +64,44 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["ucagent*"]
+# The bundled workflow-plugin projects under ucagent/plugins/ carry their own
+# src layouts and must never be discovered as ucagent subpackages (their code
+# imports through the plugin manifest roots, not as ucagent.plugins.<P>.src.*).
+exclude = [
+    "ucagent.plugins.UnitTest*",
+    "ucagent.plugins.Formal*",
+    "ucagent.plugins.DesignWithPPA*",
+    "ucagent.plugins.RTL2Spec*",
+    "ucagent.plugins.ACT4*",
+    "ucagent.plugins.ToffeeUT*",
+]
 
 [tool.setuptools.package-data]
 ucagent = [
-    "**/*.bak",
-    "**/*.css",
-    "**/*.html",
-    "**/*.ignore",
-    "**/*.ini",
-    "**/*.j2",
-    "**/*.js",
-    "**/*.json",
-    "**/*.lock",
-    "**/*.md",
-    "**/*.patch",
-    "**/*.rs",
-    "scripts/surfer/LICENSE-EUPL-1.2.txt",
-    "**/*.sucl",
-    "**/*.sv",
-    "**/*.svg",
-    "**/*.tcl",
-    "**/*.tcss",
-    "**/*.toml",
-    "**/*.wasm",
-    "**/*.yaml",
+    "setting.yaml",
+    "SKILL.md",
+    "application/presets/**/*.yaml",
+    "core/locales/*.yaml",
+    "core/multi_agent/global_agent/workflow.yaml",
+    "core/backends/assets/**/*",
+    "interfaces/server/fst_converter/**/*",
+    "interfaces/server/static/**/*",
+    "interfaces/server/templates/**/*",
+    "interfaces/terminal/**/*.tcss",
+    "scripts/**/*",
 ]
+# Built-in workflows bundled with the framework: ToffeeUT and UnitTest. The
+# project manifest and the full src tree (workflows, presets, templates,
+# skills, docs) ship as package data; tests do not. The other plugin projects
+# stay source-tree only and are distributed as their own packages. The key is quoted because the package name contains a
+# dot; an unquoted `ucagent.plugins` would try to mutate the plain `ucagent`
+# array above, which TOML forbids.
+"ucagent.plugins" = [
+    "ToffeeUT/ucagent-plugin.toml",
+    "ToffeeUT/src/**/*",
+    "UnitTest/ucagent-plugin.toml",
+    "UnitTest/src/**/*",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["**/__pycache__/*", "**/*.pyc", "**/*.pyo"]

@@ -49,6 +49,11 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
+The default environment uses Toffee 2 and the `toffee-ut:ut` workflow. Legacy
+UnitTest and DesignWithPPA require Toffee 1.x and must be installed with
+`requirements-legacy-unittest.txt` in a separate virtualenv; do not mix them
+with the default environment.
+
 ### 3. Install OpenCode
 
 Please refer to [https://opencode.ai/](https://opencode.ai/) to install opencode.
@@ -264,7 +269,7 @@ A: Yes, see [Customization Documentation](https://ucagent.open-verify.cc/content
 
 **Q: How to add custom tools?**
 
-A: Create a new tool class in the `ucagent/tools/` directory, inherit from the `UCTool` base class, and load it with the `--ex-tools` parameter. See [Tool List Documentation](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/).
+A: Create a new tool class in the `ucagent/core/tools/` directory, inherit from the `UCTool` base class, and load it with the `--ex-tools` parameter. See [Tool List Documentation](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/).
 
 > 🔍 **More Questions:** Check the complete [FAQ Documentation](https://ucagent.open-verify.cc/content/02_usage/05_faq/)
 

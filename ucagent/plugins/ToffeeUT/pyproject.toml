@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ucagent-toffee-ut"
+version = "0.1.0"
+description = "Toffee 2 UT workflows, project automation and verification methods for UCAgent"
+readme = "README.md"
+license = "Apache-2.0 AND MPL-2.0"
+license-files = ["LICENSE", "NOTICE.md", "src/toffee_ut/skills/ucv4xs-workflow/references/LICENSE-MPL-2.0.txt"]
+requires-python = ">=3.11"
+# UCAgent is supplied by the selected source checkout in this plugin's venv.
+# Depending on its distribution would also install Legacy pytoffee.
+dependencies = ["uc-toffee[runner]", "wavekit", "PyYAML>=6,<7", "packaging>=24,<27", "pydantic>=2.7,<3", "Jinja2>=3.1.6,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build>=1"]
+
+[project.entry-points."ucagent.plugins"]
+toffee-ut = "toffee_ut.plugin:get_plugin"
+
+[project.scripts]
+toffee-ut = "toffee_ut.cli:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.package-data]
+toffee_ut = ["workflows/*.yaml", "Guide_Doc/*.md", "skills/**/*.md", "skills/**/*.txt", "templates/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

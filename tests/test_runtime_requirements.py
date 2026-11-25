@@ -154,7 +154,7 @@ def test_docs_skip_partial_optional_installation(monkeypatch):
 def test_usdb_skips_missing_reader_before_compiling(tmp_path, monkeypatch):
     """Configured UVS without UVD must skip before spending time on compilation."""
     import test_read_usdb
-    from ucagent.util.waveform_formats import read_usdb
+    from unit_test.waveform_formats import read_usdb
 
     home = tmp_path / "uvs"
     (home / "bin").mkdir(parents=True)

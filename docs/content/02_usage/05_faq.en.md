@@ -36,11 +36,11 @@ First, confirm that the old UCAgent and any external Code Agent have exited, the
 First, read the `artifact`, `location`, `observed`, `expected`, and `next_action` returned by the Checker. If necessary, use:
 
 ```text
-tool_invoke StdCheck lines=-1
+tool_invoke StdCheck {"lines":-1}
 tool_invoke KillCheck
 ```
 
-After fixing, re-run the tests, `Check`, and `Complete`. Test infrastructure failures should be fixed to Pass first; only reproducible DUT failures with correct assertions should be recorded as Bugs.
+These `tool_invoke` calls also use the model-operation slot. If active work causes `busy`, cancel the relevant operation with `Ctrl+C` or the [HTTP API](10_runtime_control.md) and wait for it to end. After fixing, re-run the tests, `Check`, and `Complete`. Test infrastructure failures should be fixed to Pass first; only reproducible DUT failures with correct assertions should be recorded as Bugs.
 
 ### Why is `config.yaml` not found at startup?
 
@@ -72,9 +72,11 @@ CK stands for functional check point, and TC stands for test case. Dynamic Bug e
 
 ### How to troubleshoot MCP connection failures?
 
+If no model call started or a task stopped, first use [Runtime Troubleshooting](14_troubleshooting.md) to distinguish configuration preflight, backend execution, and business acceptance failures rather than assuming a network disconnection.
+
 Confirm:
 
-1. UCAgent is using `--mcp-server` or `--mcp-server-no-file-tools`;
+1. MCP started successfully; UnitTest requires `--mcp-server`, not `--mcp-server-no-file-tools`. See [MCP Integration](../01_start/03_mcp_mode.md) for required-tool validation;
 2. The client address is `http://<host>:<port>/mcp`;
 3. The client port matches `--mcp-server-port`;
 4. For remote scenarios, `--mcp-server-host`, firewall, and permissions allow the connection.

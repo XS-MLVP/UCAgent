@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+"""Make the repository importable when pytest collects tests without an installed package.
+
+Bare ``pytest`` does not place the repository root on ``sys.path``, while test
+modules import ``ucagent`` (and the unittest plugin) directly. Apply the same
+path setup the self-bootstrapping test files use so every collected module,
+including newly merged upstream tests, imports uniformly.
+"""
+
+import sys
+from pathlib import Path
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[1])
+_UNITTEST_SRC = str(Path(_REPO_ROOT) / "ucagent" / "plugins" / "UnitTest" / "src")
+
+for _entry in (_REPO_ROOT, _UNITTEST_SRC):
+    if _entry not in sys.path:
+        sys.path.insert(0, _entry)
+
+
+import pytest
+from unittest.mock import patch
+
+
+@pytest.fixture
+def cli_runtime(tmp_path):
+    """Isolate argument-plumbing tests; real CLI lifecycle lives in test_runtime_cli."""
+    with patch("ucagent.RuntimeHost") as factory, patch("ucagent.Console") as console, \
+         patch("ucagent.application.launch.configure_agent_sessions"):
+
+        host = factory.return_value
+        host.agent.workspace = str(tmp_path)
+        host.agent_sessions = None
+        host.snapshot.return_value = {"instance": "closed"}
+        host.wait.return_value = {"exit_code": 0}
+        host.services.start_mcp.return_value = {"ok": True}
+        host.services.status.return_value = {"state": "stopped"}
+        host.registry.execute.return_value.data = {"ok": True}
+        console.return_value.execute_line.side_effect = lambda line: host.registry.execute(line, console.return_value.session)
+        yield host

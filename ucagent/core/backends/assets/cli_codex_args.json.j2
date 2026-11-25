@@ -1,0 +1,26 @@
+[
+  {{ executable | tojson }},
+  "-c", {{ ('sandbox_mode=' ~ ('read-only' if managed else 'workspace-write') | tojson) | tojson }},
+  "-c", "approval_policy=\"never\""
+  {% if managed %}
+  {# MCP tools enforce task file policy; native sandbox limits must not describe their authority. #}
+  , "-c", "include_permissions_instructions=false"
+  , "-c", "web_search=\"disabled\""
+  {% for feature in ['shell_tool', 'unified_exec', 'apply_patch_freeform', 'apps', 'plugins', 'multi_agent', 'multi_agent_v2', 'js_repl', 'code_mode', 'code_mode_only', 'request_permissions_tool', 'image_generation', 'tool_search'] %}
+  , "-c", {{ ('features.' ~ feature ~ '=false') | tojson }}
+  {% endfor %}
+  {% endif %}
+  {% if inherited %}
+  {% set disabled_servers %}{% for server in inherited %}{{ ',' if not loop.first }}{{ server.name | tojson }}={enabled=false{% if server.transport.type == 'stdio' %},command={{ server.transport.command | tojson }}{% else %},url={{ server.transport.url | tojson }}{% endif %}}{% endfor %}{% endset %}
+  , "-c", {{ ('mcp_servers={' ~ disabled_servers ~ '}') | tojson }}
+  {% endif %}
+  , "-c", {{ ('mcp_servers.' ~ server_name ~ '.url=' ~ (mcp_url | tojson)) | tojson }}
+  , "-c", {{ ('mcp_servers.' ~ server_name ~ '.enabled=true') | tojson }}
+  , "-c", {{ ('mcp_servers.' ~ server_name ~ '.tool_timeout_sec=' ~ tool_timeout) | tojson }}
+  {% if mcp_token %}
+  , "-c", {{ ('mcp_servers.' ~ server_name ~ '.bearer_token_env_var="UCAGENT_WORKER_MCP_TOKEN"') | tojson }}
+  {% endif %}
+  {% for tool in tools %}
+  , "-c", {{ ('mcp_servers.' ~ server_name ~ '.tools.' ~ tool ~ '.approval_mode="approve"') | tojson }}
+  {% endfor %}
+]
