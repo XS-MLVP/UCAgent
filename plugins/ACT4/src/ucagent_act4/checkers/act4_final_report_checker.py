@@ -41,6 +41,7 @@ class ACT4FinalReportChecker(Checker):
         **kwargs: Any,
     ) -> None:
         super().__init__()
+        self.cfg = cfg
         if any((contribution_manifest, patch_file, act4_root)) and not all((contribution_manifest, patch_file, act4_root)):
             raise ValueError("Patch publication requires contribution_manifest, patch_file and act4_root")
         self.contribution_manifest, self.patch_file, self.act4_root = contribution_manifest, patch_file, act4_root
@@ -310,7 +311,9 @@ class ACT4FinalReportChecker(Checker):
                 )
 
         state_checks = self._validate_state(text, findings)
-        if not any(item["severity"] == "error" for item in findings) and self.patch_file:
+        from ..run_config import run_settings
+
+        if not any(item["severity"] == "error" for item in findings) and self.patch_file and not run_settings(getattr(self, "cfg", None)):
             try:
                 workspace = Path(self.workspace).resolve()
                 checkout = safe_path(workspace, self.act4_root)

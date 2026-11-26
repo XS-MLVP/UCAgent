@@ -25,6 +25,8 @@ import yaml
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 from ucagent.util.log import warning
 from ..environment import prepared_environment
+from ..finding_acceptance import check_finding_closure, check_finding_plan
+from ..run_config import run_settings
 from ..resources import copy_on_write, resolve_source
 
 from .act4_asset_checker import ACT4AssetChecker
@@ -56,6 +58,15 @@ OPTIONAL_SIMULATORS = {
     "vcs": ("vcs",),
     "xcelium": ("xrun",),
 }
+
+
+class FindingRepairRequired(ValueError):
+    """Carry the bounded repair queue back to the agent without advancing the review batch."""
+
+    def __init__(self, queue):
+        """Keep IDs, scoped paths and per-finding next actions for the current candidate."""
+        super().__init__(f"{len(queue)} local findings still require targeted repair")
+        self.queue = queue
 
 
 class ScopeValidationError(ValueError):
@@ -340,6 +351,9 @@ def resolve_validation_plan(tree: Path, scope: dict[str, Any]) -> dict[str, Any]
         if len(matches) != 1:
             continue
         config = matches[0]
+        config_name = str(config.relative_to(tree))
+        target_plan["config"] = config_name
+        target_plan["sources"][config_name] = hashlib.sha256(safe_path(tree, config_name).read_bytes()).hexdigest()
         policy_path = safe_path(tree, str(config.parent.parent.relative_to(tree) / "ci.yaml"))
         runner_path = safe_path(tree, str(config.parent.relative_to(tree) / "run_cmd.txt"))
         if not policy_path.is_file() or not runner_path.is_file():
@@ -353,12 +367,12 @@ def resolve_validation_plan(tree: Path, scope: dict[str, Any]) -> dict[str, Any]
         command = runner_path.read_text(encoding="utf-8").strip()
         if not command:
             raise ValueError(f"Empty native run command: {runner_path.relative_to(tree)}")
-        for source in (config, policy_path, runner_path, tree / ".github/scripts/ci_config.py"):
+        for source in (policy_path, runner_path, tree / ".github/scripts/ci_config.py"):
             if source.is_file():
                 name = str(source.relative_to(tree))
                 target_plan["sources"][name] = hashlib.sha256(safe_path(tree, name).read_bytes()).hexdigest()
         enabled = policy.get("ci_enabled", True) and target not in policy.get("exclude_configs", [])
-        target_plan.update(status="enabled" if enabled else "excluded", config=str(config.relative_to(tree)),
+        target_plan.update(status="enabled" if enabled else "excluded",
                            run_command=command, exclude_extensions=policy.get("exclude_extensions", []),
                            reason="Native target policy permits selection" if enabled else "Native CI disables this simulator or excludes this target")
     for job in scope["jobs"]:
@@ -435,15 +449,16 @@ class ACT4ReviewChecker(Checker):
     def __init__(self, phase: str, suite: str, review_dir: str, result_dir: str,
                  act4_root: str = "riscv-arch-test", batch_size: int = 12,
                  max_stalled_checks: int = 8, max_experiments: int = 6,
-                 max_experiment_seconds: int = 1800, **kwargs: Any) -> None:
+                 max_experiment_seconds: int = 1800, generation_root: str | None = None, **kwargs: Any) -> None:
         """Store stage configuration without inspecting the live workspace."""
         super().__init__()
-        kwargs.pop("cfg", None)
+        self.cfg = kwargs.pop("cfg", None)
         if kwargs or phase not in {"plan", "audit", "repair", "final"}:
             raise ValueError("Invalid ACT4 review phase or checker arguments")
         self.phase, self.suite = phase, suite
         self.review_dir, self.act4_root = review_dir, act4_root
         self.result_dir = result_dir
+        self.generation_root = generation_root
         if type(batch_size) is not int or not 1 <= batch_size <= 50:
             raise ValueError("Review batch_size must be an integer from 1 to 50")
         if type(max_stalled_checks) is not int or max_stalled_checks < 1:
@@ -506,6 +521,10 @@ class ACT4ReviewChecker(Checker):
         plan = self._load("isa-plan.yaml")
         if plan.get("suite") != self.suite or not is_text(plan.get("target_context")):
             raise ValueError("isa-plan.yaml needs this suite and target_context from the user, not existing tests or CI")
+        if self.generation_root is not None:
+            settings = run_settings(self.cfg)
+            if not settings or plan["target_context"] != settings["target_context"]:
+                raise ValueError("Use the exact target_context from the run YAML for independent ISA planning")
         workspace = Path(self.workspace)
         if is_text_list(plan.get("reference_files"), allow_empty=True):
             for name in plan["reference_files"]:
@@ -635,6 +654,9 @@ class ACT4ReviewChecker(Checker):
                 else:
                     paths.add(str(path.relative_to(self.source)))
         current = tree_state(self.source, sorted(paths) if git_input else None)
+        if self.generation_root is not None:
+            state["generation_comparison"] = current
+            current = {name: item for name, item in current.items() if name not in getattr(self, "_generation_excluded", set())}
         head = subprocess.check_output(["git", "-C", str(self.source), "rev-parse", "HEAD"], text=True, env=self.environment).strip() if git_input else None
         module_heads = {name: subprocess.check_output(["git", "-C", str(self.source / name), "rev-parse", "HEAD"], text=True, env=self.environment).strip()
                         for name in submodules}
@@ -681,10 +703,12 @@ class ACT4ReviewChecker(Checker):
                     continue
                 for index, name in enumerate(paths):
                     with scope_field(errors, f"{field}[{index}]"):
+                        if name in getattr(self, "_generation_excluded", set()):
+                            raise ValueError(f"Regenerated asset is excluded from before review: {name}")
                         if not safe_path(self.source, name).is_file():
                             raise ValueError(f"Missing review asset: {name}; use [] and report an omission")
             with scope_field(errors, "scope.assets"):
-                if not any(assets.values()):
+                if not any(assets.values()) and self.generation_root is None:
                     raise ValueError("Review requires existing test assets; use the generation workflow for a new suite")
         context = scope.get("context_files")
         with scope_field(errors, "scope.context_files"):
@@ -694,6 +718,8 @@ class ACT4ReviewChecker(Checker):
         if is_text_list(context, allow_empty=True):
             for index, name in enumerate(context):
                 with scope_field(errors, f"scope.context_files[{index}]"):
+                    if name in getattr(self, "_generation_excluded", set()):
+                        raise ValueError(f"Regenerated asset cannot be read as context: {name}")
                     if name in declared:
                         raise ValueError("A path cannot be both a reviewed asset and a reference-only context file")
                     if not safe_path(self.source, name).is_file():
@@ -1401,8 +1427,12 @@ class ACT4ReviewChecker(Checker):
             if "root_cause_key" in item and (not is_text(item["root_cause_key"]) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", item["root_cause_key"])):
                 raise ValueError("root_cause_key must be a stable 1..120 character rule/source identity; do not merge per-module evidence")
         for change in changes:
-            if not isinstance(change, dict) or not is_text_list(change.get("findings")) or not set(change["findings"]) <= ids:
+            if not isinstance(change, dict) or not is_text_list(change.get("findings"), allow_empty=self.generation_root is not None) or not set(change["findings"]) <= ids:
                 raise ValueError("Each change must reference existing finding ids")
+            if not change["findings"]:
+                requirements = {item["id"] for item in self._load("isa-plan-accepted.json")["plan"]["requirements"]}
+                if not is_text_list(change.get("requirements")) or not set(change["requirements"]) <= requirements:
+                    raise ValueError("Planned generation changes without defect findings must reference accepted ISA requirements")
             if not is_text_list(change.get("paths")) or not is_text(change.get("action")) or not is_text(change.get("risk")):
                 raise ValueError("Each change needs exact paths, action, and risk")
             if not is_text_list(change.get("validation_jobs")) or not set(change["validation_jobs"]) <= {job["id"] for job in scope["jobs"]}:
@@ -1553,12 +1583,19 @@ class ACT4ReviewChecker(Checker):
                     if not isinstance(budget, dict) or budget.get("resource") not in {"seconds", "tokens", "experiments"} or type(budget.get("limit")) is not int or budget["limit"] < 1 or type(budget.get("consumed")) is not int or budget["consumed"] < budget["limit"]:
                         raise ValueError("Budget stops require resource seconds/tokens/experiments, positive limit and consumed >= limit, plus quoted usage evidence")
                     self._citations(budget.get("basis"), allowed, source_lines)
+                    if self.generation_root and budget["resource"] == "tokens":
+                        raise ValueError("Generation has no authenticated token budget; use the actual experiment limit or repair the finding")
+                    if self.generation_root and budget["resource"] == "seconds":
+                        elapsed = int(sum(item.get("seconds", 0) for item in self._state().get("experiments", {}).values()))
+                        if budget["limit"] != self.max_experiment_seconds or budget["consumed"] != elapsed or not any(item["path"] == "experiments.json" for item in budget["basis"]):
+                            raise ValueError("Generation seconds must match the configured experiment deadline and recorded elapsed seconds")
                     if budget["resource"] == "experiments":
                         attempts = self._state().get("experiments", {})
                         used = sum(item["status"] != "prepared" for item in attempts.values())
                         if budget["limit"] != self.max_experiments or budget["consumed"] != used or not any(item["path"] == "experiments.json" for item in budget["basis"]):
                             raise ValueError("Experiment budget claims must match the configured limit and actual attempts in experiments.json")
-            if review is not None and finding["status"] == "fixed" and (finding["classification"] != "confirmed_defect" or finding["diagnosis"] != "repair_ready"):
+            scope_fix = review is not None and finding["id"] in review.get("scope_repairs", {}) and finding["classification"] == "validation_gap"
+            if review is not None and finding["status"] == "fixed" and not scope_fix and (finding["classification"] != "confirmed_defect" or finding["diagnosis"] != "repair_ready"):
                 raise ValueError("Only a confirmed_defect with repair_ready diagnosis and an actual validated source change can be fixed")
             if review is not None and finding["status"] == "dismissed" and finding["classification"] != "not_a_defect":
                 raise ValueError("A dismissed finding requires classification: not_a_defect and a source-grounded reassessment")
@@ -1629,7 +1666,8 @@ class ACT4ReviewChecker(Checker):
                         for job in run["jobs"]])
                 current_classes = {item["id"]: item["classification"] for item in document["findings"]}
                 previous_classes = {item["id"]: item["classification"] for item in previous["findings"]}
-                if snapshot["evidence_digest"] == before["review_digest"] and before["fingerprint"] == evidence["fingerprint"] and signatures[0] == signatures[1] and current_classes == previous_classes:
+                unchanged_run = before["fingerprint"] == evidence["fingerprint"] and signatures[0] == signatures[1]
+                if snapshot["evidence_digest"] == before["review_digest"] and current_classes == previous_classes:
                     reason = "Only judgments with identical dependency inputs, task definitions and quoted sources are eligible; findings and changes always require fresh review"
                     for original in previous["semantic_review"]["judgments"]:
                         for subject in original["tasks"]:
@@ -1639,6 +1677,18 @@ class ACT4ReviewChecker(Checker):
                             expected_task = json.loads(json.dumps(before["review_tasks"][subject]).replace("baseline/", "candidate/"))
                             if expected_task != tasks[current_subject]:
                                 continue
+                            if not unchanged_run:
+                                source = expected_task.get("path", "")
+                                if (not subject.startswith("source:") or expected_task.get("kind") != "specification"
+                                        or original["findings"] or len(original["tasks"]) != 1
+                                        or not source.startswith("references/") or not original["basis"]
+                                        or any(citation["path"] != source for citation in original["basis"])):
+                                    continue
+                                mappings = [[entry for entry in version["obligations"] if subject in entry["sources"]]
+                                            for version in (previous, document)]
+                                if (not mappings[0] or any(entry["findings"] or entry["implementation"] or entry["coverpoints"] for entry in mappings[0])
+                                        or mappings[0] != mappings[1]):
+                                    continue
                             if any(item["id"] in original["findings"] and item.get("status") in {"fixed", "dismissed"} for item in document["findings"]):
                                 continue
                             if subject.startswith("topic:") and any(
@@ -1675,6 +1725,8 @@ class ACT4ReviewChecker(Checker):
             raise ValueError("semantic_review.judgments must assess every evidence review_task; an empty or missing AI review cannot pass")
         observed = set()
         finding_ids = {item["id"] for item in document["findings"]}
+        fixed_ranges = [(f"references/{path}", first, last) for finding in document["findings"] if review and finding.get("status") == "fixed"
+                        for path, spans in review.get("scope_repairs", {}).get(finding["id"], {}).items() for first, last in spans]
         for index, judgment in enumerate(judgments):
             self._validation_section = "judgment"
             self._validation_location = f"semantic_review/judgments/{index}"
@@ -1739,6 +1791,9 @@ class ACT4ReviewChecker(Checker):
                     for item in basis
                 ):
                     raise ValueError(f"Source task {subject} must cite its own source block")
+                if subject.startswith("source:") and any(task["path"] == path and first <= task["lines"][0] <= last for path, first, last in fixed_ranges):
+                    if status == "unverified" or confidence != "confirmed":
+                        raise ValueError(f"Cannot close a reference scope gap with an unverified newly reviewed block: {subject}")
                 if subject.startswith("obligation:"):
                     expected_status = {"implemented": "passed", "gap": "issues", "unverified": "unverified", "not_applicable": "not_applicable"}[task["obligation_status"]]
                     if status != expected_status:
@@ -1779,14 +1834,19 @@ class ACT4ReviewChecker(Checker):
                         raise ValueError(f"Confirmed defect {finding['id']} needs an issues/confirmed judgment linked to the finding, even when repair is deferred")
                     if finding["classification"] == "not_a_defect" and (status not in {"passed", "not_applicable"} or confidence != "confirmed"):
                         raise ValueError(f"Ruling out finding {finding['id']} requires a confirmed passed/not_applicable judgment")
-                    if finding.get("status") == "fixed" and status != "passed":
+                    if finding.get("status") == "fixed" and (status != "passed" or confidence != "confirmed"):
                         raise ValueError(f"Finding {finding['id']} cannot be fixed while its AI reassessment is {status}")
                     if finding.get("status") == "fixed":
                         paths = {name for change in review["changes"] if finding["id"] in change["findings"]
                                  for name in change["paths"] if name in (changed or [])}
                         sources = {f"candidate/{name}" if f"candidate/{name}" in evidence["source_files"] else f"baseline/{name}"
                                    for name in paths}
-                        if not sources.intersection(item["path"] for item in basis):
+                        expansion = review.get("scope_repairs", {}).get(finding["id"], {})
+                        if expansion and not all(any(citation["path"] == f"references/{name}" and
+                                first <= citation["lines"][0] <= citation["lines"][1] <= last for citation in basis)
+                                for name, ranges in expansion.items() for first, last in ranges):
+                            raise ValueError(f"Reassess {finding['id']} with a source quotation from each newly reviewed range")
+                        if not expansion and not sources.intersection(item["path"] for item in basis):
                             raise ValueError(f"AI reassessment of fixed finding {finding['id']} must cite its changed source")
                     if finding.get("status") == "dismissed" and (status not in {"passed", "not_applicable"} or confidence != "confirmed"):
                         raise ValueError("Dismissed findings need a confirmed reassessment explaining why no source repair is needed")
@@ -1910,7 +1970,7 @@ class ACT4ReviewChecker(Checker):
 
     def _changes(self, state: dict[str, Any], review: dict[str, Any]) -> list[str]:
         """Reject candidate changes outside declared repair paths, including modes and deletions."""
-        before, after = state["baseline"]["files"], tree_state(self.output / "candidate")
+        before, after = state.get("generation_comparison", state["baseline"]["files"]), tree_state(self.output / "candidate")
         changed = sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name))
         allowed = {name for item in review["changes"] for name in item["paths"]}
         if set(changed) - allowed:
@@ -2113,6 +2173,32 @@ class ACT4ReviewChecker(Checker):
         ids = [item.get("id") for item in results]
         if not is_text_list(ids, allow_empty=True) or len(set(ids)) != len(ids) or set(ids) != {item["id"] for item in review["findings"]}:
             raise ValueError("Final dispositions must cover all original findings exactly once")
+        if self.generation_root:
+            accepted = safe_path(self.output, "review-accepted.json")
+            if hashlib.sha256(accepted.read_bytes()).hexdigest() != self._state().get("audit_snapshot"):
+                raise ValueError("Restore the accepted audit before closing findings")
+            audit = json.loads(accepted.read_bytes())["review"]
+            original_ids = {item["id"] for item in audit["findings"]}
+            if original_ids - set(ids):
+                raise ValueError(f"Restore missing accepted finding IDs: {sorted(original_ids - set(ids))}")
+            allowed_partial = (run_settings(self.cfg) or {}).get("accepted_partial_findings", [])
+            queue = []
+            for item in results:
+                blocker = item.get("blocker") or {}
+                expansion = review.get("scope_repairs", {}).get(item["id"])
+                if expansion and item.get("status") == "fixed":
+                    boundaries = {task.removeprefix("boundary:") for judgment in audit["semantic_review"]["judgments"] if item["id"] in judgment["findings"]
+                                  for task in judgment["tasks"] if task.startswith("boundary:")}
+                    if boundaries - expansion.keys():
+                        raise ValueError(f"{item['id']}: still missing audited reference boundaries: {sorted(boundaries - expansion.keys())}")
+                if (item.get("status") in {"deferred", "not_fixed"} and blocker.get("stop_reason") == "unfinished_work"
+                        and item["id"] not in allowed_partial):
+                    original = next(finding for finding in review["findings"] if finding["id"] == item["id"])
+                    paths = {path for change in review["changes"] if item["id"] in change["findings"] for path in change["paths"]}
+                    queue.append({"id": item["id"], "next_action": str(item.get("next_action", ""))[:400],
+                                  "paths": sorted(paths or original.get("repair_plan", {}).get("paths", []) or [original["location"]])[:8]})
+            if queue:
+                raise FindingRepairRequired(queue)
         for item in results:
             if item.get("status") not in {"fixed", "deferred", "not_fixed", "dismissed"} or not is_text_list(item.get("evidence")) or not is_text(item.get("reason")):
                 raise ValueError("Final findings need fixed/deferred/not_fixed/dismissed, a nonempty evidence string list, and textual reason")
@@ -2135,7 +2221,7 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Update root_cause_key in the reviewed finding before using it for final correlation")
             if item["status"] == "fixed":
                 proposals = [change for change in review["changes"] if item["id"] in change["findings"]]
-                if not any(set(change["paths"]) & set(changed) for change in proposals):
+                if item["id"] not in review.get("scope_repairs", {}) and not any(set(change["paths"]) & set(changed) for change in proposals):
                     raise ValueError(f"Finding {item['id']} claims a fix without a declared source change")
                 required = {job for change in proposals for job in change["validation_jobs"]}
                 if any(job["status"] != "passed" for job in evidence["jobs"] if job["id"] in required):
@@ -2166,9 +2252,15 @@ class ACT4ReviewChecker(Checker):
             raise ValueError("Unresolved findings, AI judgments or CI limitations must appear in remaining_risks")
         if not publish:
             return final
+        frozen = self.smanager_get_value(f"act4_finding_plan:{self.review_dir}", None)
+        if self.generation_root and frozen:
+            plan = yaml.safe_load(safe_path(Path(self.workspace), frozen["path"]).read_bytes())
+            _, missing = check_finding_plan(self, plan, self.review_dir, verify=True, freeze=False)
+            check_finding_closure(results, missing)
         patch = []
         for name in changed:
-            before, after = self.output / "baseline" / name, self.output / "candidate" / name
+            before = (self.source if self.generation_root is not None else self.output / "baseline") / name
+            after = self.output / "candidate" / name
             if before.is_symlink() or after.is_symlink():
                 raise ValueError(f"Do not change symlink source assets: {name}")
             old = before.read_bytes().decode("utf-8").splitlines(keepends=True) if before.exists() else []
@@ -2193,6 +2285,12 @@ class ACT4ReviewChecker(Checker):
                      patch="changes.patch", input_checkout_modified=False)
         self._markdown("final.md", "ACT4 Extension Review and Repair Report", final,
                        [("before", before_evidence), ("after", evidence)])
+        self._write("final-accepted.json", {"summary": final["summary"], "findings": final["findings"],
+                                          "remaining_risks": final["remaining_risks"], "changed_paths": changed,
+                                          "evidence_digest": evidence["review_digest"],
+                                          "patch_sha256": hashlib.sha256(safe_path(self.results, "changes.patch").read_bytes()).hexdigest(),
+                                          "report_sha256": hashlib.sha256(safe_path(self.results, "final.md").read_bytes()).hexdigest()})
+        self._state()["final_snapshot"] = hashlib.sha256(safe_path(self.output, "final-accepted.json").read_bytes()).hexdigest()
         return final
 
     def do_check(self, is_complete: bool = False, run_commands: bool = False, refresh_tools: bool = False,
@@ -2227,6 +2325,17 @@ class ACT4ReviewChecker(Checker):
                 raise ValueError("Review artifacts and input checkout must be separate")
             self.output.mkdir(parents=True, exist_ok=True)
             state = self._state()
+            if self.generation_root is not None:
+                from ..generation_run import import_receipt
+
+                settings = run_settings(self.cfg)
+                if not settings:
+                    raise ValueError("Integrated review requires the resolved generation run configuration")
+                self.max_experiments = settings["limits"]["experiments"]
+                self.max_experiment_seconds = settings["limits"]["experiment_seconds"]
+                if self.phase != "plan":
+                    imported = import_receipt(workspace, settings, self.smanager_get_value)
+                    self._generation_excluded = set(imported["repositories"]["act4"]["removed"])
             if experiment is not None and self.phase == "final":
                 if experiment["id"] not in state.get("experiments", {}):
                     raise ValueError("Prepare the experiment with the repair checker before inspecting final-stage status")
@@ -2370,6 +2479,30 @@ class ACT4ReviewChecker(Checker):
                     raise ValueError("Candidate missing; run Check in review_repair to prepare it")
                 copy_sources(self.output / "baseline", candidate, state["baseline"]["files"])
                 state["candidate_prepared"] = True
+            if self.generation_root is not None and self.phase in {"repair", "final"}:
+                from ..generation_run import git_source_files
+
+                generated = safe_path(Path(self.workspace), self.generation_root)
+                names = [name for name in git_source_files(generated) if not (generated / name).is_dir()]
+                generated_state = tree_state(generated, names)
+                previous_state = state.get("generation_snapshot")
+                candidate_state = tree_state(candidate)
+                expected_candidate = previous_state if previous_state is not None else state["baseline"]["files"]
+                if candidate_state != expected_candidate:
+                    raise ValueError("Review candidate differs from its frozen baseline or last synchronized source snapshot; restore it and edit the generation source tree")
+                if previous_state != generated_state:
+                    if self.phase == "final" or is_complete:
+                        raise ValueError("Generated sources changed; run the post-generation repair Check and collect fresh after evidence")
+                    for name in candidate_state:
+                        if candidate_state[name] != generated_state.get(name):
+                            safe_path(candidate, name).unlink()
+                    copy_sources(generated, candidate, {name: identity for name, identity in generated_state.items()
+                                                        if candidate_state.get(name) != identity})
+                    state["generation_snapshot"] = generated_state
+                    state.pop("final_snapshot", None)
+                    candidate_state = tree_state(candidate)
+                if candidate_state != generated_state:
+                    raise ValueError("Review candidate does not match the source tree used for validation and patch generation")
             changed = self._changes(state, review)
             if self.phase == "repair" and not run_commands and not is_complete:
                 return self._checked_result(True, {"candidate": str(candidate), "changed_paths": changed,
@@ -2379,6 +2512,28 @@ class ACT4ReviewChecker(Checker):
                     if safe_path(candidate, name).exists():
                         raise ValueError(f"post_assets must not hide an existing reviewed asset: {name}")
             post_scope = {**scope, "assets": review["post_assets"]}
+            if "scope_repairs" in review:
+                repairs = review["scope_repairs"]
+                accepted = safe_path(self.output, "review-accepted.json")
+                if (not self.generation_root or not isinstance(repairs, dict) or not repairs or
+                        hashlib.sha256(accepted.read_bytes()).hexdigest() != state.get("audit_snapshot")):
+                    raise ValueError("scope_repairs needs a generation audit with accepted validation gaps")
+                audit = json.loads(accepted.read_bytes())["review"]
+                gaps = {item["id"]: item for item in audit["findings"] if item["classification"] == "validation_gap"}
+                selections = copy.deepcopy(scope["reference_scope"])
+                for identity, expansion in repairs.items():
+                    if identity not in gaps or not isinstance(expansion, dict) or not expansion or set(expansion) - selections.keys():
+                        raise ValueError(f"{identity}: scope_repairs may only add reviewed lines of existing references for an accepted validation_gap")
+                    linked = {task.removeprefix("boundary:") for judgment in audit["semantic_review"]["judgments"] if identity in judgment["findings"]
+                              for task in judgment["tasks"] if task.startswith("boundary:")}
+                    linked.update(name.removeprefix("references/") for name in gaps[identity]["evidence"] if name.startswith("references/"))
+                    if set(expansion) - linked:
+                        raise ValueError(f"{identity}: scope repairs must address reference files identified by the accepted finding or boundary judgment")
+                    for name, ranges in expansion.items():
+                        validate_references(workspace, self.output, [name], {name: {"reviewed_lines": ranges, "excluded_reason": "Incremental review"}})
+                        selections[name]["reviewed_lines"] = sorted(selections[name]["reviewed_lines"] + ranges)
+                validate_references(workspace, self.output, scope["reference_files"], selections)
+                post_scope["reference_scope"] = selections
             self._validation_section, self._validation_location = "evidence", "evidence-after.json"
             after = self._evidence(state, post_scope, candidate, "after", run_commands and self.phase == "repair")
             if self.phase == "final":
@@ -2393,6 +2548,10 @@ class ACT4ReviewChecker(Checker):
                           "changed_paths": changed, "ci": [{key: value for key, value in job.items()
                               if key in {"id", "status", "purpose", "log", "reason", "elf_count", "executed_tests"}}
                               for job in after["jobs"]]})
+        except FindingRepairRequired as exc:
+            return self._checked_result(False, {"error_code": "act4_local_repair_required", "error": str(exc),
+                "artifact": f"{self.review_dir}/final.yaml", "observed": {"pending": len(exc.queue), "pending_ids": [item["id"] for item in exc.queue[:64]], "items": exc.queue[:12]},
+                "next_action": 'Repair the named working sources or review ranges. Return to the earliest affected generation/validation stage for fresh artifacts and receipts, then Check(stage_args={"run_commands":true}) in review_repair and reassess. Only an evidenced external dependency, exhausted budget or operator-accepted ID permits partial delivery.'})
         except ScopeValidationError as exc:
             return False, {"error_code": "act4_review_contract", "error": str(exc),
                            "artifact": f"{self.review_dir}/scope.yaml", "phase": self.phase,

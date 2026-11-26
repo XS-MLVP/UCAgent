@@ -11,7 +11,8 @@ import re
 import stat
 import subprocess
 from ..environment import prepared_environment
-from ..generation_assets import contribution_path_allowed
+from ..generation_assets import contribution_path_allowed, declared_generation_sources
+from ..xiangshan_bundle import safe_path
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,7 @@ class ACT4FileManifestChecker(Checker):
         inventory_patterns: Any = None,
         protected_act4_patterns: Any = None,
         protected_act4_exclude_patterns: Any = None,
+        asset_contract_file: str | None = None,
         artifact_act4_patterns: Any = None,
         integrity_only: bool = False,
         require_contribution_set: bool = False,
@@ -114,6 +116,7 @@ class ACT4FileManifestChecker(Checker):
         **kwargs: Any,
     ) -> None:
         super().__init__()
+        self.cfg = cfg
         if kwargs:
             raise TypeError(
                 f"unsupported ACT4FileManifestChecker arguments: {sorted(kwargs)}"
@@ -121,6 +124,8 @@ class ACT4FileManifestChecker(Checker):
         self.manifest_file = manifest_file
         self.expected_suite = expected_suite
         self.act4_root = act4_root
+        self.asset_contract_file = asset_contract_file
+        self.declared_sources: list[str] = []
         self.inventory_patterns = list(inventory_patterns or [])
         suite_generator = (
             f"generators/testgen/src/testgen/priv/extensions/{expected_suite}.py"
@@ -268,7 +273,9 @@ class ACT4FileManifestChecker(Checker):
         findings: list[dict[str, Any]],
     ) -> int:
         """Keep PR sources inside ACT4 and independent of local run artifacts."""
-        if not isinstance(value, list) or not value:
+        from ..run_config import run_settings
+
+        if not isinstance(value, list) or (not value and not run_settings(getattr(self, "cfg", None))):
             self._add(
                 findings,
                 "manifest_contribution_set",
@@ -484,6 +491,7 @@ class ACT4FileManifestChecker(Checker):
         return (
             self._matches(path, self.protected_act4_patterns)
             and not self._matches(path, self.protected_act4_exclude_patterns)
+            and path not in self.declared_sources
             and not self._matches(path, self.artifact_act4_patterns)
             and not self._is_artifact_tree(path)
         )
@@ -688,14 +696,6 @@ class ACT4FileManifestChecker(Checker):
                     f"snapshot entry {index} requires type=file|symlink, octal mode and SHA-256: {raw_path}",
                 )
                 continue
-            if self.expected_suite and act4_relative == (
-                f"generators/testgen/src/testgen/priv/extensions/{self.expected_suite}.py"
-            ):
-                self._add(
-                    findings, "manifest_suite_generator_exists",
-                    f"suite generator already exists in the frozen baseline: {raw_path}; "
-                    "select a new suite without overwriting the existing generator",
-                )
             if not self._is_protected_act4_path(act4_relative):
                 continue
             path = self._resolve(raw_path)
@@ -760,6 +760,15 @@ class ACT4FileManifestChecker(Checker):
     def do_check(self, timeout=0, is_complete=False, **kwargs: Any) -> tuple[bool, object]:
         """Validate outputs and prove that protected ACT4 code is unchanged."""
         findings: list[dict[str, Any]] = []
+        self.declared_sources = []
+        if self.asset_contract_file:
+            try:
+                contract = yaml.safe_load(safe_path(self._root(), self.asset_contract_file).read_text(encoding="utf-8"))
+                if not isinstance(contract, dict) or contract.get("suite") != self.expected_suite:
+                    raise ValueError("Asset contract must identify this suite and its declared source paths")
+                self.declared_sources = declared_generation_sources(safe_path(self._root(), self.act4_root), contract)
+            except (OSError, ValueError, TypeError, subprocess.SubprocessError, yaml.YAMLError) as error:
+                self._add(findings, "manifest_generation_sources", str(error))
         manifest_path = self._resolve(self.manifest_file)
         manifest: Any = None
         if yaml is None:

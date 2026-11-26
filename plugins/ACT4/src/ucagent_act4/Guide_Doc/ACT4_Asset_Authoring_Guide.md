@@ -12,7 +12,7 @@ design_review、AI review 或 repair_plan；香山仅把适用的设计与限制
 | --- | --- | --- |
 | 单指令、寄存器/操作数矩阵，测试不发生 trap | CSV、coverpoint template、formatter、decoder | unprivileged-suite-generation |
 | 状态序列、CSR、异常或需要 trap handler，即使指令属于非特权 ISA | 行为计划、priv coverage、suite generator | privileged-suite-generation |
-| 已有资产存在缺陷或遗漏 | 保留原生组织方式，增量修复源资产并再生 | extension-review |
+| 已有资产存在缺陷或遗漏 | 保留原生组织方式，增量修复源资产并再生 | 对应生成入口的 improve 策略 |
 | 已有生成器但缺少 .S | 运行固定版本的原生生成入口 | 上游复用，不新建 AI 生成任务 |
 
 “非特权 ISA”不等于“适合表驱动测试”。原生表驱动环境不设置 trap handler，意外 trap

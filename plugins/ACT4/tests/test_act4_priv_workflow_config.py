@@ -52,15 +52,33 @@ def test_priv_workflow_has_unique_keys_and_environment_preparation_first() -> No
     workflow = _load_workflow()
     stages = workflow["stage"]
 
-    assert len(stages) == 11
+    assert len(stages) == 17
     assert stages[0]["name"] == "prepare_resources"
-    assert stages[1]["name"] == "prepare_environment"
+    assert stages[3]["name"] == "prepare_environment"
     stages = stages[3:]
     checker_names = [
         checker["name"] for stage in stages for checker in stage["checker"]
     ]
     assert len(checker_names) == len(set(checker_names))
     assert stages[-1]["name"] == "generate_final_human_report"
+
+
+def test_stall_budget_is_scoped_to_generation_workflows() -> None:
+    """Stop unproductive generation promptly without overriding review or handoff loop behavior."""
+    for workflow in get_plugin().workflows:
+        data = yaml.load(workflow.config_file.read_text(encoding="utf-8"), Loader=UniqueKeyLoader)
+        if workflow.name.endswith("suite-generation"):
+            assert data["loop_settings"]["max_stalled_rounds"] == 3
+            assert "source-plan.yaml" not in workflow.config_file.read_text()
+        else:
+            assert data.get("loop_settings", {}).get("max_stalled_rounds") != 3
+
+
+def test_composite_generation_has_no_single_filename_completion_gate() -> None:
+    """The input scope and native validator, not a fabricated aggregate YAML, define completion."""
+    for stage in _load_workflow()["stage"]:
+        for checker in stage["checker"]:
+            assert "riscv-arch-test/testplans/priv/{DUT}.yaml" not in checker["args"].get("required_artifacts", [])
 
 
 def test_priv_workflow_checkers_accept_ucagent_cfg_injection() -> None:
@@ -76,7 +94,8 @@ def test_priv_workflow_checkers_accept_ucagent_cfg_injection() -> None:
 
 def test_priv_workflow_enables_review_regression_gates() -> None:
     """Retain privileged coverage, VM, signature and model-scope safeguards."""
-    stages = _load_workflow()["stage"][3:]
+    stages = [stage for stage in _load_workflow()["stage"][3:]
+              if stage["name"] not in {"prepare_environment", "prepare_generation_inputs", "review_audit", "review_repair", "plan_missing_capabilities", "verify_completed_capabilities"}]
     norm_args = _checker(stages[1], "act4_norm_mapping_asset_check")["args"]
     generator_args = _checker(stages[3], "act4_generator_asset_check")["args"]
     build_args = _checker(stages[4], "act4_generated_test_asset_check")["args"]
@@ -165,7 +184,7 @@ def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
 ) -> None:
     """Separate genuine asset failures from explicitly unexecuted optional checks."""
     args = _checker(
-        _load_workflow()["stage"][-3], "act4_contribution_ai_review"
+        next(stage for stage in _load_workflow()["stage"] if stage["name"] == "prepare_to_contribute"), "act4_contribution_ai_review"
     )["args"]
     names = args["required_check_names"]
     assert "local_ci_reproduction" in names
@@ -227,7 +246,8 @@ def test_contribution_gate_requires_ci_review_without_blocking_tool_limits(
 
 def test_priv_workflow_prevents_reference_model_scope_degradation() -> None:
     """Require scope-preserving diagnosis before using a fallback reference model."""
-    stages = _load_workflow()["stage"][3:]
+    stages = [stage for stage in _load_workflow()["stage"][3:]
+              if stage["name"] not in {"prepare_environment", "prepare_generation_inputs", "review_audit", "review_repair", "plan_missing_capabilities", "verify_completed_capabilities"}]
     vm_text = "\n".join(stages[2]["task"])
     build_text = "\n".join(stages[4]["task"])
 
@@ -247,12 +267,13 @@ def test_native_inputs_and_validation_are_gated():
     """Native plans and rule snapshots replace brittle external spreadsheet discovery."""
     workflow = _load_workflow()
     stages = workflow["stage"]
-    assert stages[2]["name"] == "prepare_generation_inputs"
-    assert stages[2]["checker"][0]["clss"] == "ACT4GenerationInputsChecker"
-    assert stages[-2]["checker"][0]["clss"] == "ACT4NativeValidationChecker"
+    assert stages[4]["name"] == "prepare_generation_inputs"
+    assert stages[4]["checker"][0]["clss"] == "ACT4GenerationInputsChecker"
+    assert stages[-3]["checker"][0]["clss"] == "ACT4NativeValidationChecker"
     assert stages[-1]["checker"][0]["args"]["final_report"] == "{OUT}/final.md"
-    assert _checker(stages[3], "act4_native_plan_check")["args"]["phase"] == "plan"
-    assert _checker(stages[-3], "act4_native_contribution_assets")["args"]["kind"] == "privileged"
+    plan_stage = next(stage for stage in stages if stage["name"] == "coverpoints file generation and testplan optimization")
+    assert _checker(plan_stage, "act4_native_plan_check")["args"]["phase"] == "plan"
+    assert _checker(stages[-4], "act4_native_contribution_assets")["args"]["kind"] == "privileged"
     for stage in stages:
         for reference in stage["reference_files"]:
             assert not any(token in reference for token in ("http://", "https://", "..", "*", "{OUT}", "{DUT}"))

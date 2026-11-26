@@ -206,6 +206,8 @@ class ACT4ReviewDocument(UCTool):
                 permitted_fields = {"summary", "checks", "findings", "changes", "experiments", "post_assets", "obligations", "traceability", "semantic_review", "ci_passed", "coverage_changes", "remaining_risks"}
                 if args.document == "isa-plan":
                     permitted_fields = {"target_context", "reference_files", "reference_scope", "requirements", "source_reviews", "limitations"}
+                elif args.document == "review":
+                    permitted_fields.add("scope_repairs")
                 if not updates or set(updates) - permitted_fields:
                     raise ValueError(f"update requires current document fields from {sorted(permitted_fields)}")
                 extract_citations(updates, root, allowed, source_lines, "changes")
@@ -284,8 +286,8 @@ class ACT4ReviewDocument(UCTool):
 
 
 def create_review_tools(context: PluginContext) -> list[UCTool]:
-    """Expose document helpers only for the explicitly selected ACT4 review project."""
-    if not context.cfg.has_attr("template_overwrite") or context.cfg.get_value("template_overwrite.PROJECT", "") != "act4_extension_review":
+    """Expose shared review helpers for both generation routes, not target handoff."""
+    if not context.cfg.has_attr("template_overwrite") or context.cfg.get_value("template_overwrite.PROJECT", "") not in {"act4_priv_suite_generate", "act4_unprivileged_generate"}:
         return []
     suite = context.cfg.get_value("_temp_cfg")["DUT"]
     return [ACT4ReviewDocument(workspace=str(context.workspace), suite=suite,

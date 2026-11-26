@@ -8,7 +8,9 @@ import tomllib
 import pytest
 import yaml
 
+from ucagent_act4.checkers.act4_generation_completion_checker import ACT4GenerationCompletionChecker
 from ucagent_act4.plugin import get_plugin
+from ucagent_act4.run_config import resolve_run_config
 from ucagent.plugins import (
     LoadedPlugin,
     collect_plugin_resources,
@@ -48,7 +50,7 @@ def test_workflow_checker_arguments_construct_with_plugin_registry() -> None:
         [LoadedPlugin(plugin, plugin.name, "test")]
     )
 
-    assert len(config["stage"]) == 11
+    assert len(config["stage"]) == 17
     assert config["stage"][0]["name"] == "prepare_resources"
     assert config["stage"][-1]["name"] == "generate_final_human_report"
     for stage in config["stage"]:
@@ -67,9 +69,13 @@ def test_workflow_checker_names_are_plugin_short_names() -> None:
         for checker in stage["checker"]
     }
     assert classes == {
+        "ACT4ReviewChecker",
+        "ACT4GenerationRunChecker",
         "ACT4AIReviewChecker",
         "ACT4AssetChecker",
         "ACT4GenerationInputsChecker",
+        "ACT4GenerationCompletionChecker",
+        "ACT4AssetChecklistChecker",
         "ACT4NativeAssetsChecker",
         "ACT4NativeValidationChecker",
         "ACT4FileManifestChecker",
@@ -94,7 +100,9 @@ def test_stages_reference_bundled_contracts() -> None:
         "privileged_validation_handoff_template.md",
         "privileged_validation_handoff_template.md",
     ]
-    for stage, template in zip([stage for stage in workflow["stage"][3:] if stage["name"] != "validate_native_contribution"], templates, strict=True):
+    asset_stages = [stage for stage in workflow["stage"][3:]
+                    if stage["name"] not in {"prepare_environment", "prepare_generation_inputs", "review_audit", "review_repair", "validate_native_contribution", "plan_missing_capabilities", "verify_completed_capabilities"}]
+    for stage, template in zip(asset_stages, templates, strict=True):
         references = stage["reference_files"]
         assert f"Guide_Doc/act4_template/{template}" in references
         for gate in stage["checker"]:
@@ -176,7 +184,7 @@ def test_workflow_startup_allows_environment_stage_to_prepare_tools(monkeypatch)
     for workflow in plugin.workflows:
         validate_workflow_dependencies(plugin.name, workflow)
         config = yaml.safe_load(workflow.config_file.read_text(encoding="utf-8"))
-        preparation_index = 2 if workflow.name == "xiangshan-v3-handoff" else 1
+        preparation_index = 2 if workflow.name == "xiangshan-v3-handoff" else 3
         assert config["stage"][preparation_index]["name"] == "prepare_environment"
 
 
@@ -219,13 +227,15 @@ def test_agent_starts_with_complete_workflow(
     ]
     if manual_setting != "default":
         monkeypatch.setenv("ACT4_MANUAL_ROOT", str(tmp_path / "external manual"))
-        expected_manual = str(tmp_path / "external manual")
+        expected_manual = "riscv-isa-manual"
     if manual_setting == "override":
         expected_manual = str(tmp_path / "override manual")
-        overrides.append({"template_overwrite.ACT4_MANUAL_ROOT": expected_manual})
+    settings = resolve_run_config({"schema_version": 1, "suite": "Sstc", "workflow": workflow_name,
+        "workspace": str(workspace), "upstream": {"manual_root": expected_manual}}, tmp_path)
+    overrides.append({"act4_run": settings})
     agent = VerifyAgent(
         workspace=str(workspace),
-        dut_name="ExampleSuite",
+        dut_name="Sstc",
         output="act4_assets",
         workflow_config_file=str(workflow.config_file),
         plugin_workflow=f"{loaded.plugin.name}:{workflow.name}",
@@ -238,20 +248,26 @@ def test_agent_starts_with_complete_workflow(
     )
     try:
         stages = agent.stage_manager.stages
-        expected_stages, expected_checkers = (11, 30) if workflow_name == "privileged-suite-generation" else (8, 9)
+        expected_stages, expected_checkers = (17, 44) if workflow_name == "privileged-suite-generation" else (14, 22)
         assert len(stages) == expected_stages
         assert len([checker for stage in stages for checker in stage.checker]) == expected_checkers
+        assert [checker.phase for stage in stages for checker in stage.checker if isinstance(checker, ACT4GenerationCompletionChecker)] == ["plan", "generated", "verify", "verify"]
         for stage in stages:
             for checker in stage.checker:
                 assert isinstance(checker._cb_list, dict)
                 assert checker.stage is stage
                 assert checker.workspace == str(workspace)
                 checker.on_init()
-        manual_checker = stages[2].checker[0]
+        manual_checker = next(stage.checker[0] for stage in stages if stage.name == "prepare_generation_inputs")
         assert manual_checker.manual_root == expected_manual
-        assert agent.cfg.un_write_dirs == ["Guide_Doc"]
-        assert agent.cfg.write_dirs == ["act4_assets", "riscv-arch-test"]
+        assert agent.cfg.un_write_dirs == ["Guide_Doc", "act4-inputs", "act4-inputs-dependencies"]
+        assert agent.cfg.write_dirs == ["act4_assets", "riscv-arch-test", "capabilities"]
         assert agent.cfg.template == ""
+        assert [tool.name for tool in agent.tool_list_plugin] == ["ACT4ReviewDocument", "ACT4Resources"]
+        assert all(tool.generation for tool in agent.tool_list_plugin if tool.name == "ACT4Resources")
+        assert '"test_suite": "Sstc"' in agent.workflow_template_context["ACT4_SUITE_SCOPE"]
+        assert "{ACT4_SUITE_SCOPE}" not in agent.cfg.mission.prompt.system
+        assert '"test_suite": "Sstc"' in agent.cfg.mission.prompt.system
         guide = workspace / "Guide_Doc"
         assert (guide / "ACT4_Privileged_Suite_Workflow_Guide.md").is_file()
         assert (guide / "act4_template/README.md").is_file()
@@ -264,6 +280,10 @@ def test_agent_starts_with_complete_workflow(
         assert not (guide / "dut_fixture.md").exists()
         assert not (workspace / "act4_assets/tests").exists()
         assert agent.cfg.skill.use_skill is skill_enabled
+        assert agent.cfg.loop_settings.max_stalled_rounds == 3
+        input_task = "\n".join(next(stage.task for stage in agent.cfg.stage if stage.name == "prepare_generation_inputs"))
+        assert "discover" in input_task and "extend" in input_task and "manual_exclusions" in input_task
+        assert "Skill" not in input_task and ".ucagent/skills" not in input_task
         if not skill_enabled:
             assert not (workspace / ".ucagent/skills").exists()
             assert not any(stage.get_value("skill_list", []) for stage in agent.cfg.stage)
@@ -271,53 +291,47 @@ def test_agent_starts_with_complete_workflow(
         agent.exit()
 
 
-@pytest.mark.parametrize(
-    "manual",
-    ["act4_assets/manual", "riscv-arch-test", "riscv-arch-test/spec", ".", ""],
-)
+def configured_generation(workspace, output="act4_assets", manual="riscv-isa-manual"):
+    """Create the same strict configuration consumed by the generation template hook."""
+    settings = resolve_run_config({"schema_version": 1, "suite": "Sstc", "workflow": "privileged-suite-generation",
+        "workspace": str(workspace), "output": output, "upstream": {"manual_root": manual}}, workspace.parent)
+    return Config({"act4_run": settings, "template_overwrite": {"PROJECT": "act4_priv_suite_generate"}})
+
+
+@pytest.mark.parametrize("manual", ["act4_assets/manual", "riscv-arch-test", "riscv-arch-test/spec", ".", ""])
 def test_manual_cannot_overlap_generated_assets(tmp_path, manual) -> None:
-    """Reject manual inputs that a generation command could overwrite."""
-    config = Config({"template_overwrite": {"ACT4_MANUAL_ROOT": manual}})
-    with pytest.raises(PluginError, match="ACT4_MANUAL_ROOT"):
-        get_plugin().workflows[0].template_context_factory(
-            config, {"WORKSPACE": str(tmp_path), "OUT": "act4_assets"}
-        )
+    """Reject manual sources inside the writable generation workspace."""
+    with pytest.raises((PluginError, ValueError)):
+        configured_generation(tmp_path, manual=str(tmp_path / manual) if manual else "")
 
 
 @pytest.mark.parametrize("output", ["../outside", ".", "", "/tmp/act4-output", "riscv-arch-test", "riscv-arch-test/out"])
 def test_output_must_stay_inside_workspace(tmp_path, output) -> None:
-    """Reject output roots that escape or replace the task workspace."""
-    config = Config({"template_overwrite": {"ACT4_MANUAL_ROOT": "riscv-isa-manual"}})
-    with pytest.raises(PluginError, match="output"):
-        get_plugin().workflows[0].template_context_factory(
-            config, {"WORKSPACE": str(tmp_path), "OUT": output}
-        )
+    """Reject outputs that escape or replace the task workspace."""
+    with pytest.raises((PluginError, ValueError)):
+        configured_generation(tmp_path, output=output)
 
 
 @pytest.mark.parametrize("target", ["output", "act4"])
 def test_writable_directory_symlinks_cannot_escape_workspace(tmp_path, target) -> None:
-    """Validate resolved write targets before copying guides or generating files."""
+    """Validate resolved destinations before copying guides or generating files."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
     name = "act4_assets" if target == "output" else "riscv-arch-test"
     (workspace / name).symlink_to(outside, target_is_directory=True)
-    config = Config({"template_overwrite": {"ACT4_MANUAL_ROOT": "riscv-isa-manual"}})
-    with pytest.raises(PluginError, match="workspace"):
-        get_plugin().workflows[0].template_context_factory(
-            config, {"WORKSPACE": str(workspace), "OUT": "act4_assets"}
-        )
+    with pytest.raises((PluginError, ValueError)):
+        config = configured_generation(workspace)
+        get_plugin().workflows[0].template_context_factory(config, {"WORKSPACE": str(workspace), "OUT": "act4_assets", "DUT": "Sstc"})
 
 
 @pytest.mark.parametrize("manual", ["riscv-isa-manual", "external manual"])
 def test_separate_output_and_readonly_manual_are_allowed(tmp_path, manual) -> None:
-    """Keep nested output and external read-only specification inputs supported."""
+    """Keep nested outputs and external read-only specification inputs supported."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     setting = str(tmp_path / manual) if manual == "external manual" else manual
-    config = Config({"template_overwrite": {"ACT4_MANUAL_ROOT": setting}})
-
-    assert get_plugin().workflows[0].template_context_factory(
-        config, {"WORKSPACE": str(workspace), "OUT": "generated/act4_assets"}
-    ) == {}
+    config = configured_generation(workspace, "generated/act4_assets", setting)
+    context = get_plugin().workflows[0].template_context_factory(config, {"WORKSPACE": str(workspace), "OUT": "generated/act4_assets", "DUT": "Sstc"})
+    assert '"test_suite": "Sstc"' in context["ACT4_SUITE_SCOPE"]

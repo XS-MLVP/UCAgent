@@ -1,37 +1,41 @@
+loop_settings:
+  max_stalled_rounds: 3
+
 template_overwrite:
   PROJECT: act4_unprivileged_generate
   DOC_GEN_LANG: English
-  ACT4_RESOURCE_ROOT: "$(ACT4_RESOURCE_ROOT: )"
-  ACT4_ACT_REF: "$(ACT4_ACT_REF: act4)"
-  ACT4_MANUAL_REF: "$(ACT4_MANUAL_REF: HEAD)"
-  ACT4_MANUAL_ROOT: "$(ACT4_MANUAL_ROOT: riscv-isa-manual)"
 
 mission:
   name: ACT4 unprivileged instruction asset generation
   prompt:
     system: |
+      本轮选择来自 act4_run 配置；阅读 Guide_Doc/ACT4_Run_Guide.md。先准备资源，再独立 ISA 设计，再导入资产、准备环境和审查基线。
+      suite 资产按类别执行 improve/regenerate；共享输入一律 repair_only，只有复现既有缺陷才改，不为清单制造改动。重生成忽略该类别旧设计，但保留 ISA、框架接口及跨类别依赖。
+      独立设计验收前不读已有资产及旧报告；导入后只读选定的工作副本，不能借补丁或历史报告绕过重生成边界。
+      本轮 Test Suite 范围：{ACT4_SUITE_SCOPE}。按原名、说明及全部来源行定位规范；CLI 标识不等于原生文件名。
+      组合目标先明确各部分的规范和原生入口；缺现成资产是补全任务，不能据此拒绝目标或缩小范围。
       为 {DUT} 生成可贡献给 ACT 的表驱动指令测试资产。遵循 Guide_Doc/ACT4_Generation_Guide.md
       和 Guide_Doc/ACT4_Asset_Authoring_Guide.md。此路线仅用于不发生 trap 的指令测试；
       需要异常处理或非规则状态序列时，说明依据并选择 privileged-suite-generation，不删除测试意图来适配本路线。
-      以原生 testplans/{DUT}.csv 为权威计划；不要套用特权行为型 CSV、VM contract 或 priv generator。
-      先准备共享资源、工具环境及固定输入，再修改独立 riscv-arch-test 副本。每次 shell 命令先
+      以 inputs/receipt.json 的 native_plans 所列 CSV 为权威计划；不要套用特权行为型 CSV、VM contract 或 priv generator。
+      先独立设计、导入来源并审查基线，再修改独立 riscv-arch-test 副本。每次 shell 命令先
       source {OUT}/intermediate/{DUT}/environment/activate.sh。禁止修改共享资源和规范原文。
       使用 CurrentTips、StageJournal 维护本阶段计划，通过 Check 和 Complete 推进。技能不是前提。
       在资产修改前记录原始 HEAD 和受保护文件基线，持续维护 schema_version=2 的 file manifest，
       格式见 Guide_Doc/ACT4_Checker_Guide/ACT4FileManifestChecker.md。阶段记录分别使用
       01_coverpoints、04_generator、06_contribution、07_final_report。
-      仅扩展原生模板、coverpoint generators、formatter types 和 decoder，不改框架、构建、签名或
+      根据 asset_contract.yaml 扩展原生模板、generator、formatter、decoder 和独立新配置，不改签名或
       验收逻辑以掩盖失败。声明 extension_sources，修改共享模板或 decoder 时说明受影响的其他 suite。
       不手改生成的 SV 或 .S，不伪造运行日志、签名、coverage 或人工审批。规范决定生成范围，
       模型能力只决定验证范围；不得因模型不支持而删掉指令、XLEN 或测试点。
       可选商业工具不可用须明确列为未验证限制。编译失败、零 ELF、生成不一致不是通过。
-      最终只在 {OUT}/ 放 final.md 和 changes.patch，其余契约、计划和证据放 intermediate/{DUT}/。
+      最终在 {OUT}/ 放 final.md、changes.patch 和按需生成的 dependency-patches/；其余契约、计划和证据放 intermediate/{DUT}/。
 
 hooks:
   continue: "用 CurrentTips、StageJournal 恢复当前阶段，依据 Check 反馈修复，再 Complete。"
 
-un_write_dirs: ["{GUIDE_DOC}"]
-write_dirs: ["{OUT}", riscv-arch-test]
+un_write_dirs: ["{GUIDE_DOC}", act4-inputs, act4-inputs-dependencies]
+write_dirs: ["{OUT}", riscv-arch-test, capabilities]
 guide_doc:
   enable: true
   core_copy_policy: {default_action: ignore, retain: [], override: [], ignore: []}
@@ -52,11 +56,43 @@ stage:
           resource_dir: "{OUT}/intermediate/{DUT}/resources"
           cache_root: "{ACT4_RESOURCE_ROOT}"
           workflow: generation
-          inputs: {act4: riscv-arch-test, manual: "{ACT4_MANUAL_ROOT}"}
+          materialize: false
+          inputs: {act4: "{ACT4_ACT_ROOT}", manual: "{ACT4_MANUAL_ROOT}"}
           refs: {act4: "{ACT4_ACT_REF}", manual: "{ACT4_MANUAL_REF}"}
+  - name: review_plan
+    desc: 仅依据 ISA 和用户范围独立设计验证计划，冻结后再接触已有资产
+    task:
+      - "遵守 Guide_Doc/ACT4_Run_Guide.md：本阶段是生成流程的内置审查；重生成类别的旧设计不能作为输入。"
+      - 第一步：读取 Guide_Doc/ACT4_Extension_Review_Guide.md section 10，调用 Check 探测可选工具。此阶段不读取既有测试资产、CI 和旧审查报告。
+      - 第二步：用普通文件工具创建 {OUT}/intermediate/{DUT}/review/isa-plan.yaml，填写 suite、运行配置中的 target_context（逐字使用 {ACT4_TARGET_CONTEXT}）、ISA 原文 reference_files 和 reference_scope。
+        requirements、source_reviews 先写空列表，limitations 如实说明范围或输入缺失。普通 Check 生成 isa-plan-context.json 和只读 isa-references 后提示补齐设计。
+      - 第三步：仅阅读这些 ISA 来源及用户范围，为每条规则独立设计 I<number> 条目，写 requirement、applicability、stimulus、observation 和准确 basis。
+        主动考虑正常行为、异常、边界值、特权级、XLEN、扩展依赖和状态切换；适用性未知时写明条件，不按已有用例决定是否需要测试。
+      - 第四步：逐项填写 source_reviews，将每个来源区块映射到 requirements；无测试义务或排除部分提供来源和理由。
+        可用 ACT4ReviewDocument(document='isa-plan', action='quote'/'update') 获取引文并更新自己的判断，或直接编辑同一格式；不得以工具生成结果代替设计。
+      - 第五步：Check 通过后 Complete，冻结 isa-plan-accepted.json。之后才能进入资产盘点、现有计划比较与 CI 执行计划核对。
+        无可用 ISA 原文时明确 limitations，允许带限制继续资产审查，不得声称完成独立语义设计或证明覆盖完整；缺失项不能凭空编造。
+      - 要求：此处的计划回答“应测什么、如何触发、观察什么”，不是 scope.jobs 的命令列表；保留独立初稿以减少既有资产引导，但不能声称模型已忘记先验知识。
+    reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md"]
+    checker:
+      - name: review_isa_design
+        clss: ACT4ReviewChecker
+        args: {phase: plan, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}/intermediate/{DUT}/review-results", act4_root: act4-inputs, generation_root: riscv-arch-test}
+  - name: import_asset_sources
+    desc: 按运行配置选择九类资产，冻结只读来源并创建可修改副本
+    task:
+      - '阅读 Guide_Doc/ACT4_Run_Guide.md。Check(stage_args={"action":"discover"}) 列出候选文件；按九类策略定位相关原生文件，创建 {OUT}/intermediate/{DUT}/asset-inputs/selection.yaml。不读取重生成类别的旧内容。'
+      - "本地输入按配置目录寻找原生源码或有确切基线的 patch，不改原目录。歧义、缺源或共享路径冲突必须解决；不静默换用网上资产。依赖仓库先固定到 intermediate/{DUT}/dependency-sources。"
+      - 'Check(stage_args={"action":"import"}) 冻结来源、移除待重生成旧文件，再 Complete。后续只编辑 riscv-arch-test 和 capabilities，不改 act4-inputs、原本地来源及 receipt。'
+    reference_files: ["Guide_Doc/ACT4_Run_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4GenerationRunChecker.md"]
+    checker:
+      - name: generation_source_inputs
+        clss: ACT4GenerationRunChecker
+        args: {suite: "{DUT}", output: "{OUT}", phase: inputs}
   - name: prepare_environment
     desc: 准备可复用工具和原生项目依赖
     task:
+      - "在环境计划中声明 native_smoke 的小型已有 suite 和 Sail 配置；分别查看自检执行和覆盖数据库读回结果。失败是对应验证限制，不免除本地生成。"
       - '阅读固定 ACT 的 README、CONTRIBUTING、CI 和依赖锁文件，调用 Check(stage_args={"action":"probe"})。'
       - "创建 {OUT}/intermediate/{DUT}/environment/plan.yaml，覆盖 make、git、uv、mise、prek、Ruby/Bundler/UDB、交叉编译器、参考模型及 CTP 渲染工具。商业覆盖工具可选。优先复用已安装版本；公开工具缺失时按当前仓库规则安装到持久用户目录，冲突版本使用 temporary。"
       - '调用 Check(stage_args={"action":"prepare","timeout":3600})，查看日志并修复可解决的依赖，再 Complete。不得覆盖系统默认 Python 或编译器。'
@@ -64,11 +100,12 @@ stage:
     checker:
       - name: act4_environment
         clss: ACT4EnvironmentChecker
-        args: {environment_dir: "{OUT}/intermediate/{DUT}/environment"}
+        args: {environment_dir: "{OUT}/intermediate/{DUT}/environment", smoke_root: act4-inputs}
   - name: prepare_generation_inputs
     desc: 冻结 ISA 规则和原生指令计划
     task:
-      - "用 ACT4Resources list/read 选定全部相关 src/*.adoc；用 Check 的 action=prepare、manual_files=[实际相对路径] 捕获原文、正式规则 JSON 和原生 CSV，然后 Complete。原生计划不存在时允许创建新 suite；缺规范规则不能编造。"
+      - '先 Check(stage_args={"action":"discover"})，用 ACT4Resources list/read 阅读候选规范；带 manual_files 再 discover 核对引用及依赖。用 action=prepare、manual_files、完整 plan_paths 捕获原文和全部原生计划，未选候选文件在 manual_exclusions 中解释。Complete 前遗漏用 action=extend 增补，不缩减已有范围。'
+      - "缺规则标签或索引时按 Guide_Doc/ACT4_Generation_Guide.md section 2 用 bind_rules 绑定逐字原文及待补标签跟踪，再 Complete；缺现成资产是补全任务，不构成不支持。"
     reference_files: ["Guide_Doc/ACT4_Checker_Guide/ACT4GenerationInputsChecker.md"]
     checker:
       - name: generation_inputs
@@ -78,11 +115,127 @@ stage:
           kind: unprivileged
           input_dir: "{OUT}/intermediate/{DUT}/inputs"
           manual_root: "{ACT4_MANUAL_ROOT}"
+  - name: review_audit
+    desc: 冻结资产与版本，全面审查并形成有证据支持的修复计划
+    task:
+      - "先对照 asset-inputs/selection.yaml 和 receipt.json，只审查允许复用的原有资产。缺失或重生成内容登记为 ISA 驱动的生成工作，changes 可用 findings: [] 配合 requirements: [I1]；不要制造缺陷。scope 的资产及 context_files 不得包含 removed 中的旧路径。"
+      - "遵守 Guide_Doc/ACT4_Run_Guide.md：本阶段是生成流程的内置审查；重生成类别的旧设计不能作为输入。"
+      - 第一步：读取已验收的 isa-plan.yaml；读取 Guide_Doc/ACT4_Extension_Review_Guide.md 和 environment.json；此时才阅读输入目录 README、DeveloperGuide、
+        .github/workflows、规范和该 extension 的资产，确定当前版本的审查契约与原生验证入口。
+      - 阅读 Guide_Doc/ACT4_Asset_Authoring_Guide.md，按原生路线审查生成 API、testcase 关联、signature、恢复与 header 筛选条件；把发现写入既有 findings，不新建重复报告。test_headers 预检失败是待核验事实，不等于 RTL Bug；合法筛选造成未运行须与缺陷区分。
+      - 第二步：盘点 act4-inputs 下已有资产；Git 输入记录实际 HEAD 和 dirty 输入，本地目录记录路径和文件快照，不虚构上游提交。
+        scope 中所有资产、共享背景和命令来源路径均相对于该输入目录；缺失的依赖或验证入口如实记录，不把本地验证声称为完整上游 CI。
+      - 第三步：创建 {OUT}/intermediate/{DUT}/review/scope.yaml，逐项填写 test_plans、coverage、generators、
+        test_cases、mappings，列出所有选定 XLEN/目标配置及适用原生 CI jobs；shared_assets 写共享路径、消费者和审查边界，无共享项写 []。
+      - 第四步：在 reference_files 中登记实际读取的规范/CTP/元数据文件；reference_scope 为每份文件填写
+        reviewed_lines 和 excluded_reason。必须保留独立 ISA 计划的规范和原选区，可新增其他参考文件。保留完整原文，排除部分仍须核验。
+      - 第五步：为公开工具配置 environment jobs 的 probe、install 和版本校验；依赖 Questa/VCS/Xcelium 的
+        coverage job 用 optional_tool 声明具体工具，保留原生命令；由实际探测决定是否执行，不配置商业工具安装。
+      - 第六步：为每个 target 声明 environment、generation、build、reference_model、coverage、lint 六类 lane，
+        先按生成器的 XLEN/扩展条件及目标配置确认任务适用性；不适用的 lane 用 not_applicable 写明源码依据，
+        不要仅更换目标名称复制另一配置的测试筛选。适用 lane 用 needs 配置依赖，填写非空 ELF、模型结果和通过/失败模式。
+      - 第七步：为 CI 命令注明 workflow/文档来源、目标、工具前提和适用性；
+        为构建/执行填写 diagnostics 路径与 pattern，并在 artifacts 中声明必需 CI 产物。
+      - 第八步：完成 scope.yaml 后调用 Check，冻结 baseline。
+        先读取 validation-plan.json，核对 ci.yaml 的启用/排除、目标配置与 run_cmd.txt。
+        签名生成的 ref_model_exe 不是最终 ELF 执行器。偏离原生入口的实验必须写 diagnostic_reason，不能称为上游 CI。
+        local_only lint 不等于完整 lint workflow；动态目标选择和跨 suite 回归仍须按来源说明范围。
+        校验失败时按 errors 中各 field 的 next_action 一起修复后再 Check；
+        errors_omitted 非零或父字段格式错误时，修复后继续读取下一轮诊断。
+      - '执行预检：scope 校验后调用 Check(stage_args={"prepare_environment": true})，读取 execution-preparation.json；
+        单独探测、按需安装和复验项目环境，检查各命令的 cwd 与启动程序，不执行其他 lane。
+        修复可处理的必需环境问题后重复预检；可选仿真器缺失只记录限制。
+        deferred 表示缺失路径可能由原生前置任务生成，正式执行仍须复查；预检不证明测试通过。
+        无法补齐的必需工具如实保留阻塞原因，继续正式取证和有依据的审查，不因工具缺失停在预检循环。
+        此调用只用于 review_audit 的 Check，不与 run_commands、refresh_tools、experiment 或 Complete 混用。'
+      - 要求（资产与规范）：不存在的资产用空列表记录并作为遗漏审查；全新 suite 可为空，不虚构已有资产。
+        无法取得规范原文时 reference_files 写 []，后续不得把完整性和覆盖点语义审查标为通过。
+      - 要求（环境）：probe 必须实测工具版本和可运行性，缺失时执行 install 并再次 probe；
+        先复用首阶段准备的公共工具；install 仅用于副本内项目依赖或需要隔离的补充环境，使用 {OUT}/intermediate/{DUT}/review/tools，不重复安装公共编译器和模型。
+        Python 探测应确认导入的是本轮命令副本内的 ACT4 模块。不适用或安装后仍不可用也须记录理由，不能省略。
+        environment 只依赖其他 environment jobs；全部环境任务先于生成、编译和其他验证任务。
+      - 要求（执行与证据）：build 必须依赖环境和 generation，并声明非空 ELF 产物；
+        reference_model/coverage 的 elf_inputs 指向依赖的 build jobs。
+        diagnostics 保留当前版本的签名日志、失败用例日志和诊断文件；必需 CI 产物仍写 artifacts。
+        禁止用 true/echo 充当 CI。
+      - 要求（基线）：冻结后不得改变原始输入。更新了仓库版本后重新读取命令、版本约束和资产，
+        不能沿用另一提交的测试结论。
+      - '第九步：运行 Check(stage_args={"run_commands": true})，重新探测环境并完成全部环境任务，
+        再按 needs 执行生成、ELF 构建与实际测试，保存工具准备日志、ELF 数量、实际测试数量和结果。'
+      - 第十步：读取 evidence-before.json、命令日志和保留的 diagnostics，核对静态诊断与执行结果；
+        对失败项分析根因，提出修复建议或说明暂缓所需证据。
+      - '第十一步：调用 ACT4ReviewDocument(action="initialize") 创建未完成的 review.yaml 骨架，再普通 Check 获取当前批次。'
+      - 第十二步：用 ACT4ReviewDocument 的 status 查看当前 review_tasks 批次、quote 提取原文、update 按 ID 合入自己的 semantic_review.judgments；
+        更新携带当前 expected_sha256 和 evidence_digest；写入冲突时读取变更后的文件，来源变化先 Check 再复核受影响判断，不能只替换 digest。
+        每批完成后普通 Check，所有缺项索引在 progress-audit.json。没有文档工具时使用普通文件工具编辑同一契约的 review.yaml；
+        从 obligation_sources 的每个规范/计划区块提取 obligations，逐项映射目标配置、覆盖点和实现源码，排除项说明理由；
+        每条 obligation 填 plan_items，逐项对照全部 I<number>；缺失项关联 finding，不能删除独立计划项来匹配已有资产。
+        检查采样/iff、bins、cross、激励、预期结果，对重复候选比较等价义务。
+      - 要求（逐点追踪）：对全部 coverpoint 建立定义、义务和用例追踪，区分 measured/static/gap/unverified。
+      - 第十三步：按 Guide_Doc/ACT4_Extension_Review_Guide.md 完成 review.yaml，汇总 ACT4 规范、
+        规范/计划/生成器/用例间遗漏、冗余、coverpoint 设计与实际覆盖、CI、可复现性和贡献质量的审查结果，
+        填写 findings、修复提案和 post_assets。
+      - 第十四步：用普通 Check 校验当前批次，全部批次和报告通过后 Complete，直接进入修复阶段。
+      - 要求（真实执行）：不得因没有 ELF 而跳过构建；前置失败时后续阻塞，不运行空测试。
+        模型通过数必须等于非零输入 ELF 数；构建器的 succeeded 是构建任务数，不是测试通过数。
+        不得把产物缺失当作唯一根因。
+      - 要求（语义审查）：八类总审查、每个 coverpoint/cross、静态告警、条件疑点及重复候选均须有判断；
+        source、shared、obligation 和 finding 任务也逐项审核。同义任务可合并，但每个 task ID 只出现一次。diagnostics 区分 asset_defect、scanner_limitation、scope_mismatch、unresolved，
+        保留原始结果，并引用实际源码解释依据。
+      - 要求（判断依据）：basis 引用冻结源码/规范或本轮保留的日志/产物，用确切行号、逐字 quote 和 observation
+        支撑 reasoning 与 conclusion。evidence_digest 使用本轮 review_digest，issues 关联 finding；
+        证据不足明确写 unverified、limitation 和 next_action，不能仅批量填未知而不分析已具备的证据。
+      - 要求（覆盖追踪）：static 用例须来自 testcase_links 且引用其保留源码；静态扫描无法建立的对应记 unverified。
+        measured 只引用成功 coverage job 的真实产物，不能用模型运行或标签链接代替。
+      - 要求（问题与提案）：每个问题含 classification、diagnosis、investigation 和修复建议；
+        仅 confirmed_defect 且 repair_ready 的问题进入 changes，每个提案含确切路径、风险和复验 jobs。
+        post_assets 列出修复后完整资产集合，新增/删除成员必须属于 changes 声明的路径。
+        缺少必要信息时保留 finding，说明缺失信息、补齐动作和风险，不强行提出修改；changes 允许为空。
+      - 要求（如实交付）：即使 CI 失败或工具缺失，也必须交付诚实报告并继续处理有依据的修复，不能隐藏缺陷。
+        无问题允许 findings/changes 为空。
+      - 提示：首次收集证据后，用普通 Check 校验报告。仅修改 references/discovery 或报告文字无需重跑命令，
+        变更执行输入或主动复测时才调用 run_commands=true。
+    reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md", "Guide_Doc/ACT4_Asset_Authoring_Guide.md"]
+    checker:
+      - name: review_evidence
+        clss: ACT4ReviewChecker
+        args: {phase: audit, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}/intermediate/{DUT}/review-results", act4_root: act4-inputs, generation_root: riscv-arch-test}
+  - name: plan_missing_capabilities
+    desc: 从规范确定范围，把缺失资产与免费验证能力转成实施任务
+    task:
+      - "在 completion_plan.yaml 的 finding_checks 中逐项绑定已验收的 F-ID、配置、验收项和同一用例内的刺激及观察序列；非行为项使用对应的文档或原生执行检查。格式见 Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md。"
+      - "先阅读 Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md，创建 {OUT}/intermediate/{DUT}/asset_checklist.yaml。对九类资产按 scope 分别选择 reference/reuse/generate/repair/report/not_applicable；登记所有导入的工作仓库及新增的独立干净 Git 仓库，首次 Check 在任何源码修改前冻结基线。规范原文和共享依赖缺失只记录限制，不改共享来源，也不将它们误当作每轮必须重写的内容。"
+      - "共享输入（Norm Rules、UDB/Params、RVVI、RVMODEL Macros、Sail）只用 repair_only：未使用可 not_applicable，仅读固定来源用 reference，实测复用用 reuse；缺失或疑似问题 report。只有已选原件有可复现缺陷才 repair，先按指南登记基线失败及同一检查的修后通过条件。suite 的规则映射不是 Norm Rules 原文。"
+      - "阅读 Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md。按用户原始 Test Suite 名称定位规范与原生入口；明确别名、组合范围、SEW、XLEN 和依赖，不因没有同名文件而排除。"
+      - "创建 {OUT}/intermediate/{DUT}/completion_plan.yaml，覆盖规范、计划、覆盖、规则映射、参数、CTP、生成器、构建、参考模型、激励和观察。已有内容复用；缺失内容使用 generate，只补 suite 范围的生成器、激励、适配器、测试环境和回归；共享依赖不使用 generate。商业许可可选，其他外部限制必须指出具体输入和调查证据。"
+      - "先独立从规范形成完整测试意图，再对照既有资产寻找缺项。建立 asset_contract.yaml，声明实际 extension_sources、native_suites 和必要 source_request_map。允许修复已有生成器、共享/子目录源码和配套 priv CSV；已有资产不限制规范内的新增范围。共享源码需列影响对象及回归命令。Check 后 Complete。"
+    reference_files: ["Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md", "Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md"]
+    checker:
+      - name: generation_completion_plan
+        clss: ACT4GenerationCompletionChecker
+        args:
+          suite: "{DUT}"
+          plan_file: "{OUT}/intermediate/{DUT}/completion_plan.yaml"
+          review_dir: "{OUT}/intermediate/{DUT}/review"
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          output_dir: "{OUT}/intermediate/{DUT}/completion-validation"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          phase: plan
+      - name: nine_asset_plan
+        clss: ACT4AssetChecklistChecker
+        args:
+          suite: "{DUT}"
+          plan_file: "{OUT}/intermediate/{DUT}/asset_checklist.yaml"
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          output_dir: "{OUT}/intermediate/{DUT}/asset-validation"
+          patch_dir: "{OUT}/dependency-patches"
+          phase: plan
   - name: instruction_plan
     desc: 建立指令、XLEN、覆盖点与变体矩阵
     task:
       - "首次写入前冻结受保护文件基线并创建 {OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml。声明可扩展边界，不能用当前内容重建修改前基线。"
-      - "核对 inputs/ 中的原文和规则文本；创建或完善 testplans/{DUT}.csv，使用 Instruction,Type,RV32,RV64、可选 ExtraExtensions 和 coverpoint 列。保留原计划所有指令、XLEN 和变体，补充规范内的遗漏，不照搬特权行格式。"
+      - "核对 inputs/ 中的原文和规则文本；创建或完善 inputs/receipt.json 的 native_plans 所列原生计划，使用 Instruction,Type,RV32,RV64、可选 ExtraExtensions 和 coverpoint 列。保留原计划所有指令、XLEN 和变体，补充规范内的遗漏，不照搬特权行格式。"
       - "阅读现有 formatter、sample 模板及 decoder，确认每条指令的类型、编码、额外扩展。为每个测试点解释刺激、边界、预期和可观察结果。Check 生成阅读视图，Complete 后进入实现。"
     reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeAssetsChecker.md", "Guide_Doc/ACT4_Checker_Guide/ACT4FileManifestChecker.md"]
     checker:
@@ -99,11 +252,14 @@ stage:
     desc: 实现原生生成链并补齐规则、参数和 CTP
     task:
       - "按 Guide_Doc/ACT4_Asset_Authoring_Guide.md section 3 核对原生扩展点和共享消费者，再实现本 suite 所需的 template、generator、formatter 或 decoder。"
-      - "运行原生 make tests EXTENSIONS={DUT} EXCLUDE_EXTENSIONS=，检查 coverpoints/unpriv/{DUT}_coverage*.svh 以及 tests/rv32、tests/rv64 下实际生成的汇编；逐条核对非空、自检、签名更新及 coverpoint 注释。禁止手改生成结果。"
+      - "按 asset_contract.yaml 的 native_suites 运行原生 make tests EXTENSIONS=<逗号分隔入口> EXCLUDE_EXTENSIONS=，检查对应 coverage 文件 以及 tests/rv32i、tests/rv64i（E 使用 rv32e/rv64e） 下实际生成的汇编；逐条核对非空、自检、签名更新及 coverpoint 注释。禁止手改生成结果。"
       - "创建 coverpoints/norm/{DUT}.yaml；有 ISA/UDB 参数时创建 coverpoints/param/{DUT}.yaml，无参数需说明依据。更新真实 CTP 章节的 plan/norm includes。创建 asset_contract.yaml，列明参数、章节、extension_sources 和适用 native validation_configs。"
       - "参考 Guide_Doc/act4_template/native_asset_design_template.md，在 reports/design_review.md 按指令/coverpoint 记录规则、可区分错误实现的激励与观察、实现依据、共享消费者回归及未验证范围；按 Guide_Doc/ACT4_Asset_Authoring_Guide.md section 4 核对生成 header。Check 后修复，再 Complete。"
-    reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Asset_Authoring_Guide.md", "Guide_Doc/act4_template/native_asset_design_template.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeAssetsChecker.md"]
+    reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Asset_Authoring_Guide.md", "Guide_Doc/act4_template/native_asset_design_template.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeAssetsChecker.md", "Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md"]
     checker:
+      - name: generated_finding_witnesses
+        clss: ACT4GenerationCompletionChecker
+        args: {suite: "{DUT}", phase: generated, plan_file: "{OUT}/intermediate/{DUT}/completion_plan.yaml", review_dir: "{OUT}/intermediate/{DUT}/review", input_dir: "{OUT}/intermediate/{DUT}/inputs", output_dir: "{OUT}/intermediate/{DUT}/completion-validation", environment_dir: "{OUT}/intermediate/{DUT}/environment"}
       - name: native_instruction_assets
         clss: ACT4NativeAssetsChecker
         args:
@@ -112,6 +268,35 @@ stage:
           input_dir: "{OUT}/intermediate/{DUT}/inputs"
           contract_file: "{OUT}/intermediate/{DUT}/asset_contract.yaml"
           output_file: "{OUT}/intermediate/{DUT}/reports/native-assets.json"
+  - name: verify_completed_capabilities
+    desc: 实现缺项并验证新增资产和免费验证能力
+    task:
+      - "按 Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md 验证九类资产清单：每个新增/修复项必须有类别专属检查、独立预期来源、反例及回归，实际命令在独立副本执行。复用也需兼容性检查；报告项说明范围、影响和恢复动作，不冒充通过。当前任务缺少的免费软件或可生成源码仍需补全。"
+      - "完成 completion_plan.yaml 中全部 generate 项。在 suite 范围内补齐模板、生成器、配置和刺激/观察适配器；现有共享依赖按 repair_only 处理，运行独立的边界、反例和回归验证。不得用同一 AI 解释的两个副本互相证明正确，也不得购买商业许可。"
+      - "无法在 ACT 原生资产接口内实现的通用框架增强，生成独立补丁、最小复现和测试，放 {OUT}/intermediate/{DUT}/capabilities/，在独立副本验证，不混入 suite 的 changes.patch。尚待外部接口或规范澄清时保留可生成部分及精确帮助请求，不宣称完整端到端验证。"
+      - '更新计划中的实际 artifacts 和 checks，调用 Check(stage_args={"action":"validate","timeout":3600})。免费工具缺失、命令失败或零产物不能当通过；修复后重试。验证通过后 Complete。'
+    reference_files: ["Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md", "Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md"]
+    checker:
+      - name: generation_completion_evidence
+        clss: ACT4GenerationCompletionChecker
+        args:
+          suite: "{DUT}"
+          plan_file: "{OUT}/intermediate/{DUT}/completion_plan.yaml"
+          review_dir: "{OUT}/intermediate/{DUT}/review"
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          output_dir: "{OUT}/intermediate/{DUT}/completion-validation"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          phase: verify
+      - name: nine_asset_validation
+        clss: ACT4AssetChecklistChecker
+        args:
+          suite: "{DUT}"
+          plan_file: "{OUT}/intermediate/{DUT}/asset_checklist.yaml"
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          output_dir: "{OUT}/intermediate/{DUT}/asset-validation"
+          patch_dir: "{OUT}/dependency-patches"
+          phase: verify
   - name: prepare_to_contribute
     desc: 核对原生贡献集合和受保护文件
     task:
@@ -122,6 +307,7 @@ stage:
       - name: instruction_manifest
         clss: ACT4FileManifestChecker
         args:
+          asset_contract_file: "{OUT}/intermediate/{DUT}/asset_contract.yaml"
           manifest_file: "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
           expected_suite: "{DUT}"
           require_contribution_set: true
@@ -155,13 +341,81 @@ stage:
           manifest_file: "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
           output_dir: "{OUT}/intermediate/{DUT}/native-validation"
           environment_dir: "{OUT}/intermediate/{DUT}/environment"
+  - name: review_repair
+    desc: 修复有充分依据的问题，复验并交付最终报告及补丁
+    task:
+      - "本地未完成项必须先按退回的 F-ID 定向修复，再重新生成并验证；排除一种替代方法不等于无法实现。仅接受实际外部限制、有证据的预算耗尽或操作方明确接受的部分范围。"
+      - "源码唯一编辑位置为 riscv-arch-test；普通 Check 同步审查 candidate，不能直接编辑 candidate。先将生成路径、依赖和计划变更登记到 review.changes/post_assets，再 Check。九类依赖另由 asset_checklist 验证；审查后的源码修改必须重新验证。"
+      - "遵守 Guide_Doc/ACT4_Run_Guide.md：本阶段是生成流程的内置审查；重生成类别的旧设计不能作为输入。"
+      - 第一步：调用 Check 准备 candidate；此时提示缺少修复后证据或 final.yaml 时，按以下步骤继续。
+      - 第二步：在 riscv-arch-test 中修复 review.changes 声明且有充分依据的问题；修复生成器后，用原生入口重新生成 .S。
+        复用 Guide_Doc/ACT4_Asset_Authoring_Guide.md 和 Guide_Doc/act4_template/native_asset_design_template.md 的设计问题，填入既有 repair_plan，不另跑整套生成、不额外复制设计报告。
+        对尚无完整方案的 confirmed_defect，先按 repair_plan 核查已有 helper、目标能力和可观察结果，形成最小实验方案。
+        依次评估 suite-local 实现、可运行子集、已有原生入口、缺失能力是否只影响验证；更新实际调查证据后再决定修复或暂缓。
+        不能将“尚未编写测试”当作外部阻塞；保留未经验证的资产，不弱化正式修改的 repair_ready 要求。
+        在 review.yaml 声明 experiments 后，调用 Check(stage_args={"experiment":{"action":"prepare","id":"E1"}})，
+        只修改返回的实验副本和允许路径，再调用 action=run。它自动执行所选 jobs 及依赖，保留输入、日志和产物。
+        查看 experiments.json 与 evidence-experiment-E1.json；对照 success_criterion 更新 investigation，不能用实验成功代替正式 candidate 的复验。
+      - '第三步：用 Check(stage_args={"run_commands": true}) 重新验证，读取本轮命令日志与执行结果。'
+      - 第四步：阅读 evidence-after.json，对修改的源码、受影响义务及剩余静态疑点重新进行语义审查，
+        为 final.yaml 准备本轮证据。
+      - 要求（修改与执行）：只编辑 review.changes 声明的 paths，不手工修改生成用例或弱化断言/coverage 掩盖缺陷；
+        不得修改 CI 命令来规避失败。命令只在隔离副本中执行。
+      - 要求（复核与范围）：初审判断不能替代修复后的复核。
+        唯一可复用的是 reuse-final.json 列出的依赖未变记录；在 final 普通 Check 后，
+        用 ACT4ReviewDocument(action='reuse', document='final', expected_sha256=当前摘要) 引用它们。
+        finding/change 必须重新判断；任何源码、配置、执行结果或产物变化导致依赖不明时，保守重审，不手工复制初审结论。
+        新发现的问题先更新 review.yaml 中的证据、修复计划及 post_assets，再 Check 校验；证据不足时保留待修复项。
+      - 第五步：按 Guide_Doc/ACT4_Extension_Review_Guide.md 创建 final.yaml，逐项交代所有 finding 的
+        fixed/deferred/not_fixed/dismissed 状态、classification、diagnosis、investigation、证据和 reason；
+        未修复项填写 blocker 的具体缺项、影响、未解决原因、owner 和 next_action，需要用户协助时才写 request 与 reason_user_needed。
+        stop_reason 区分 external_dependency、unfinished_work、budget_exhausted；外部阻塞必须对四种替代路径提供实际依据，不能用未完成设计冒充不可修复。
+        unfinished_work 是定向修复队列，不是结束理由；只有启动配置明确接受该 ID 的局部交付才可保留这一状态。
+        预算停止记录限额、实际用量和来源，next_action 给出可直接续跑的动作；允许诚实交付部分成果，不要求无限试错。
+      - 第六步：完成 semantic_review 中全部 after.review_tasks，另逐项审核 finding:<ID> 和 change:<确切变更路径>，
+        引用修改后源码并比较基线，删除项引用基线。使用 ACT4ReviewDocument(document="final") 更新记录；
+        普通 Check 返回 progress-final.json 当前批次，逐批复核，不为报告缺项反复重跑验证命令。
+      - 第七步：将未解决的语义疑点、推断及验证限制全部列入 remaining_risks，汇总修复前后证据、
+        每个目标的 CI 结果、coverpoint 覆盖变化、精确变更和应用补丁后的复验要求；保留原有 obligation ID 和全部独立 ISA 计划项的对照，更新映射和结论。
+      - 要求（摘要）：summary 用清晰的自然语言先说明检查了什么、发现什么、修复什么、还剩什么及原因；
+        区分真实资产问题、扫描限制和环境限制；写明具体用户协助或无需用户输入，不以任务计数或原始日志开篇。
+        每个 final finding 的 repair_progress 独立描述实施进度；有候选实现不等于验证通过。
+        共享问题可用稳定 root_cause_key 关联，但各模块的适用性、修复与验证证据分别保留。
+      - 第八步：调用 Check 生成 intermediate/{DUT}/review-results/ 中的报告和补丁；根目录最终报告在下一阶段汇总。
+        没有可安全修复的问题时允许空补丁；仅经验证的外部限制、预算停止或操作方明确接受的延期可作为部分交付。
+      - 要求（复核证据）：semantic_review 使用 after 的 review_digest。
+        finding 标为 fixed 时，其复核判断必须 passed/confirmed，且关联复验 jobs 均通过。
+      - 要求（结论与输入）：不得把环境限制当 DUT Bug，或把未执行 CI 标为通过；原始输入保持不变。
+    reference_files: ["Guide_Doc/ACT4_Extension_Review_Guide.md", "Guide_Doc/ACT4_Asset_Authoring_Guide.md", "Guide_Doc/act4_template/native_asset_design_template.md"]
+    checker:
+      - name: review_candidate_changes
+        clss: ACT4ReviewChecker
+        args: {phase: repair, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}/intermediate/{DUT}/review-results", act4_root: act4-inputs, generation_root: riscv-arch-test}
+      - name: review_final_report
+        clss: ACT4ReviewChecker
+        args: {phase: final, suite: "{DUT}", review_dir: "{OUT}/intermediate/{DUT}/review", result_dir: "{OUT}/intermediate/{DUT}/review-results", act4_root: act4-inputs, generation_root: riscv-arch-test}
   - name: generate_final_human_report
     desc: 输出可读摘要和可贡献的 patch
     task:
+      - "分别报告运行结束、已修复、本地未完成、外部待验证、各配置实跑数和实测覆盖；写出当前验收的 Finding scope 汇总行。"
+      - "根目录 final.md 先概述检查、生成、修复、未解决项及原因和所需协助；纳入 review/final-accepted.json 的摘要，链接 intermediate/{DUT}/review-results/final.md。Check 后将 asset-inputs/policies.md 的来源策略表完整可见地放入 final.md；保留九类资产结果 checklist。无需变更时允许空 changes.patch，不能制造修改。"
+      - "把 asset-validation/checklist.md 的完整 Asset checklist 放在 final.md 摘要后，不改状态。列出九类资产的仅引用、复用、新增、修复、仅报告或不适用及独立 dependency-patches。required 的报告项必须进入 completion_plan 的范围限制，不能声称 scope_complete=true；明确未执行的 Sail、动态覆盖、T-SBI 和 GCC/Clang 验证。"
+      - "摘要区分资产补全与验证程度，说明补齐的能力、商业验证限制和实际所需外部输入。加入与 completion-validation/receipt.json 的 summary 完全一致的 scope_completion YAML；遵循 Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md，不能把缺少现成文件称为不支持。"
       - "按 Guide_Doc/ACT4_Generation_Guide.md 写 {OUT}/final.md：先概述生成了什么、验证了什么、未验证原因及需要的人工帮助，再给覆盖/文件索引和复现方法；包含与实际 receipt 一致的 generation_result YAML。"
       - "链接 environment/summary.md、native-validation/receipt.json、原生输入收据、design_review.md 和 file manifest。Check 会发布 {OUT}/changes.patch。不要称 AI 自审等同于维护者审批或上游完整 CI。"
-    reference_files: ["Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeValidationChecker.md", "Guide_Doc/ACT4_Checker_Guide/ACT4FinalReportChecker.md"]
+    reference_files: ["Guide_Doc/ACT4_Checker_Guide/ACT4GenerationRunChecker.md", "Guide_Doc/ACT4_Run_Guide.md", "Guide_Doc/ACT4_Generation_Guide.md", "Guide_Doc/ACT4_Checker_Guide/ACT4NativeValidationChecker.md", "Guide_Doc/ACT4_Checker_Guide/ACT4FinalReportChecker.md", "Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md"]
     checker:
+      - name: generation_scope_report
+        clss: ACT4GenerationCompletionChecker
+        args:
+          suite: "{DUT}"
+          plan_file: "{OUT}/intermediate/{DUT}/completion_plan.yaml"
+          review_dir: "{OUT}/intermediate/{DUT}/review"
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          output_dir: "{OUT}/intermediate/{DUT}/completion-validation"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          phase: verify
+          final_report: "{OUT}/final.md"
       - name: native_report_evidence
         clss: ACT4NativeValidationChecker
         args:
@@ -172,6 +426,17 @@ stage:
           manifest_file: "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
           output_dir: "{OUT}/intermediate/{DUT}/native-validation"
           environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          final_report: "{OUT}/final.md"
+      - name: nine_asset_report
+        clss: ACT4AssetChecklistChecker
+        args:
+          suite: "{DUT}"
+          plan_file: "{OUT}/intermediate/{DUT}/asset_checklist.yaml"
+          input_dir: "{OUT}/intermediate/{DUT}/inputs"
+          environment_dir: "{OUT}/intermediate/{DUT}/environment"
+          output_dir: "{OUT}/intermediate/{DUT}/asset-validation"
+          patch_dir: "{OUT}/dependency-patches"
+          phase: verify
           final_report: "{OUT}/final.md"
       - name: instruction_final_report
         clss: ACT4FinalReportChecker
@@ -187,3 +452,6 @@ stage:
             - "{OUT}/intermediate/{DUT}/inputs/receipt.json"
             - "{OUT}/intermediate/{DUT}/reports/design_review.md"
             - "{OUT}/intermediate/{DUT}/reports/{DUT}_file_manifest.yaml"
+      - name: generation_source_results
+        clss: ACT4GenerationRunChecker
+        args: {suite: "{DUT}", output: "{OUT}", phase: final}

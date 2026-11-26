@@ -14,13 +14,16 @@ from .checkers.act4_test_asset_checker import ACT4TestAssetChecker
 from .checkers.act4_review_checker import ACT4ReviewChecker
 from .checkers.act4_xiangshan_checker import ACT4XiangShanChecker
 from .checkers.act4_environment_checker import ACT4EnvironmentChecker
-from .workspace import validate_input_paths, validate_review_paths, validate_xiangshan_paths
+from .workspace import validate_input_paths, validate_xiangshan_paths
 from .review_tools import create_review_tools
 from .resource_tools import create_resource_tools
 from .checkers.act4_resource_checker import ACT4ResourceChecker
 from .checkers.act4_generation_inputs_checker import ACT4GenerationInputsChecker
 from .checkers.act4_native_assets_checker import ACT4NativeAssetsChecker
 from .checkers.act4_native_validation_checker import ACT4NativeValidationChecker
+from .checkers.act4_generation_completion_checker import ACT4GenerationCompletionChecker
+from .checkers.act4_asset_checklist_checker import ACT4AssetChecklistChecker
+from .checkers.act4_generation_run_checker import ACT4GenerationRunChecker
 
 
 def get_plugin() -> Plugin:
@@ -49,6 +52,9 @@ def get_plugin() -> Plugin:
             ACT4GenerationInputsChecker,
             ACT4NativeAssetsChecker,
             ACT4NativeValidationChecker,
+            ACT4GenerationCompletionChecker,
+            ACT4AssetChecklistChecker,
+            ACT4GenerationRunChecker,
         ),
         workflows=(
             PluginWorkflow(
@@ -56,12 +62,6 @@ def get_plugin() -> Plugin:
                 config_file=root / "workflows" / "privileged-suite-generation.yaml",
                 guide_doc_paths=(root / "Guide_Doc",),
                 template_context_factory=validate_input_paths,
-            ),
-            PluginWorkflow(
-                name="extension-review",
-                config_file=root / "workflows" / "extension-review.yaml",
-                guide_doc_paths=(root / "Guide_Doc",),
-                template_context_factory=validate_review_paths,
             ),
             PluginWorkflow(
                 name="xiangshan-v3-handoff",

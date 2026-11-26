@@ -22,6 +22,10 @@ dev = ["pytest>=8", "build>=1"]
 [project.entry-points."ucagent.plugins"]
 act4 = "ucagent_act4.plugin:get_plugin"
 
+[project.scripts]
+act4-run = "ucagent_act4.run_config:main"
+act4-status = "ucagent_act4.run_status:main"
+
 [tool.setuptools]
 include-package-data = false
 
@@ -32,6 +36,8 @@ namespaces = false
 
 [tool.setuptools.package-data]
 ucagent_act4 = [
+  "data/*.csv",
+  "data/*.json",
   "Guide_Doc/*.md",
   "Guide_Doc/ACT4_Checker_Guide/*.md",
   "Guide_Doc/act4_template/*.md",

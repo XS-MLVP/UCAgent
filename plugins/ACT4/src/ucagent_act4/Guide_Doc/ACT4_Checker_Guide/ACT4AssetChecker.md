@@ -16,7 +16,7 @@ privileged coverage 语义要求。默认列表为空，已有生成阶段的扫
 ## 作用
 
 该 checker 在阶段 01、02、04 分别验证 coverage、norm mapping 和 generator。它建立
-派生 testplan、正式 norm-rules.json、SystemVerilog coverage symbols、mapping targets、Python
+派生 testplan、经核验的 norm-rules.json、SystemVerilog coverage symbols、mapping targets、Python
 generator testcase linkage 和 VM scope 之间的静态集合关系，是资产结构一致性的主 gate。
 
 ## 主要输入与输出

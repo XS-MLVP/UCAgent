@@ -1,0 +1,24 @@
+schema_version: 1
+suite: Sstc
+workflow: privileged-suite-generation
+workspace: ../../../output/act4-Sstc
+output: act4_assets
+target_context: "Review and complete Sstc architectural tests; determine supported XLEN, privilege and timer assumptions from the pinned ISA."
+upstream:
+  act4_root: riscv-arch-test
+  act4_ref: act4
+  manual_root: riscv-isa-manual
+  manual_ref: HEAD
+  cache_root: ""
+defaults:
+  mode: improve
+  source: upstream
+  on_missing: generate
+assets: {}
+limits:
+  stalled_rounds: 3
+  experiments: 6
+  experiment_seconds: 1800
+runtime:
+  use_skill: false
+  mcp_port: -1

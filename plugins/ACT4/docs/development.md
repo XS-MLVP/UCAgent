@@ -6,14 +6,14 @@
 `ucagent.plugins` entry point 支持安装态发现；两者指向相同 provider。
 
 发行包名为 `ucagent-act4`，Python 包名为 `ucagent_act4`，插件 ID 为 `act4`。
-四个工作流名称保持独立，例如 `--workflow act4:extension-review`；源码和安装态使用同一 ID。
+三个入口使用相同的插件 ID；两个生成入口通过 `act4-run run.yaml` 启动，香山独立交付。
 
 ```text
 plugins/ACT4/
   src/ucagent_act4/
     plugin.py            插件注册
     checkers/            验收与确定性分析
-    workflows/           四个工作流配置
+    workflows/           三个工作流配置
     Guide_Doc/           运行指南与模板
     scripts/             独立命令与接收方脚本
     handoff/             交付 README 和 Makefile 模板
@@ -22,6 +22,29 @@ plugins/ACT4/
   tests/                 回归测试及其合成资产
   docs/                  操作与开发文档
 ```
+
+## Test Suite 目录
+
+`src/ucagent_act4/data/test_suites.csv` 保存进度表 CSV 快照，`test_suites.json` 记录来源、
+读取日期、CSV SHA-256 和不可执行的分组标题/无范围提醒。`suite_catalog.py` 从这份数据读取
+两个生成工作流的目标和摘要；[Test Suite 目录](test-suites.md) 由同一数据生成，不单独维护另一份允许名单。
+目标校验在工作流初始化、资源下载和环境安装之前执行，不增加 LLM 阶段，也不依赖 Skill 或网络。
+表中状态仅用于终端提示；传入任务的 `ACT4_SUITE_SCOPE` 只含目标、原名、来源、分组和说明，
+避免用现有测试资产的进度影响 review 的独立 ISA 计划。香山入口不调用此校验。
+
+刷新目录时从 Test Suite 目录链接的 `gid=0` 导出 CSV，保留三行表头、空行及原始大小写，统一保存为 UTF-8/LF；
+更新 JSON 中的读取日期和 SHA-256，人工复核非目标标签。不能因为资产状态为空而排除 suite。
+重复名称保留所有行，复杂名称按同一字符规则生成安全标识；发生标识冲突时加载失败，不能静默合并。
+随后在 UCAgent 环境中运行：
+
+```bash
+PYTHONPATH=plugins/ACT4/src:. python plugins/ACT4/scripts/sync_suite_targets.py
+PYTHONPATH=plugins/ACT4/src:. python plugins/ACT4/scripts/sync_suite_targets.py --check
+PYTHONPATH=plugins/ACT4/src:. python -m pytest plugins/ACT4/tests/test_act4_suite_catalog.py -q
+```
+
+两份快照必须一起进入 wheel/sdist；目录缺失、损坏或元数据不匹配时拒绝启动，不能退化为接受任意目标。
+此目录证明名称来源，不证明规范范围已充分解析或每个 suite 已端到端完成。
 
 ## 资源和注册
 
@@ -88,13 +111,11 @@ objcopy/objdump 从同一最终 ELF 导出产物，校验裸二进制范围并�
 未成功的新构建阻止 --local 运行旧产物，构建后输入漂移也需重建；原证据不自动继承。
 环境工具按可移植配方在 local/tools 安装或复用，操作日志只在接收方执行后产生。
 
-`workflows/extension-review.yaml` 提供独立 ISA 计划、审查、修复三个阶段，`ACT4ReviewChecker` 管理
-冻结基线、审查契约、真实命令证据、声明的修复范围、候选差异与最终补丁；复用
-`ACT4AssetChecker` 和现有 SV/assembly 分析，不使用仅允许新 suite 的 manifest 门禁。
-初审允许资产检查或 CI 失败，门禁要求报告完整、真实并保留限制。修复在候选副本进行；
-输入目录通过文件工具写入白名单保护，并在每次 Check 检查内容、模式；Git 输入还核对 HEAD 及子模块。
-工作流只将 Guide_Doc 配置为 `un_write_dirs`，避免核心初始化的 chmod 改动输入模式；
-`write_dirs` 只允许输出目录。外部 shell/MCP 仍须遵守只读输入约定，边界不是 OS 沙箱。
+两个生成配置内嵌独立 ISA 计划、基线审查和生成后复验，复用 `ACT4ReviewChecker` 的批处理、
+真实命令证据、缺陷处置和补丁能力。`ACT4GenerationRunChecker` 负责用户来源策略、选择及导入冻结、
+局部重生成和最终策略表。入口配置定义在 `run_config.py`，完整字段见 [运行配置](run-configuration.md)。
+只读基线是 `act4-inputs`，工作副本是 `riscv-arch-test`；复验只同步源码到 candidate，排除工具和缓存。
+本地原输入不改写；最终 ACT 及依赖补丁均相对于导入基线，而非假定所有输入等于 Git HEAD。
 
 `review_plan` 先用用户范围及 ISA 原文建立 isa-plan.yaml，冻结来源及选区后逐块设计激励、观察和
 适用性；Complete 接受原始计划，阶段状态绑定 plan/context/来源身份。只有完成该步骤才能进行
@@ -114,9 +135,8 @@ deferred/not_fixed，但须记录分类、诊断进度、带精确引文的调�
 关联验证通过和当前语义复核。更新修复计划时重新校验报告，执行输入变化时重新取证。
 规范示例见独立运行指南，避免在生成工作流文档中复制另一套契约。
 
-review 专用 ACT4_REVIEW_ROOT 默认为 riscv-arch-test，支持显式相对/绝对路径的独立 Git clone 或无 Git 的
-本地模块目录；使用独立路径验证入口，不改变 generation 的初始化规则。目录输入完整指纹化，
-没有虚构的 HEAD，缺少 Git 不阻止目录 review 启动；Git 输入实际冻结时才需要 Git 命令。
+按类别导入本地原生源码或精确基线的补丁；补丁在隔离副本通过 git apply 检查后只提取所选路径。
+配置、选择、来源文件和基线哈希均冻结；不能改变来源后复用旧证据。独立设计前不开放资产内容读取。
 原生命令在独立副本运行：Git 输入保留提交及索引语义，本地目录直接复制冻结源码，无共享
 hardlinks 或反向链接；生成文件不反写 baseline/candidate。每项命令记录 argv、cwd、退出码、日志和
 产物摘要。后续 Check 使用绑定源码/矩阵的缓存，只有显式 `run_commands: true` 才重跑。
@@ -190,18 +210,15 @@ max_experiments 默认 6（1..50），max_experiment_seconds 默认 1800（1..36
 隔离副本不是操作系统安全沙箱，仍只应执行已审计的原生工程命令。
 validation-plan 核对原生 ci.yaml 排除项及最终 run_cmd，已知偏离必须明确标为诊断；
 不自动证明动态矩阵选择，未知布局保留未核实，局部 make lint 不冒充完整上游 lint。
-所有新增入口只在 review 项目激活，生成工作流的配置、资源与默认门禁保持不变。
+审查文档工具仅在两个生成项目激活；香山工具及交付配置不变。
 
 本工作流不主动启用核心 `check_pass_refinement` 独立 LLM 复核：核心当前在建议生成异常时
 会将阶段标为 approved（`ucagent/stage/vmanager.py` 的 `gen_pass_suggestion`），不宜将它
 作为强制语义门禁。采用主 Agent 的结构化审查，不增加第二套模型 API 配置，也不把 schema
 校验当成独立模型已审查的证明。
 
-manual 路径由工作流的 `template_overwrite.ACT4_MANUAL_ROOT` 提供，加载 YAML 时解析
-`ACT4_MANUAL_ROOT` 环境变量，再由 UCAgent 模板系统统一渲染进提示和 checker 参数。
-各工作流的 context factory 在初始化前验证输出是工作区内非空相对目录，解析符号链接
-后输入和输出仍位于工作区内，且输出、选定输入、manual 两两不重叠；不修改最终配置。
-新增配置应继续走 UCAgent 的最终配置，不在 checker 中重复读取环境变量。
+生成参数只读取已解析的 `act4_run`，不重读环境变量；template context 校验目标、工作区和路线一致，
+再提供给任务提示及 checker。工作区和输出禁止越界、重叠或符号链接；模型配置仍由 UCAgent 管理。
 
 ## 源码与安装态
 

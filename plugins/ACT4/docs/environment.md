@@ -1,7 +1,7 @@
 
 # 工作流的环境准备与复用
 
-三个工作流先运行 `prepare_resources`，再执行工具准备和资产工作；香山交付在资源准备后先完成
+各工作流先运行 `prepare_resources`；生成流程随后独立 ISA 设计、导入来源，再准备工具和资产；香山交付在资源准备后先完成
 `handoff_scope` 的功能范围选择，以确定实际依赖。AI 读取
 该版本的依赖清单及 CI 安装说明，生成工具计划，执行真实探测、缺项安装及安装后复验。
 UCAgent、ACT4 插件和模型连接需要在启动前可用，工作流不会安装自己的运行宿主。
@@ -9,7 +9,7 @@ UCAgent、ACT4 插件和模型连接需要在启动前可用，工作流不会�
 ## 源码资源复用
 
 默认共享目录是最近一层 `output/.act4-cache/`；工作区不位于 `output` 下时使用工作区父目录的
-`.act4-cache/`。可用 `ACT4_RESOURCE_ROOT` 指定其他共享目录。资源与每轮运行的证据分开，
+`.act4-cache/`。生成流程用运行配置 `upstream.cache_root`，香山用 `ACT4_RESOURCE_ROOT` 指定其他共享目录。资源与每轮运行的证据分开，
 不会把整套共享仓库重复放进每轮输出或交付包。
 
 顺序为：已有显式输入 → 共享的固定版本 checkout → 既有输出中完整、干净且来源/版本匹配的
@@ -17,7 +17,8 @@ checkout → 下载缺项。导入旧 checkout 时只复制提交内容和匹配
 构建树或未提交修改；旧输出保持原样。缓存按仓库 URL 与所选 ref 区分，并记录实际 HEAD 和
 子模块提交。默认 ACT ref 是 `act4`，香山 ref 是 `kunminghu-v3`，规范默认采用首次取得的 HEAD。
 后续不会自动 pull；这保证复现性，不代表跟踪上游最新。需要另一版本时可用
-`ACT4_ACT_REF`、`ACT4_MANUAL_REF`、`ACT4_XIANGSHAN_REF` 选取分支/标签，或显式提供固定提交的输入。
+生成流程用 `upstream.act4_ref/manual_ref`，香山用 `ACT4_ACT_REF`、`ACT4_MANUAL_REF`、`ACT4_XIANGSHAN_REF` 选取分支、标签或完整提交 SHA，
+也可显式提供固定提交的输入。下载 SHA 时先检出并核对该提交，再初始化 ACT 子模块，不把 SHA 当分支名。
 
 共享源码只读，准备时有互斥锁，未完成的下载不发布为可复用资源。输入被改动、ACT 必需子模块不完整、
 准备收据被修改时会报错，不自动 reset 或替用户删除文件。
@@ -53,6 +54,10 @@ ISA manual 和香山源码仅供读取，不为文档构建或完整 RTL 仿真�
 环境阶段首先实测 Python、Bash、Git、Curl、Make、uv、编译器、模型、lint 和商业仿真器的可发现性。
 AI 根据实际依赖补充安装计划，`Check` 执行计划并保存退出码、版本输出和安装日志。
 成功退出但版本不符仍不算准备完成。共享安装有进程锁；另一个任务正在安装时记录重试动作。
+
+`version` 是探测输出的字面子串，`expected_output` 才是正则。诊断会区分命令不可执行与
+版本/输出匹配失败，避免将已经安装的工具误当成缺失而重复安装。安装配方与独立工作副本中的
+锁文件依赖同步是不同步骤，Bundler/UDB/CTP 等必须分别以实际探测和原生执行结果确认。
 
 产物位于 `<OUT>/intermediate/<模块>/environment/`：`host.json` 是初次探测，`plan.yaml` 是安装计划，
 `receipt.json` 和日志是实测证据，`summary.md` 是摘要，`activate.sh` 用于后续 shell 命令。

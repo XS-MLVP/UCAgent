@@ -84,7 +84,7 @@ def test_gap_generation_runs_existing_workflow_and_requires_completed_stages(har
     """Invoke a private child workflow and reject failed, skipped, interrupted or substituted completion."""
     feature = harness.scope["features"][0]
     feature.update(resolution="generate", generation_job="G1", next_action="Generate the missing fixture suite")
-    harness.scope["generation_jobs"] = [{"id": "G1", "suite": "NewTimer", "rationale": "Missing upstream implementation",
+    harness.scope["generation_jobs"] = [{"id": "G1", "suite": "H", "rationale": "Missing upstream implementation",
         "eligibility": "Synthetic native generation eligibility for orchestration tests", "generation_style": style}]
     harness.write("scope.yaml", harness.scope)
     manual = harness.root / "manual"
@@ -103,69 +103,72 @@ def test_gap_generation_runs_existing_workflow_and_requires_completed_stages(har
         """Emulate command boundaries while preserving actual filesystem receipt checks."""
         calls.append(argv)
         log.write_text("fixture child process")
-        if argv[:2] == ["git", "clone"]:
-            shutil.copytree(harness.framework, argv[-1])
-            return {"status": "passed", "exit_code": 0}
         assert argv[1:3] == ["-m", "ucagent.cli"]
         assert workflow_id in argv
         assert "--exit-on-completion" in argv and "--loop" in argv
-        assert environment["ACT4_MANUAL_ROOT"] == str(manual)
+        assert "--mcp-server-no-file-tools" in argv and "--mcp-server-port" in argv
+        from ucagent.util.config import Config
+        from ucagent_act4.workspace import validate_input_paths
+
+        settings = yaml.safe_load(Path(argv[argv.index("--config") + 1]).read_text())["act4_run"]
+        assert settings["upstream"]["manual_root"] == str(manual)
+        assert settings["upstream"]["act4_root"] == str(harness.framework)
+        assert settings["workflow"] == workflow_name and settings["suite"] == "H"
+        project = "act4_priv_suite_generate" if style == "scenario" else "act4_unprivileged_generate"
+        validate_input_paths(Config({"act4_run": settings, "template_overwrite": {"PROJECT": project}}),
+                             {"WORKSPACE": str(cwd), "OUT": "act4_assets", "DUT": "H"})
+        assert not (cwd / "riscv-arch-test").exists()
+        shutil.copytree(harness.framework, cwd / "riscv-arch-test")
         stages = {str(index): {"task": {"title": f"{index + 1}-{stage['name']}-fixture"}, "is_completed": outcome != "incomplete",
             "check_pass": True, "is_skipped": outcome == "skipped"} for index, stage in enumerate(workflow["stage"])}
-        info = {"all_completed": outcome != "incomplete", "DUT": "NewTimer", "plugin_workflow": workflow_id,
+        info = {"all_completed": outcome != "incomplete", "DUT": "H", "plugin_workflow": workflow_id,
                 "stages_info": stages}
         if outcome == "wrong_workflow":
-            info["plugin_workflow"] = "act4:extension-review"
+            info["plugin_workflow"] = "act4:unrelated-workflow"
         bundle.write_json(cwd / ".ucagent/ucagent_info.json", info)
         directory = "priv" if style == "scenario" else "rv64"
-        assembly = cwd / f"riscv-arch-test/tests/{directory}/NewTimer/new.S"
+        assembly = cwd / f"riscv-arch-test/tests/{directory}/H/new.S"
         assembly.parent.mkdir(parents=True)
         assembly.write_text("generated fixture")
         category = "priv" if style == "scenario" else "unpriv"
-        required = [f"coverpoints/{category}/NewTimer_coverage.svh", f"coverpoints/{category}/NewTimer_coverage_init.svh",
-                    "coverpoints/norm/NewTimer.yaml"]
-        required += ["testplans/priv/NewTimer.yaml", "generators/testgen/src/testgen/priv/extensions/NewTimer.py"] if style == "scenario" else ["testplans/NewTimer.csv"]
+        required = [f"coverpoints/{category}/H_coverage.svh", f"coverpoints/{category}/H_coverage_init.svh",
+                    "coverpoints/norm/H.yaml"]
+        required += ["testplans/priv/H.yaml", "generators/testgen/src/testgen/priv/extensions/H.py"] if style == "scenario" else ["testplans/H.csv"]
         for name in required:
             path = cwd / "riscv-arch-test" / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("generated fixture")
-        for name in ("NewTimer_validation_state.yaml", "NewTimer_file_manifest.yaml"):
-            path = cwd / "act4_assets/intermediate/NewTimer/reports" / name
+        for name in ("H_validation_state.yaml", "H_file_manifest.yaml"):
+            path = cwd / "act4_assets/intermediate/H/reports" / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture report")
         (cwd / "act4_assets/final.md").write_text("fixture final")
         (cwd / "act4_assets/changes.patch").write_text("fixture patch")
-        bundle.write_json(cwd / "act4_assets/intermediate/NewTimer/native-validation/receipt.json", {"status": "fixture"})
+        bundle.write_json(cwd / "act4_assets/intermediate/H/native-validation/receipt.json", {"status": "fixture"})
         if outcome == "missing_assets":
             (cwd / "riscv-arch-test" / required[0]).unlink()
         elif outcome == "missing_report":
-            (cwd / "act4_assets/intermediate/NewTimer/native-validation/receipt.json").unlink()
+            (cwd / "act4_assets/intermediate/H/native-validation/receipt.json").unlink()
         elif outcome == "wrong_suite":
-            wrong = assembly.parent.with_name("NewTimerOther") / assembly.name
+            wrong = assembly.parent.with_name("HOther") / assembly.name
             wrong.parent.mkdir()
             assembly.rename(wrong)
         return {"status": outcome if outcome in {"failed", "timeout"} else "passed", "exit_code": 0}
 
-    def clone_fixture(source, destination, *args):
-        """Isolate child-workflow orchestration from the independently tested Git acquisition."""
-        calls.append(["git", "clone", str(source), str(destination)])
-        shutil.copytree(source, destination)
-
-    monkeypatch.setattr(xiangshan_acquisition, "clone_local", clone_fixture)
     monkeypatch.setattr(bundle, "execute", child)
     if outcome != "passed":
         with pytest.raises(ValueError, match="did not finish|without completing|lacks|missing its"):
-            acquisition.synthesize(scope, "G1", "langchain", 30)
+            acquisition.synthesize(scope, "G1", "codex", 30)
         assert not state.get("synthesis")
         return
     checker = harness.checker("inputs")
     checker.manual_root = "manual"
-    checker.cfg = SimpleNamespace(get_value=lambda key, default=None: "langchain")
+    checker.cfg = SimpleNamespace(get_value=lambda key, default=None: "codex")
     passed, result = checker.do_check(action="synthesize", generation_id="G1", timeout=30)
     assert passed, result
-    assert len(calls) == 2
+    assert len(calls) == 1
     imported = acquisition.import_roots(scope)["generated:G1"]
-    relative = f"tests/{'priv' if style == 'scenario' else 'rv64'}/NewTimer/new.S"
+    relative = f"tests/{'priv' if style == 'scenario' else 'rv64'}/H/new.S"
     assert (imported / relative).read_text() == "generated fixture"
     assert not (harness.framework / relative).exists()
     assert state["synthesis"]["G1"]["workflow"] == workflow_id
@@ -204,3 +207,13 @@ def test_generation_route_must_be_explicit(harness, style):
     harness.write("scope.yaml", harness.scope)
     passed, result = harness.checker("scope").do_check()
     assert not passed and "generation_style: table or scenario" in result["error"], result
+
+
+def test_generation_job_requires_catalog_suite_before_launch(harness):
+    """Reject private native aliases before attempting to launch a generation child."""
+    harness.scope["features"][0].update(resolution="generate", generation_job="G1", next_action="Generate missing suite")
+    harness.scope["generation_jobs"] = [{"id": "G1", "suite": "UnknownSuite", "generation_style": "scenario",
+        "rationale": "Missing asset", "eligibility": "Inspected native inputs"}]
+    harness.write("scope.yaml", harness.scope)
+    passed, result = harness.checker("scope").do_check()
+    assert not passed and "catalog Test Suite target" in result["error"]

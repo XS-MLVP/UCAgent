@@ -11,9 +11,12 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+import yaml
 
 
 from . import act4_asset_consistency as core
+from ..generation_assets import declared_generation_sources
+from ..xiangshan_bundle import safe_path
 
 
 from ucagent.checkers.base import Checker
@@ -41,6 +44,7 @@ class ACT4AssetChecker(Checker):
         coverage_patterns: Any = None,
         discover_coverage: bool = True,
         generator_files: Any = None,
+        asset_contract_file: str | None = None,
         generator_patterns: Any = None,
         ctp_files: Any = None,
         assets: Any = None,
@@ -93,6 +97,7 @@ class ACT4AssetChecker(Checker):
             raise TypeError("discover_coverage must be a boolean")
         self.discover_coverage = discover_coverage
         self.generator_files = generator_files or []
+        self.asset_contract_file = asset_contract_file
         self.generator_patterns = generator_patterns or []
         self.ctp_files = ctp_files or []
         self.assets = assets or []
@@ -179,6 +184,16 @@ class ACT4AssetChecker(Checker):
         """Check configured assets and ACT4 cross-asset consistency."""
         try:
             root = self._workspace_root()
+            generator_files = self.generator_files
+            if self.asset_contract_file:
+                workspace = Path(self.workspace).resolve()
+                contract = yaml.safe_load(safe_path(workspace, self.asset_contract_file).read_text(encoding="utf-8"))
+                if not isinstance(contract, dict) or contract.get("suite") != self.suite:
+                    raise ValueError("Asset contract must identify this suite")
+                generator_files = [str(safe_path(root, name)) for name in declared_generation_sources(root, contract)
+                                   if name.startswith("generators/testgen/") and name.endswith(".py")]
+                if not generator_files:
+                    raise ValueError("Declare actual generator extension_sources, including shared/nested generators")
             manifest = self.manifest
             if isinstance(manifest, str) and not os.path.isabs(manifest):
                 manifest = str((Path(getattr(self, "workspace", None) or os.getcwd()).resolve() / manifest).resolve())
@@ -194,7 +209,7 @@ class ACT4AssetChecker(Checker):
                 coverage_context_files=self._resolve_config_path(self.coverage_context_files, root),
                 coverage_patterns=self.coverage_patterns,
                 discover_coverage=self.discover_coverage,
-                generator_files=self._resolve_config_path(self.generator_files, root),
+                generator_files=self._resolve_config_path(generator_files, root),
                 generator_patterns=self.generator_patterns,
                 ctp_files=self._resolve_config_path(self.ctp_files, root),
                 assets=self.assets,

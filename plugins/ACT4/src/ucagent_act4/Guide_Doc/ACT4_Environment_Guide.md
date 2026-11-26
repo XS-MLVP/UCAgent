@@ -18,10 +18,25 @@
 
 文件路径：`{OUT}/intermediate/{DUT}/environment/plan.yaml`。`tools` 必须列出 python、bash、git、curl、make、uv、compiler、reference、lint；可添加由所选 workflow CI 或依赖文档要求的公开工具。`bin_dirs` 相对 `{PREFIX}`。命令使用 argv 数组，不使用 shell 字符串。`{PREFIX}` 是独立版本安装目录，`{PYTHON}` 是当前 UCAgent 所用 Python。
 
+`version` 是实际探测输出必须包含的**字面子串**，不是正则或版本范围；正则只写入
+`expected_output`。例如探测输出 `Python 3.11.9` 时可用 version `3.11.9`，而不是 `>=3.11`。
+probe 使用 `[PATH命令, 一个版本/帮助参数]` 或 `["{PYTHON}", "--version"]`；使用原生版本子命令的 UDB 写 `[udb, version]`。
+不能用 env、shell 或 `mise exec` 包装。安装配方只支持前缀内的 curl、tar、git clone、
+pip install --prefix、cp、mkdir、chmod；不支持在这里运行 mise/Ruby 项目依赖命令。
+原生锁文件依赖在独立 ACT 工作副本中同步，不能将尚未同步的 Bundler/UDB/CTP 记为就绪；
+后续原生验证仍必须实际执行。若探测命令成功但匹配失败，先检查字面版本与正则，不要直接重装。
+生成流程应按冻结的 `docs/ctp/Makefile` 核对渲染依赖；能运行 `asciidoctor-pdf --version` 不代表 Ruby 能加载该构建所要求的扩展（如 `asciidoctor-lists`）。
+
+两条生成路线的 `native_smoke` 选一个已有的小 suite 和一个 Sail 配置，不必使用待开发的扩展。
+在导入基线的临时副本中实际编译并运行非空 ELF 集，再从独立工作目录收集并读回有 bin 的 Verilator 数据库。
+分别查看 `summary.md`、`smoke-*.log` 和 `receipt.json`。覆盖不可用不抵销成功的模型运行，也不是 0% 命中；
+准备阶段可以带此限制继续，本轮目标仍须做自己的原生验证。香山交付不要求该项。
+
 下面是结构完整的格式示例。版本、正则和安装 argv 是示意输入，不是可照抄的依赖结论；必须根据本轮冻结的 ACT4、香山源码或本地资产依赖说明替换。已匹配的 host 工具可以 `install: []`；无法获得的可选 lane 使用 `unavailable_reason`。
 
 ```yaml
 schema_version: 1
+native_smoke: {suite: Zifencei, config: config/sail/sail-rv64-max/test_config.yaml}
 tools:
   - id: python
     version: "Python 3."

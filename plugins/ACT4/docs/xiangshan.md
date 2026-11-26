@@ -9,7 +9,7 @@
 
 ## 启动与输入
 
-按 [插件安装说明](../README.md) 安装后，只需指定香山模块，不必提前知道 ACT suite 名：
+按 [AI agent 执行指南](agent-run.md) 检查启动条件后，只需指定香山模块，不必提前知道 ACT suite 名：
 
 ```bash
 ACT4_WORKSPACE="$PWD/output/xiangshan-Vector"
@@ -17,7 +17,7 @@ mkdir -p "$ACT4_WORKSPACE"
 ucagent "$ACT4_WORKSPACE" Vector \
   --plugin act4 \
   --plugin-workflow act4:xiangshan-v3-handoff \
-  --output act4_xiangshan --backend langchain --tui
+  --output act4_xiangshan --backend codex --mcp-server-no-file-tools --loop --exit-on-completion
 ```
 
 在任务描述中说明希望覆盖的功能和已知目标约束。向量模块不会直接等同于 Vx：工作流应检查
@@ -55,9 +55,10 @@ ucagent "$ACT4_WORKSPACE" Vector \
 真正的缺口才在独立 clone 调用生成工作流：scope 的 `generation_style: table` 选择
 `unprivileged-suite-generation`，`scenario` 选择 `privileged-suite-generation`。
 依据原生测试结构与 trap 需求判断，不仅依据 ISA 特权类别；两者都须满足自己的规范、
-原生资产及全部阶段验收，并保留原生验证收据。已有实现先用 review 增量修复，不覆盖输入。
+原生资产及全部阶段验收，并保留原生验证收据。已有实现先用对应生成入口的 improve 策略修复，不覆盖输入。
 原生接口不支持的缺口与微架构场景列为 unavailable，不通过删改生成门槛伪装补全。
-生成子流程需要已配置的模型后端及额度；生成和 review 工作流自身的契约不变。
+生成子流程需要已配置的模型后端及额度。它自动创建统一运行配置，job 的 suite 必须是目录中的 Test Suite；
+用户不需为香山交付另填生成 YAML，后续源码副本由生成流程按自己的阶段准备。
 
 ## 报告与文件说明
 

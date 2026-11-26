@@ -3,10 +3,14 @@
 
 ## 1. 选择工作流
 
+任务中的 `ACT4_SUITE_SCOPE` 给出本轮目标对应的 Test Suite 原名、说明和来源行。
+以这些范围定位规范，再确认原生计划路径；CLI 标识不是文件名映射，也不是现成资产齐全的证明。
+同名的多个来源行均需核对，组合条目需保留全部子范围；表中空白进度不能成为拒绝补全的理由。
+
 | 工作流 | 权威计划 | 实现重点 |
 | --- | --- | --- |
-| privileged-suite-generation | `testplans/priv/{DUT}.yaml` | 特权状态、异常、CSR、VM 资源及 suite generator |
-| unprivileged-suite-generation | `testplans/{DUT}.csv` | 指令 × XLEN × coverpoint/variant、覆盖模板、formatter、decoder |
+| privileged-suite-generation | `native_plans` 中的 `testplans/priv/*.yaml` | 特权状态、异常、CSR、VM 资源及 suite generator |
+| unprivileged-suite-generation | `native_plans` 中的 `testplans/*.csv` | 指令 × XLEN × coverpoint/variant、覆盖模板、formatter、decoder |
 
 两者都先准备资源、环境和固定输入，再生成、检查原生资产，最后在独立副本只应用贡献集验证。
 已有计划不是禁止补充的上限；以对应 ISA 为依据补漏，但不得默默删除已有请求或缩减 XLEN。
@@ -17,25 +21,70 @@ ISA 类别选择，规则见 `Guide_Doc/ACT4_Asset_Authoring_Guide.md section 1`
 
 ## 2. 准备输入
 
-使用 ACT4Resources 的 list/read 找到本 suite 所需全部规范原文，然后在输入阶段调用：
+先预览原生计划和规范候选，再用 ACT4Resources list/read 逐一阅读；带候选 manual_files
+再次 discover，补查这些原文和原生计划直接引用的章节及扩展。完整 Sstc 操作示例：
 
 ```text
+Check(stage_args={"action":"discover"})
+Check(stage_args={"action":"discover","manual_files":["src/priv/sstc.adoc"]})
 Check(stage_args={"action":"prepare","manual_files":["src/priv/sstc.adoc"]})
+Check()
 Complete()
 ```
 
-这是 Sstc 示例，其他 suite 必须换成实际原文路径。`inputs/` 包含原生计划快照（若存在）、
+示例的文件列表必须按 discover 的实际反馈补全；仅当其余候选均不相关并明确解释后才能省略。
+候选由名称、引用和扩展依赖定位，不是完整性或语义正确性的自动证明。必须人工式阅读判断，
+特别关注跨章节 CSR、模式开关、异常、页表和依赖扩展；不因已有计划没有提及而缩减规范范围。
+`inputs/` 包含 `plans/<原生路径>` 下的全部原生计划快照（若存在）、
 规范逐文件快照、`norm-rules.json`、公开规则全集和 `receipt.json`。不要手写或编辑收据。
-原生计划不存在可创建；规范来源缺失或所需 rule 没有正式记录时，不得发明 ID。
+原生计划不存在可创建；规范依据不能编造。所需规则未进入发布索引时，绑定已捕获的原文，
+以待上游接纳的规则记录继续生成，不将它宣称为已发布 ID。独立规范可用运行配置 upstream.manual_root
+选择固定 Git 仓库，manual_files 支持仓库内的 .adoc、.md、.rst；不限 src/ 目录。
 规则 JSON 的发布版本与 manual HEAD 分别记录，必须核对文本与原文语义，不能假定同版本。
 官方编码图等规则的 text 可以为空；这不代表规则不存在。输入收据列出 non_text_rules 和
 对应原文出现位置 rule_locations，须核对原图表及其依赖；不能把空文本当作已解释的语义，
 也不能为公开 JSON 编造文本。未能读取的图表/依赖作为来源限制带入最终报告。
 进度表用于了解尚待贡献的工作，不替代固定版本的原生 schema、规范或构建结果。
 
+prepare 可用 `plan_paths` 列实际原生入口，例如 E 使用 `["testplans/I.csv"]`。
+默认捕获固定 HEAD 中同名及 `目标_` 前缀的全部计划；显式选择也不能遗漏已发现的族成员。
+例如 Zicfiss 需保留 common、U、S、Sm、H 五份计划；common 只有说明，不代表完整测试范围。
+不需要另建聚合 `Zicfiss.yaml`，不能用组合目标名覆盖原生分组名。所有特权计划配套 CSV
+一起捕获。仅整个所选计划集合都不存在时才标记 new_suite；缺资产仍然是补全任务。
+
+每个未选候选必须在 `manual_exclusions` 中按路径解释不适用原因，不能静默略过：
+
+```text
+Check(stage_args={"action":"prepare","manual_files":["src/priv/sstc.adoc","src/priv/machine.adoc","src/priv/hypervisor.adoc"],"plan_paths":["testplans/priv/Sstc.yaml"],"manual_exclusions":{"src/profiles/example.adoc":"此处仅列出证书扩展清单，不定义本轮架构行为；已核对对应规范章节。"}})
+```
+
+路径和原因只是调用形状示例，必须使用实际 discover 结果。准备完成但尚未 Complete 时发现
+遗漏，可用 `action="extend"` 和**完整** manual_files、plan_paths、manual_exclusions 重新提交。
+extend 只能在同一 ACT/manual HEAD 上增补，不删原范围，不重新下载公开规则索引，保留已绑定条款；
+校验失败不改变已准备输入。Complete 后不能重写输入，需新开运行。不要手改快照或收据。
+没有公开规则或部分条款尚未标记时，读取原文后在输入阶段绑定：
+
+```text
+Check(stage_args={"action":"bind_rules","rule_bindings":[{"name":"pending_example_access","source":"src/example.adoc","start_line":1,"end_line":1,"text":"Exact text from line 1 of the captured source.","upstream":"Pending tag proposal for Example access"}]})
+Complete()
+```
+
+用实际文件、行号和逐字原文替换示例。工具核验原文范围，拒绝改写语义、重复规则和伪造的
+已发布名称；输出 JSON 的 pending_source_binding 状态及追踪信息必须带入最终限制。
+索引下载失败可以先捕获规范，但 Complete 前必须建立真实规则来源。
+
 ## 3. 权威计划与派生视图
 
-特权 YAML 遵循本轮捕获的 `testplan.schema.json`。每个有效行需填写完整意图、预期、
+特权 YAML 遵循本轮捕获的 `testplan.schema.json`。冻结的空计划是待补全输入，不是失败理由。
+同一覆盖点在不同场景重复出现时保留全部描述和规则；组合点名按明确标识展开。
+需要重命名描述性占位点时，在 asset_contract.yaml 的 source_request_map 中使用
+`原生路径#原请求名: [最终路径#最终请求名]`，例如
+`"testplans/priv/Example_S.yaml#Register access": ["testplans/priv/Example_S.yaml#cp_access"]`。
+相同点名在不同子计划中是独立请求；不得用 suite 名替代点名或删除源请求。
+已有纯说明计划可以没有命名点，但最终整个计划集合必须有真实测试请求，CTP 必须引用全部计划表。
+派生 CSV 按覆盖点汇总规则，source_requests 和 plan_requests 保留完整路径#请求名；
+source_items 是源请求到目标请求关联的稳定标识。它仅供交叉检查阅读，不替代各原生计划的独立验收。
+每个有效行需填写完整意图、预期、
 检查方式和 rules。下面是格式示例，规则名必须换成本轮捕获的真实名称：
 
 ```yaml
@@ -60,11 +109,18 @@ Instruction,Type,RV32,RV64,cp_rd,cp_rs1,cp_rs2
 add,R,x,x,x,x,x
 ```
 
-可选 `ExtraExtensions` 位于 RV64 后。coverpoint 单元格 `x` 表示基础模板，其他非空值表示
+可选 `ExtraExtensions` 位于 RV64 后。同一指令的不同 Type/ExtraExtensions 是独立合法变体；
+EFFEW 列是向量宽度元数据，不是覆盖点。SEW 模板选择由原生生成器执行并在隔离验证中复验，
+不要复制一套不完整的模板选择逻辑。coverpoint 单元格 `x` 表示基础模板，其他非空值表示
 变体后缀。新覆盖点需要 SV template 和 Python generator；新 Type 需要 sample template 和
 formatter；新指令需核对原生 decoder。优先复用，不修改生成的解码包、SV 或汇编来绕过源码。
 
 ## 4. 资产契约
+
+按 `Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md` 同时维护九类资产清单。
+首次规划检查前登记需要修改的独立干净仓库；已有资产复用，必要缺项生成或修复，范围外问题
+或真实外部阻塞报告。新增/修复必须完成类别检查、独立预期、反例和回归，不能以通用观察或
+参考模型检查代替实际 RVVI/Sail 能力。最终独立依赖补丁位于 `<OUT>/dependency-patches/`。
 
 写入 `{OUT}/intermediate/{DUT}/asset_contract.yaml`。下面是完整非特权示例：
 
@@ -81,9 +137,12 @@ ctp_sources:
 validation_configs:
   - config/spike/spike-rv64-max/test_config.yaml
 extension_sources: []
+native_suites: [Example]
 ```
 
-特权使用 `kind: privileged`；无需 `extension_sources`。无参数时完整参数字段为：
+特权使用 `kind: privileged`；extension_sources 列实际生成器路径，包括已有、共享和子目录
+实现及辅助脚本，而不是强制同名顶层文件。native_suites 列原生生成与构建入口，例如向量
+按实际选定的 SEW 展开；不得把用户请求范围缩小成当前可运行子集。无参数时完整参数字段为：
 
 ```yaml
 parameters:
@@ -93,19 +152,24 @@ parameters:
 ```
 
 必须根据实际 ISA/UDB 核对该理由；不能仅为了不生成文件而写不适用。VM contract 或 Python
-函数参数不能代替 ACT 的参数映射。`validation_configs` 必须选择固定 ACT 中有 `run_cmd.txt`
-的真实配置，覆盖适用 XLEN；某模型不支持的范围明确列为限制，不能删掉生成请求。
+函数参数不能代替 ACT 的参数映射。`validation_configs` 使用原生结构和 `run_cmd.txt`，覆盖适用
+XLEN。既有配置保持不变；缺失时可在独立新目录生成配置及其依赖，全部列入 extension_sources
+和贡献集，并执行编译与运行。某模型不支持时先实现可行替代，不得删掉生成请求。
 
-非特权 `extension_sources` 仅能列实际新增/修改的以下原生扩展点：
+`extension_sources` 列实际新增/修改的以下原生扩展点：
 
 - `generators/coverage/src/covergroupgen/templates/*.sv`
 - `generators/testgen/src/testgen/coverpoints/*.py`
 - `generators/testgen/src/testgen/formatters/types/*.py`
 - `framework/src/act/fcov/disassemble.svh`
 - `testplans/coverage/instruction_formats.csv`
+- `generators/testgen/src/testgen/priv/extensions/**/*.py`（含顶层文件）
+- `generators/testgen/scripts/*.py`
+- `config/` 下本轮新建的独立配置及依赖；不修改已存在的目标配置
 
 其余框架、构建、环境宏和签名实现保持不变。共享扩展点影响其他 suite 时还需相应回归，
 本工作流的 suite 级验证不能宣称替代全仓 CI。
+缺项实施与单独的框架增强交付遵循 `Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md`。
 
 ## 5. 原生规则、参数和 CTP
 
@@ -117,7 +181,9 @@ normative_rule_definitions:
     coverpoint: [Example_cg/cp_access]
 ```
 
-规则必须来自捕获 JSON 的 `name`，目标应是实际 coverage 路径；原生解释性 waiver 需要
+规则必须来自经核验 JSON 的 `name`；使用 pending_source_binding 规则时，同一原生映射文件
+必须增加 `untagged_upstream`，明确待补标签的提案或真实上游跟踪位置，不得伪称已经合入。
+目标应是实际 coverage 路径；原生解释性 waiver 需要
 明确理由，不是测试通过的证据。保留当前 ACT 要求的字段名 `normative_rule_definitions`。
 
 `coverpoints/param/Example.yaml` 完整示例：
@@ -153,13 +219,18 @@ File manifest 完整格式见 `Guide_Doc/ACT4_Checker_Guide/ACT4FileManifestChec
 native configs 的编译与执行。隔离副本只包含固定 ACT 和 contribution_set；未变更的原生
 依赖可以直接复用，不需重复交付。日志和收据留在 `native-validation/`。
 
-失败或零 ELF 阻止验收；不可用工具明确记为 limitation，不能记为通过。普通 Check 只核验
+失败或零 ELF 阻止验收；原生消费者所需的免费工具必须安装或补齐后重试。
+商业覆盖工具可选，其未执行结果明确记为 limitation，不能记为通过。普通 Check 只核验
 当前源码、输入、环境及证据，不重复运行命令。修改这些内容后必须重新验证。不得将
 AI 自审、签名生成或模型运行通过解释为真实 DUT 已认证、覆盖率 100% 或上游 CI 全通过。
 
 ## 7. 最终报告
 
 `final.md` 是唯一总结入口，`changes.patch` 是贡献补丁；详细证据只链接、不重复复制。
+摘要后原样加入 `intermediate/<Suite>/asset-validation/checklist.md` 的九类资产 checklist，
+包含范围、动作、实际验证状态及未修复问题的下一步。需要时链接独立 dependency-patches，
+不得将仅报告或依赖尚未集成的内容写为已验证。表格字段和完整清单见
+`Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md`。
 以下为最小完整非特权报告的结构示例，实际 suite、文件、结果和限制必须来自本轮：
 
 ```markdown
@@ -170,6 +241,20 @@ AI 自审、签名生成或模型运行通过解释为真实 DUT 已认证、覆
 
 Generated the instruction plan, coverage and test sources, rule mapping and CTP integration.
 Native validation passed for the selected configuration. Maintainer review and contributor signing remain human work.
+
+## Asset checklist
+
+| Asset | Actions | Verification | Scope / follow-up | Evidence / patches |
+| --- | --- | --- | --- | --- |
+| Norm Rules | reused: 1 | 1 checked; 0 reported, not verified | norm_rules: Example rules — Existing published rules match the pinned manual | [validation](intermediate/Example/asset-validation/receipt.json) |
+| UDB/Params | reused: 1 | 1 checked; 0 reported, not verified | udb_params: MXLEN — Existing parameter definition and mapping apply | [validation](intermediate/Example/asset-validation/receipt.json) |
+| RVVI | reused: 1 | 1 checked; 0 reported, not verified | rvvi: Selected architectural trace — Existing fields convey the observed result | [validation](intermediate/Example/asset-validation/receipt.json) |
+| RVMODEL Macros | reused: 1 | 1 checked; 0 reported, not verified | rvmodel_macros: Selected target adapter — Existing macros provide required events | [validation](intermediate/Example/asset-validation/receipt.json) |
+| Testplan | generated: 1 | 1 checked; 0 reported, not verified | testplan: Example operand and width matrix — Generated from the original rules | [validation](intermediate/Example/asset-validation/receipt.json) |
+| CTP | generated: 1 | 1 checked; 0 reported, not verified | ctp: Example chapter — Native plan and rule tables integrated | [validation](intermediate/Example/asset-validation/receipt.json) |
+| Coverpoints | generated: 1 | 1 checked; 0 reported, not verified | coverpoints: Example operand partitions — Known stimuli distinguish required outcomes | [validation](intermediate/Example/asset-validation/receipt.json) |
+| Sail | reused: 1 | 1 checked; 0 reported, not verified | sail: Selected model release — Existing implementation passed the selected smoke cases | [validation](intermediate/Example/asset-validation/receipt.json) |
+| Tests | generated: 1 | 1 checked; 0 reported, not verified | tests: Example self-checking generator — Native generation and selected target execution passed | [validation](intermediate/Example/asset-validation/receipt.json) |
 
 ## Coverage scope
 
@@ -210,7 +295,8 @@ generation_result:
     - Contributor DCO sign-off and cryptographic commit signature
 ```
 
-`validation_complete` 仅表示所选命令全部通过，不代表未选配置或可选 coverage 已验证。
+`validation_complete` 仅表示本次贡献范围已通过验证，不代表未选配置或可选 coverage 已验证。
+若原生收据标记 CTP 为 `baseline_limited`，较窄的套件表格 HTML/PDF 已通过，整书仍失败；在 `limitations` 中保留 `ctp`，并原样保留收据的 `source_limitations`。不得修改冻结规则来消除此限制。
 source_limitations 保留输入收据的来源边界，包括发布版本与原文独立、非文本规则需核对图表等。
 有不可用步骤时为 false，并在 limitations 中列其真实步骤名，同时在人类摘要中说明原因和
 恢复办法。特权报告还保留其 validation state 与专用章节，不能用此汇总代替签名或范围验收。

@@ -21,9 +21,10 @@ num_testcases/split_name 字段、group_test_chunks 和 writer 命名接口。Se
 与 list[TestChunk] 等兼容表示不是冲突；实际接口不兼容才阻塞并说明差异。
 共用生成纪律及 header 约束见 `Guide_Doc/ACT4_Asset_Authoring_Guide.md`。
 
-仅新建 `riscv-arch-test/generators/testgen/src/testgen/priv/extensions/{DUT}.py`，
-并迭代本次新建文件。若基线已存在同名 generator/coverage/mapping，按工作流阻塞，
-不能覆盖。registry、writer、template、tests/env、target config 等仍受保护。
+在 asset_contract.yaml 的 extension_sources 中声明实际原生生成源码，可新建或补齐已有、
+共享和子目录实现。既有 generator/coverage/mapping 不是阻塞理由；记录修改并回归共享消费者。
+registry、writer、通用 template、tests/env 和既有 target config 保持受保护。
+需要通用增强时另行生成和验证隔离补丁；需要新目标时使用独立新配置目录。
 
 ## 2. 注册参数
 

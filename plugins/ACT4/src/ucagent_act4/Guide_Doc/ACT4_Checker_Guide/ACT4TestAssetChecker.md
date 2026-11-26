@@ -3,8 +3,8 @@
 
 ## 作用
 
-该 checker 在阶段 05 验证生成/构建结果，在阶段 06 验证 contribution readiness。它检查
-每个生成 `.S` 是否具有同 stem 的最终 ELF、signature、results 和完整参考模型日志，并
+在 04_generator 先预检必验配置的源文件选择，在 05_build 验证生成/构建结果，在 06_contribution 复核贡献准备状态。构建检查要求
+每个适用于所选配置的生成 `.S` 是否具有同 stem 的最终 ELF、signature、results 和完整参考模型日志，并
 把这些证据与 XLEN、VM contract、generation scope、experimental manifest、首选模型及
 fallback 记录对齐。
 
@@ -29,10 +29,22 @@ fallback 记录对齐。
    `max_testcases_per_source` 硬性上限仍可报错。
 2. 读取 ELF identification 的 class 得到 RV32/RV64，结合源码 MARCH 模板、VM contract
    target XLEN 和同 stem ELF 建立 XLEN 证据。
-3. 从 validation state 的 `self_checking.command` 读取 `CONFIG_FILES`、`WORKDIR`，结合
-   test_config 的 `name` 将 ELF/signature/results/log 限定在同一构建目录，再按 stem 与
-   source 匹配。配置了 validation state 且要求日志、区间完整性或 progress 检查时，
-   选择信息缺失或无法解析会报错，不回退到其他配置的历史产物；独立显式路径模式仍可用。
+3. 04_generator 在正式编译前逐个预检基线审查中所有非可选 `build` 配置。用原生
+   testgen 生成正式源码，在各配置执行 `act --dry-run` 准备同一 WORKDIR 下的派生环境。
+   05_build 和 06_contribution 重新计算选择集合。每个配置只与 `work_itgen_{DUT}/<配置名>`
+   中的 ELF/signature/results/log 配对；全部正式源码必须至少被一个必验配置选中。
+   `self_checking` 记录主签名构建；其余必验配置在 `reference_model_evaluation.attempts`
+   逐项记录真实成功的签名构建，同一多配置命令可按实际 config_file 分列。缺失不得跨配置补证。
+   启用原生 header 校验时，使用该 ACT 副本的 Python 环境及原生 config/header/selection API，
+   读取所选 UDB 参数和同一 build 的 `env/extensions.txt`，确定适用源集合；同时遵守记录命令的
+   EXTENSIONS、EXCLUDE_EXTENSIONS、TESTDIR、CERTIFICATE 和实验扩展开关。
+   全部生成源仍须通过结构和不可达条件检查；只对适用源要求该配置内的配对产物。
+   报告保留 `source_files`、`applicable_source_files` 和 `source_selection` 中的已选/排除清单，
+   排除不代表源码未生成或该场景已验证。原生环境、参数或派生扩展清单缺失时应修复并重试，
+   不得猜测不适用。仅做只读选择，不重新生成 UDB 文件、编译或运行参考模型。
+   所选 UDB 的 MXLEN 用于与该配置 ELF 对照，并核对 contract 支持集合和匹配 target 的 XLEN；
+   不把另一配置的全局 selected_target.XLEN 套到当前配置。双 XLEN 分别执行并保留各自结果，
+   单次结果仅表示该次所选配置的参考链，不表示其他配置已验证。
    参考产物的相对路径以配置的 `act4_root` 为根；即使工作区另有 `riscv-arch-test/`，
    也不能把其他副本的日志或签名用于本次验证。
 4. 在日志中要求对应 `RVCP-SUMMARY: TEST SIGRUN`、恰好一个终态 `SUCCESS`、无常见异常
@@ -79,8 +91,9 @@ backend 证据分开描述。
 
 05/06 启用 signature/results/log、区间完整性、XLEN、模型评价、scoped VM、
 generation_scope 和实验清单检查，signature_progress_mode=warning。
-06 追加 require_contribution_ready=true；05 配置 output_dir，06 没有配置新报告路径。
-因此 05 落盘 JSON 不应自动称为 06 最新复查结果，后者使用实际 Check/Complete 返回值。
+04、05、06 的 `test-assets.json` 分别在 reports 下的 `native-selection`、`act4_test_asset_check`、
+`contribution-test-assets` 目录。`configs` 按 config_file 分列。04 的 `smoke_source` 是建议优先运行的代表源码，
+不是模型通过记录；05 验收全部必验配置，06 另外要求 contribution_ready。阶段完成以正式 Complete 为准。
 
 还需注意：
 - 选定构建目录隔离了其他配置的历史产物，但 stem 匹配不证明同一目录内重复 stem 的
@@ -91,8 +104,9 @@ generation_scope 和实验清单检查，signature_progress_mode=warning。
 - signature 检查验证格式与记录数，不逐值证明 .sig 转换为 .results 的正确性。
   SUCCESS 后允许普通统计输出，不要求 SUCCESS 是物理最后一行。
 - 单文件数量与 constants.py 的上限比较，不逐个对照 generator 选的更小阈值。
-- CONFIG_FILES 从记录命令解析，模型族按 executable 名推断；不执行该命令、查询版本或
-  验证 ELF 与源码构建 hash。复杂 shell/多配置需要额外审查。
+- CONFIG_FILES 从记录命令解析，模型族按 executable 名推断；原生只读选择需要已准备的
+  `<act4_root>/.venv/bin/python` 和同一构建的派生扩展清单。不执行构建命令、查询版本或
+  验证 ELF 与源码构建 hash。用显式选择参数记录实际命令，不依赖隐藏环境变量。
 - VM checker 检查 contract 字段/集合，不模拟页表或证明生成代码绑定了每个 profile。
 - testcase reachability 是保守的静态条件和符号检查，不是完整 C 预处理器；无法证明时保留
   `unverified`，不以猜测替代编译器结果。没有 `nm` 或 ELF 被剥离时，编译数量为未知而不是 0。

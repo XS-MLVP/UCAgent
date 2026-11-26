@@ -4,143 +4,56 @@
 提供两个独立入口：状态序列/异常场景使用 `privileged-suite-generation`，无 trap 的表驱动
 指令测试使用 `unprivileged-suite-generation`。这是生成机制而非 ISA 类别的划分：DeveloperGuide
 中的 ZicsrF 等非规则化非特权测试也可采用 priv-style。两者共享资源准备、规范快照和原生贡献验收，但不强行共用
-测试计划格式或 generator。已有模块的诊断修复优先使用 [review 工作流](review.md)。
+测试计划格式或 generator。已有模块通过同一生成入口进行 [增量审查和修复](review.md)。
 共用编写约定在运行时 `Guide_Doc/ACT4_Asset_Authoring_Guide.md`，设计记录示例在
 `Guide_Doc/act4_template/native_asset_design_template.md`；不需要启用 Skill。
-先按 [插件安装说明](../README.md) 安装 UCAgent 和插件。
+先按 [AI agent 执行指南](agent-run.md) 检查 UCAgent、插件和 Codex 启动条件，再按本文执行。
 
-## 1. 准备独立工作区
+按进度表 Test Suite 列指定需求时，参考 [规范驱动补全说明](support-boundaries.md)
+和 [逐项工作清单](support-inventory.csv)。AI 根据规范和原生入口解析位宽变体、组合场景及
+供应方名称；CLI 的 DUT 必须选择 [Test Suite 目录](test-suites.md) 中的 CLI target，
+启动时先校验并在终端显示原名、来源和状态。原始需求及映射范围记录在补全计划中。
+缺现成资产、模板、免费工具、模型或适配器属于本轮实施工作，不是“不支持”。
 
-特权流程共 11 阶段，非特权流程共 8 阶段；两者先准备资源、环境和固定原生输入。
-资源阶段复用 [共享源码](environment.md)，只为需要写入的 ACT4 生成树创建独立 clone；ISA 规范保持共享只读。
-无需每轮手动 clone 两个仓库，启动前创建独立工作区即可：
+## 1. 准备运行配置
 
-```bash
-ACT4_WORKSPACE="$PWD/output/act4-H"
-mkdir -p "$ACT4_WORKSPACE"
-```
-
-需要使用自己的精确版本时，仍可在启动前提供独立、可写的 `riscv-arch-test/`；不要使用共享工作树或符号链接。
-
-运行前确认所选 ACT4 版本具有 `generators/testgen/src/testgen/priv/`、`coverpoints/priv/`
-及相应的原生生成、构建入口；非特权需要原生 CSV/template/formatter/decoder 接口。
-manual 必须包含相关 `src/**/*.adoc`；正式规则来自官方发布的 norm-rules.json。需要固定版本时，在初始化子模块前 checkout 选定提交；
-manual 也应固定在满足本轮规范要求的提交。阶段 01 会记录实际 HEAD、状态和哈希基线。
-
-已有 ITGen 本地依赖时，可以用独立 clone 代替上述下载。以本机 ITGen 路径为例：
-
-```bash
-ACT4_SOURCE="$HOME/tmp/ITGen/itgen/spec/RISCV/origin_full/riscv-arch-test"
-git clone --no-hardlinks "$ACT4_SOURCE" "$ACT4_WORKSPACE/riscv-arch-test"
-git -C "$ACT4_WORKSPACE/riscv-arch-test" checkout --detach \
-  "$(git -C "$ACT4_SOURCE" rev-parse HEAD)"
-git -C "$ACT4_WORKSPACE/riscv-arch-test" submodule update --init --recursive
-```
-
-显式准备 ACT4 时目标目录必须尚不存在；未提供时由资源阶段准备。本地 clone 使用提交内容，
-不复制源工作区未提交的改动。manual 默认从共享缓存读取，也可通过下一节的配置指定只读副本。
-
-工作区结构如下：
-
-```text
-act4-H/
-├── riscv-arch-test/       # 独立 ACT4 副本，生成的正式资产写入此处
-└── act4_assets/           # final.md、changes.patch 及 intermediate/，规范默认在共享缓存
-```
+使用 [统一 YAML 配置](run-configuration.md) 指定目标、路线、工作区、版本、每类来源与策略及限制。
+不要预先在工作区复制 ACT 仓库：资源阶段共享下载，独立 ISA 计划验收后才按所选来源建立可写副本。
+外部干净源码用 upstream 配置；本地未提交成果或上轮输出用类别级 source: local。
 
 ## 2. 运行生成
 
-`H` 是特权示例，必须替换为精确 ACT suite 名称。输入为 `testplans/priv/<Suite>.yaml`
-和 ISA 原文；没有原生计划可新建，不以 CTP 页面是否链接在线表格作为启动条件。
-以下示例使用前一节的工作区与已安装插件：
-
 ```bash
-ucagent "$ACT4_WORKSPACE" H \
-  --plugin act4 \
-  --plugin-workflow act4:privileged-suite-generation \
-  --output act4_assets \
-  --backend langchain \
-  --tui
+act4-run plugins/ACT4/examples/generation.yaml --print-command
+act4-run plugins/ACT4/examples/generation.yaml
 ```
 
-`--output` 必须是工作区内非空相对目录，与 `riscv-arch-test/` 分离；不能使用工作区
-根目录、绝对路径或解析后越出工作区的路径（包括符号链接）。最终报告在
-`act4_assets/final.md`，贡献补丁为 `act4_assets/changes.patch`。
-默认输出文档为英文，任务提示和配套指南为中文。无需额外传入 ITGen 的
-`--config`、`--append-py-path`、`--guid-doc-path` 或模板路径。
-
-manual 优先使用工作区已有的 `riscv-isa-manual/`，否则复用共享来源。复用外部只读规范库时，可用环境变量：
-
-```bash
-ACT4_MANUAL_ROOT="$HOME/tmp/ITGen/itgen/spec/RISCV/origin_full/riscv-isa-manual" \
-ucagent "$ACT4_WORKSPACE" H \
-  --plugin act4 \
-  --plugin-workflow act4:privileged-suite-generation \
-  --output act4_assets --backend langchain --tui
-```
-
-也可用 `--override template_overwrite.ACT4_MANUAL_ROOT=/absolute/path/to/manual`。
-相对路径以工作区为基准。正式输出和 ACT4 副本加入可写目录，`Guide_Doc/` 加入只读目录；
-manual 位于可写目录之外，外部 manual 还受核心文件工具的工作区边界约束。
-插件会拒绝 manual 与输出目录或 ACT4 副本重叠的配置。
-ACT4 核心代码的完整性由基线及后续 checker 验证。
-
-工作流不依赖 Skill。可加 `--no-use-skill`，仍使用相同阶段和 checker。
-指南及填写模板会复制到工作区 `Guide_Doc/`，并按阶段列入 `reference_files`；
-进入阶段后先阅读列出的规范，再读取任务指定的前序产物。
+启动前按 [AI agent 执行指南](agent-run.md) 准备 UCAgent、插件及模型认证。
+最终输出在配置的 workspace/output 下；恢复时使用相同配置，新策略使用新工作区。
 
 ### 非特权指令生成
 
-使用独立工作区和原生 suite 名称，例如为 Zba 指令资产生成/补齐使用：
-
-```bash
-mkdir -p output/act4-Zba
-ucagent output/act4-Zba Zba \
-  --plugin act4 \
-  --plugin-workflow act4:unprivileged-suite-generation \
-  --output act4_assets --backend langchain --tui
-```
-
-流程依次为资源、环境、原生输入、指令矩阵、原生资产、贡献清单、隔离验证和最终报告。
-权威计划是 `testplans/<Suite>.csv`，包括 XLEN、可选 ExtraExtensions 和 coverpoint/variant。
-优先复用原生模板、coverpoint generator、formatter；仅按需增加这些扩展点或 decoder。
-不需要特权 VM/resource contract，也不放宽整个框架的修改权限。已有完整资产主要需要
-审查时使用 review，而不是重复生成。两种生成入口都支持关闭 Skill。
-
-### MCP 模式
-
-使用外部代码代理驱动 UCAgent 时，在同一命令中开启 MCP 并生成入口说明：
-
-```bash
-ucagent "$ACT4_WORKSPACE" H \
-  --plugin act4 \
-  --plugin-workflow act4:privileged-suite-generation \
-  --output act4_assets \
-  --mcp-server-no-file-tools --gen-instruct-file AGENTS.md --tui
-```
-
-按 UCAgent 启动时显示的地址连接 MCP。外部代理使用自己的文件和终端工具修改工作区，
-通过 `RoleInfo`、`CurrentTips`、`Check`、`Complete` 推进阶段，
-通过 `StageJournal` 和 `SetCurrentStageJournal` 保存进度；全部完成后调用 `Exit`。
-
-### 中断恢复
-
-使用同一工作区、suite、输出目录和插件参数重新启动，沿用 UCAgent 阶段历史。
-先读取当前 stage journal 和现有证据再继续，不能补造历史计划或把未运行命令写成通过。
-需要从头重做时使用新工作区，保留原有资产和失败证据。
+在同一配置格式中选择 workflow: unprivileged-suite-generation，并设置相应 suite。
+权威计划是原生 testplans CSV，包括 XLEN、ExtraExtensions 和 coverpoint/variant。
+场景型入口使用原生 YAML 及状态序列生成器；两条路线都可复用、修复或重生成已有资产。
 
 ## 3. 工作流与产物
 
 | 阶段 | 主要工作 |
 | --- | --- |
+| 独立 ISA 计划与来源导入 | 资源准备后先冻结应测行为，再选择、导入和隔离输入 |
+| 基线审查 | 对照独立计划与允许复用资产，记录缺陷和生成项 |
+| 生成后复验 | 收集真实 after 证据；报告区分来源策略与实际结果 |
 | prepare_resources | 复用固定版本源码，为生成准备独立可写副本 |
 | prepare_environment | 复用工具、安装缺项并复验，保留环境报告 |
-| prepare_generation_inputs | 捕获原生计划、规范逐文件快照及正式规则 JSON |
+| prepare_generation_inputs | 捕获计划和规范；优先用公开规则，缺标签时绑定真实原文并追踪待发布规则 |
+| plan_missing_capabilities | 独立从规范确定完整范围；把缺失资产、免费模型/适配器及环境列为实施任务 |
 | 01 coverpoints | 冻结 ACT4 基线，完善原生计划并生成 coverage；CSV/Markdown 自动派生 |
 | 02 norm mapping | 建立 normative rule 到 coverpoint 的映射 |
 | 03 VM resources | 按实际子场景建立 VM/resource 契约与能力处置 |
-| 04 generator | 使用冻结版本的 ACT4 API 编写可独立交付的 suite generator |
-| 05 build | 原生生成、编译 ELF、参考模型 self-checking 及可用的 coverage 验证 |
+| 04 generator | 用冻结版本的原生 API 生成正式汇编；逐个必验配置预检选中的源，并确认并集覆盖全部正式源，不运行 ELF |
+| 05 build | 每种必验 XLEN 先跑代表用例，再逐配置核对适用源的 ELF、签名、结果和签名日志；最终模型执行与 coverage 分开取证 |
+| verify_completed_capabilities | 补齐全部可生成项，实际执行各项检查，核验文件、命令和日志 |
 | 06 contribution | 整理贡献集，在干净副本复核独立生成和相关本地 CI 步骤 |
 | validate_native_contribution | 只应用贡献集，核对生成一致性、hooks、参数/CTP、选定原生配置编译运行 |
 | 07 final report | 生成最终报告并核对审查、状态及文件清单 |
@@ -151,12 +64,18 @@ ucagent "$ACT4_WORKSPACE" H \
 | --- | --- |
 | `<OUT>/intermediate/<Suite>/` | CSV、人类 testplan、coverage 草稿、VM/resource 和 coverage intent 契约 |
 | `<OUT>/intermediate/<Suite>/inputs/` | 原生计划、规范、规则 JSON 和固定来源收据 |
+| `<OUT>/intermediate/<Suite>/completion_plan.yaml` | 用户范围到原生入口、各类缺项的实施与验证计划 |
+| `<OUT>/intermediate/<Suite>/completion-validation/` | 补全任务的实际命令结果、日志和可复核收据 |
+| `<OUT>/intermediate/<Suite>/capabilities/` | 新模型、激励/观察适配器、独立框架增强及其回归；不混入 suite 补丁 |
 | `<OUT>/final.md` | 人工复核入口、结论、复现命令及限制 |
 | `<OUT>/changes.patch` | 仅包含 contribution_set 的贡献补丁，不混入构建与工具产物 |
+| `<OUT>/dependency-patches/` | 按需生成、独立验证的规范/UDB/RVVI/平台支持/Sail 等仓库补丁，不混入 ACT suite patch |
+| `<OUT>/intermediate/<Suite>/asset_checklist.yaml` | 九类资产的复用、生成、修复、报告或不适用决策及类别检查 |
+| `<OUT>/intermediate/<Suite>/asset-validation/` | 隔离检查日志、结果收据及供 final.md 引用的 checklist |
 | `<OUT>/intermediate/<Suite>/reports/` | 累积 AI review、validation state、基线、switch audit、file manifest 和 checker 报告 |
 | `<OUT>/intermediate/<Suite>/experimental/` | 与正式生成链隔离的实验资产 |
 | `riscv-arch-test/coverpoints/{priv,unpriv,norm,param}/` | 正式 coverage/init 和 normative mapping |
-| `riscv-arch-test/generators/testgen/src/testgen/priv/extensions/<Suite>.py` | 正式 generator |
+| `asset_contract.yaml` 的 `extension_sources` 所列原生路径 | 正式 generator、模板等；允许已有、共享、子目录实现及独立新配置 |
 | `riscv-arch-test/tests/priv/<Suite>/` | ACT4 原生生成的汇编测试 |
 | `riscv-arch-test/work_itgen_<Suite>/` | 独立构建目录、ELF、签名和参考模型日志 |
 
@@ -164,7 +83,13 @@ ucagent "$ACT4_WORKSPACE" H \
 `approved_with_limitations`、`contribution_ready`、参考模型执行和 Sail/RVVI coverage
 表示不同范围的结论。未运行的工具、未验证的目标、框架能力缺口和实验内容必须保留限制，
 不得宣称外部 DUT 验证、全量认证、远程 CI 通过或人工审批。
-参考模型失败不能直接缩减资产生成范围；受保护 ACT4 核心代码变化会阻塞工作流。
+参考模型失败不能直接缩减资产生成范围；缺免费验证能力时先安装或实现并独立验证。
+商业许可可选；真实外部输入缺失时说明具体子场景与用户帮助请求。正式 ACT 副本中的
+受保护核心代码变化仍阻塞；确需通用增强时生成独立补丁与回归，在隔离副本验证。
+
+补全任务的验收方法、完整计划示例和最终 `scope_completion` 结果见
+[补全运行指南](../src/ucagent_act4/Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md)。
+该结果与原生资产的 `generation_result` 分开，不能用资产文件齐全宣称完整执行或覆盖率。
 
 具体阶段契约见[运行指南](../src/ucagent_act4/Guide_Doc/ACT4_Privileged_Suite_Workflow_Guide.md)，
 checker 边界见[checker 总览](../src/ucagent_act4/Guide_Doc/ACT4_Checker_Guide/README.md)。
@@ -176,8 +101,26 @@ checker 边界见[checker 总览](../src/ucagent_act4/Guide_Doc/ACT4_Checker_Gui
 测试修复仍在 generator 中完成并重新生成；ELF、日志、工具和本地证据不进入贡献 patch。
 
 最终报告区分资产齐备、实际验证、人工提交前提。真实原生验证收据与 generation_result
-摘要须一致。缺工具是未验证限制，命令失败和零 ELF 不是通过；DCO、加密签名和维护者审批
+摘要须一致。免费原生依赖缺失时安装或补齐后重试；商业许可可选，未执行的验证如实记录。
+命令失败和零 ELF 不是通过；DCO、加密签名和维护者审批
 由贡献者完成，不由 AI 冒充。suite 级原生验证不等于完整上游 CI，尤其共享模板/decoder
 变化需扩大回归。公开规则发布版本与 manual HEAD 独立，规则文本仍需人工/语义核对。
 
 共同契约和完整示例见 [原生生成指南](../src/ucagent_act4/Guide_Doc/ACT4_Generation_Guide.md)。
+
+## 5. 九类资产的按需补全
+
+两个生成工作流均评估九类资产，但不是九项生成任务。Testplan、CTP、Coverpoints、Tests 按 suite 需要复用、生成或修复；Norm Rules、UDB/Params、RVVI、RVMODEL Macros、Sail 是共享输入，默认不改。只有原基线可复现、候选修复通过同一检查时才交付其修复。仅作参考的资料不要求额外执行兼容性测试，也不报告为通过。真实外部阻塞和
+范围外问题可以报告。不是每轮都重写九类资产，也不能以 ACT 参数映射代替 UDB 定义、
+以签名观察代替 RVVI 信号、以 Python 模型或 Spike 代替 Sail 实现。
+
+在 `plan_missing_capabilities` 阶段先冻结清单中独立 Git 仓库的干净基线，再进入源码修改。每类变更有专属检查要求，
+并要求独立预期来源、反例、回归和实际非空结果。缺项补全验收时，在隔离副本执行这些检查；
+源码、模式、脚本、环境、输出或补丁变化会使既有证据失效。最终报告摘要后必须包含检查结果
+生成的九类 checklist，分别显示 referenced（仅核对来源）、reused、generated、repaired、reported、not applicable、范围和
+未解决事项的下一步。required 的报告项不能被写成完整范围已完成。
+
+配套项目修改按仓库交付独立补丁，既有原生 ACT 验收与源码保护门槛不变，review 和香山
+工作流不接入这套新增门槛。商业动态 coverage 仍可选；本地类别检查不代替维护者审查、
+上游合入、全量 CI、100% 动态覆盖或真实 DUT 认证，也不是任意程序正确性的形式化证明。
+操作和完整格式见 [九类资产验收指南](../src/ucagent_act4/Guide_Doc/ACT4_Checker_Guide/ACT4AssetChecklistChecker.md)。

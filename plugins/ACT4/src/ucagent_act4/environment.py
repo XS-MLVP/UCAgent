@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -18,6 +19,7 @@ import yaml
 
 from .xiangshan_bundle import execute, safe_path, sha256, write_json
 from .resources import discover_resources
+from .generation_run import clone_source_snapshot
 
 
 TOOL_IDS = {"python", "bash", "git", "curl", "make", "uv", "compiler", "reference", "lint"}
@@ -47,13 +49,19 @@ def _validate_prefix_path(value: str, identifier: str) -> None:
         raise ValueError(f"{identifier} installer paths must remain below {{PREFIX}}")
 
 
-def read_plan(directory: Path) -> dict:
+def read_plan(directory: Path, require_smoke: bool = False) -> dict:
     """Validate explicit version probes, installation recipes, and private installation paths."""
     plan = yaml.safe_load(safe_path(directory, "plan.yaml").read_text(encoding="utf-8"))
-    if not isinstance(plan, dict) or type(plan.get("schema_version")) is not int or plan["schema_version"] != 1 or set(plan) != {"schema_version", "tools"}:
+    if not isinstance(plan, dict) or type(plan.get("schema_version")) is not int or plan["schema_version"] != 1 or "tools" not in plan or set(plan) - {"schema_version", "tools", "native_smoke"}:
         raise ValueError("plan.yaml requires schema_version: 1 and tools")
     if not isinstance(plan["tools"], list) or not plan["tools"]:
         raise ValueError("plan.yaml tools must be a nonempty list")
+    if require_smoke or "native_smoke" in plan:
+        spec = plan.get("native_smoke")
+        if (not isinstance(spec, dict) or set(spec) != {"suite", "config"} or not isinstance(spec["suite"], str)
+                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", spec["suite"]) or not isinstance(spec["config"], str)
+                or not re.fullmatch(r"config/sail/[\w-]+/test_config\.yaml", spec["config"])):
+            raise ValueError("native_smoke needs one small existing suite and one config/sail/<target>/test_config.yaml")
     found = set()
     for tool in plan["tools"]:
         if not isinstance(tool, dict):
@@ -77,12 +85,15 @@ def read_plan(directory: Path) -> dict:
             if not isinstance(argv, list) or not argv or any(not isinstance(arg, str) or not arg or "\x00" in arg for arg in argv):
                 raise ValueError(f"{identifier} commands must be nonempty argv lists")
         probe = tool["probe"]
-        if (probe[0] != "{PYTHON}" and (Path(probe[0]).name != probe[0] or "/" in probe[0] or "\\" in probe[0])) or len(probe) != 2 or probe[1] not in PROBE_FLAGS:
-            raise ValueError(f"{identifier} probes must call a PATH executable with one version/help flag")
+        if (len(probe) != 2 or (probe[0] != "{PYTHON}" and (Path(probe[0]).name != probe[0] or "/" in probe[0] or "\\" in probe[0]))
+                or (probe[1] not in PROBE_FLAGS and probe != ["udb", "version"])):
+            raise ValueError(f"{identifier} probes must use one version/help flag or the native udb version command")
         for argv in tool["install"]:
             command = argv[0]
             if command not in INSTALL_COMMANDS:
-                raise ValueError(f"{identifier} installer executable is not allowed: {argv[0]}")
+                raise ValueError(f"{identifier} installer executable is not allowed: {argv[0]}; "
+                                 f"use prefix-scoped argv with {sorted(INSTALL_COMMANDS)}. "
+                                 "Project dependency commands belong in the isolated project checkout, not this installer recipe")
             arguments = argv[1:]
             if command in {"python", "python3", "{PYTHON}"} and not (len(arguments) >= 5 and arguments[:2] == ["-m", "pip"] and "install" in arguments and any(arguments[index:index + 2] == ["--prefix", "{PREFIX}"] for index in range(len(arguments) - 1))):
                 raise ValueError(f"{identifier} Python installers may only run pip install --prefix {{PREFIX}}; scripts are not allowed")
@@ -150,7 +161,62 @@ def prepared_environment(directory: Path, get_value=None) -> dict[str, str]:
     return environment
 
 
-def prepare(directory: Path, plan: dict, timeout: int, process_started=None) -> dict:
+def native_smoke(directory, baseline, spec, environment, deadline, process_started):
+    """Build/run a baseline suite and independently collect and read back fresh Verilator data."""
+    config = Path(spec["config"])
+    results = {}
+    with tempfile.TemporaryDirectory(prefix="act4-smoke-") as temporary:
+        scratch = Path(temporary)
+        checkout = scratch / "act4"
+        env = {name: value for name, value in environment.items() if name not in {"VIRTUAL_ENV", "PYTHONPATH"}}
+        env.update(MISE_TRUSTED_CONFIG_PATHS=str(checkout), MISE_CEILING_PATHS=str(scratch))
+
+        def invoke(name, argv, cwd):
+            """Capture one native command within the shared preparation deadline."""
+            remaining = int(deadline - time.monotonic())
+            log = directory / f"smoke-{name}.log"
+            if remaining < 1:
+                log.write_text("Environment preparation deadline reached\n")
+                result = {"status": "timeout"}
+            else:
+                result = execute(argv, cwd, log, remaining, process_started, env)
+            results[name] = {**result, "log": log.name, "sha256": sha256(log)}
+            return result["status"] == "passed"
+
+        args = [f"CONFIG_FILES={config}", f"EXTENSIONS={spec['suite']}", "EXCLUDE_EXTENSIONS=", "DEBUG=True"]
+        target = Path("work_smoke") / config.parent.name
+        model = coverage = False
+        logs = scratch / "clone-logs"
+        logs.mkdir()
+        checkout_log = directory / "smoke-checkout.log"
+        try:
+            clone_source_snapshot(baseline, checkout, logs, deadline, process_started)
+            checkout_status = "passed"
+            checkout_log.write_text("Cloned baseline, pinned submodules and selected source overlays.\n")
+        except InterruptedError:
+            raise
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            checkout_status = "failed"
+            checkout_log.write_text(str(error) + "\n" + "\n".join(log.read_text(errors="replace")[-1200:] for log in sorted(logs.glob("*.log"))[-4:]))
+        results["checkout"] = {"status": checkout_status, "log": checkout_log.name, "sha256": sha256(checkout_log)}
+        if checkout_status == "passed":
+            runner = safe_path(checkout, str(config.parent / "run_cmd.txt"))
+            if runner.is_file() and runner.read_text().strip() and not safe_path(checkout, "work_smoke").exists() and invoke("build", ["make", "elfs", *args, "WORKDIR=work_smoke"], checkout):
+                elf_count = sum(path.is_file() and path.stat().st_size > 0 for path in (checkout / target / "elfs").rglob("*.elf"))
+                if elf_count and invoke("run", [sys.executable, "run_tests.py", runner.read_text().strip(), str(target / "elfs")], checkout):
+                    counts = re.findall(r"(?m)^\s*RESULT: All ([1-9]\d*) tests? passed\.\s*$", (directory / "smoke-run.log").read_text(errors="replace"))
+                    model = counts == [str(elf_count)]
+            if not safe_path(checkout, "work_smoke_cov").exists() and invoke("coverage", ["make", "coverage", *args, "WORKDIR=work_smoke_cov", "COVERAGE_SIMULATOR=verilator"], checkout):
+                databases = sorted((checkout / "work_smoke_cov" / config.parent.name / "coverage").rglob("*.dat"))
+                for database in databases:
+                    safe_path(checkout, str(database.relative_to(checkout)))
+                if databases and all(database.is_file() and database.stat().st_size for database in databases):
+                    if invoke("readback", ["verilator_coverage", "--report", "hierarchy", "--filter-type", "covergroup", *map(str, databases)], checkout):
+                        coverage = bool(re.search(r"(?m)^\s*\S+::\w+_cg\s+:\s*[\d.]+%\s*\(\s*\d+/\s*[1-9]\d*\)", (directory / "smoke-readback.log").read_text(errors="replace")))
+    return {"suite": spec["suite"], "config": str(config), "model_passed": model, "coverage_readback_passed": coverage, "commands": results}
+
+
+def prepare(directory: Path, plan: dict, timeout: int, process_started=None, smoke_root=None) -> dict:
     """Probe first, install missing tools under versioned prefixes, then require successful re-probes."""
     deadline = time.monotonic() + timeout
     environment = dict(os.environ)
@@ -199,10 +265,13 @@ def prepare(directory: Path, plan: dict, timeout: int, process_started=None) -> 
                     raise TimeoutError("Preparation time budget exhausted; retry preparation to finish remaining tools")
                 result = execute(probe, directory, log, min(20, remaining), process_started, env=candidate)
                 files[log.name] = sha256(log)
-                record["attempts"].append({**result, "log": log.name})
                 executable = shutil.which(probe[0], path=candidate["PATH"])
                 output = log.read_text(errors="replace")
-                if result["status"] == "passed" and executable and tool["version"] in output and re.search(tool["expected_output"], output):
+                version_match = tool["version"] in output
+                output_match = re.search(tool["expected_output"], output) is not None
+                record["attempts"].append({**result, "log": log.name, "executable_found": bool(executable),
+                                           "version_match": version_match, "expected_output_match": output_match})
+                if result["status"] == "passed" and executable and version_match and output_match:
                     selected = str(Path(executable).absolute())
                     record.update(status="ready", origin=location, command=probe[0], executable=selected, executable_sha256=sha256(Path(selected)))
                     additions = bins if location in {"cache", "installed"} else [str(Path(selected).parent)]
@@ -218,7 +287,11 @@ def prepare(directory: Path, plan: dict, timeout: int, process_started=None) -> 
                     if tool.get("unavailable_reason"):
                         record.update(status="unavailable", reason=tool["unavailable_reason"])
                     else:
-                        record["reason"] = "Provide install argv from the selected project's dependency instructions and prepare again"
+                        record["reason"] = (
+                            f"Probe ran but did not match version={tool['version']!r} (literal substring) and "
+                            f"expected_output={tool['expected_output']!r} (regex); inspect {log.name} before reinstalling"
+                            if result["status"] == "passed" and executable else
+                            f"Tool probe did not succeed; inspect {log.name} and provide prefix-scoped install argv")
                     break
                 prefix.mkdir(parents=True, exist_ok=True)
                 lock_path = safe_path(prefix, ".install.lock")
@@ -267,5 +340,13 @@ def prepare(directory: Path, plan: dict, timeout: int, process_started=None) -> 
     (directory / "summary.md").write_text(summary, encoding="utf-8")
     files["summary.md"] = sha256(directory / "summary.md")
     receipt = {"schema_version": 1, "tools": records, "path": paths, "files": files}
+    if smoke_root is not None:
+        smoke = native_smoke(directory, smoke_root, plan.get("native_smoke"),
+                             {**environment, "PATH": os.pathsep.join([*paths, environment.get("PATH", "")])}, deadline, process_started)
+        receipt["native_smoke"] = smoke
+        files.update({entry["log"]: entry["sha256"] for entry in smoke["commands"].values()})
+        with (directory / "summary.md").open("a", encoding="utf-8") as stream:
+            stream.write(f"\nBaseline smoke ({smoke['suite']}): model passed={smoke['model_passed']}; coverage readback passed={smoke['coverage_readback_passed']}. Not suite validation.\n")
+        files["summary.md"] = sha256(directory / "summary.md")
     write_json(directory / "receipt.json", receipt)
     return receipt

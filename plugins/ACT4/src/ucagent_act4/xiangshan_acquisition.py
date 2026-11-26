@@ -12,9 +12,11 @@ import uuid
 
 import yaml
 import ucagent
+from ucagent.plugins import PluginError
 
 from . import xiangshan_bundle as bundle
-from .resources import clone_local
+from .run_config import resolve_run_config, ucagent_config
+from .suite_catalog import validate_suite_target
 from .xiangshan_trace import citation, records_by_id, require_text
 
 
@@ -136,6 +138,10 @@ class XiangShanAcquisition:
             if not linked:
                 raise ValueError(f"Generation job {identity} is not linked to a confirmed upstream gap")
             root, suite = self.roots["upstream"], job["suite"]
+            try:
+                validate_suite_target(suite)
+            except PluginError as error:
+                raise ValueError(f"Generation job {identity} must select a catalog Test Suite target: {error}") from error
             existing = list((root / "generators/testgen/src/testgen/priv/extensions").rglob(f"{suite}.py"))
             existing += [root / f"coverpoints/unpriv/{suite}_coverage.svh"]
             if any(path.exists() for path in existing):
@@ -167,23 +173,31 @@ class XiangShanAcquisition:
         attempt = self.output / "generation" / identifier / uuid.uuid4().hex
         attempt.mkdir(parents=True)
         checkout = attempt / "riscv-arch-test"
-        clone_local(self.roots["upstream"], checkout, attempt, deadline, self.process_started)
         for relative, expected in json.loads((self.output / "discovery.json").read_text(encoding="utf-8"))["files"].items():
-            path = bundle.safe_path(checkout, relative)
+            path = bundle.safe_path(self.roots["upstream"], relative)
             if not path.is_file() or bundle.identity(path) != expected:
-                raise ValueError(f"Generation clone differs from the inspected upstream source at {relative}; use a clean pinned input instead of discarding local changes")
+                raise ValueError(f"Generation input differs from the inspected upstream source at {relative}; repeat discovery against a clean pinned source")
         request = {"module": scope["module"], "request": scope["request"], "job": job,
                    "features": [feature for feature in scope["features"] if feature.get("generation_job") == identifier]}
         bundle.write_json(attempt / "handoff-request.json", request)
+        settings = resolve_run_config({"schema_version": 1, "suite": job["suite"], "workflow": workflow_name,
+            "workspace": str(attempt), "output": "act4_assets", "target_context": json.dumps(request, ensure_ascii=False),
+            "upstream": {"act4_root": str(self.roots["upstream"]), "act4_ref": "HEAD", "manual_root": str(manual)}}, attempt.parent)
+        configuration = attempt / ".ucagent/act4-run.yaml"
+        configuration.parent.mkdir(parents=True, exist_ok=True)
+        configuration.write_text(yaml.safe_dump(ucagent_config(settings), sort_keys=False), encoding="utf-8")
         argv = [sys.executable, "-m", "ucagent.cli", str(attempt), job["suite"],
                 "--plugin", "act4", "--plugin-workflow", workflow_id,
+                "--config", str(configuration),
                 "--output", "act4_assets", "--backend", backend, "--loop", "--exit-on-completion",
                 "--loop-msg", "Read handoff-request.json and Guide_Doc/ACT4_Asset_Authoring_Guide.md. "
                 "Generate only the declared missing suite using the selected native style and all its checks. "
                 "Do not modify unrelated suites or replace trap scenarios with table-driven tests."]
+        if backend == "codex":
+            argv.extend(["--mcp-server-no-file-tools", "--mcp-server-port", "-1"])
         import_roots = [str(Path(ucagent.__file__).resolve().parent.parent), str(Path(__file__).resolve().parent.parent)]
         import_roots += [path for path in self.environment.get("PYTHONPATH", "").split(os.pathsep) if path and path not in import_roots]
-        environment = {**self.environment, "ACT4_MANUAL_ROOT": str(manual), "PYTHONPATH": os.pathsep.join(import_roots)}
+        environment = {**self.environment, "PYTHONPATH": os.pathsep.join(import_roots)}
         remaining = int(deadline - time.monotonic())
         if remaining < 1:
             raise ValueError("Gap generation budget exhausted while preparing its isolated clone")

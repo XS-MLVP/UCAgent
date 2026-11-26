@@ -1,0 +1,351 @@
+  ,Test Suite,Description,Owner,Notes,Norm Rules,,,,UDB/Params,,RVVI,"RVMODEL 
+Macros",,,Testplan,,"Certification 
+Test Plan 
+(CTP)",,,Coverpoints,,Sail,Tests,,,,,,Simulators,,,,RTL,,,,,,,,Silicon,,,,Params
+,,,,,,,,,,,,(semihosting),,,(tables),,,,,,,,Self-Checking,,,,,,,,,,,,,,,,,,,,,,
+,,,,,Tagged,YAML,Reviewed,Merged into riscv-isa-manual,Parameters Defined,Reviewed,Signals Implemented,Sail,Spike,CORE-V Wally,Written,Reviewed,Written,Norm Rule to Coverpoint Map,Reviewed,Written,Reviewed,Extension Supported,Written,Pass Sail,100% Coverage,T-SBI Support,Reviewed,Support both GCC and Clang,Spike,QEMU,Whisper,Imperas,CORE-V Wally rv32gc,CORE-V Wally rv64gc,CORE-V Wally (Many Configs),CV32E20,CVA6*,XiangShan,Tenstorrent Ascalon,Alibaba Xuantie,StarFive Visionfive 2 (10xE),Banana Pi F3,Milk-V Megrez (Sifive P550),K3,
+0: RVI20 Req,I,Integer,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,,Done,,Done,Done,Done,Done,Done,None
+0: RVI20 Opt,M,Mult/Divide,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,,Done,,Done,Done,Done,Done,Done,None
+,Zaamo,Atomic Memory Ops,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Zalrsc,Load Reserved,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,"LRSC_RESERVATION_STRATEGY, LRSC_FAIL_ON_NONEXACT_LRSC, LRSC_FAIL_ON_VA_SYNONYM"
+,Zca,Compressed,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,,Done,,Done,Done,Done,Done,Done,None
+,Zcf,Compressed Float,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,n/a,,n/a,,n/a,,Done,n/a,,n/a,n/a,None
+,Zcd,Compressed Double,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,F,Float,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,D,Double,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Zifencei,Instruction Fence,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,,Done,,Done,Done,Done,Done,Done,None
+,Zicntr,Counters,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Excluded: counter reads not ordered after older instructions,,Done,Done,Done,Done,Done,TIME_CSR_IMPLEMENTED *** probably not with invisible trap
+,Zihpm,Performance Monitors,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,***
+,ZicsrF,Float CSRs,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Misalign,Misaligned Load/Store,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,N/A,Done,,Done,,Done,,Done,n/a,Done,n/a,,MISALIGNED_LDST
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+1: MC100 Req,Zicsr,CSR write/set/clear,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,,Done,,Done,Done,Done,Done,Done,None
+,Sm,Machine CSRs & Inst,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,Done (Owais),Done,Done,Done,Done,Done,Done,Done,Done,Missing menvcfg.CDE/DTE.,Done,Done,Done,Done,see CI,Done,Done,Done,Done,,Done,,Excluded: menvcfg.FIOM read-only 0; mstatus.SDT writable with DTE=0,,Done,"Fail (Sm_Zicntr, Sm_mcsr_cntr pass only with their minstret cases removed: a minstret read is off by up to 2 instructions)",Fail,Fail,Fail,"MXLEN, MISA_CSR_IMPLEMENTED, TIME_CSR_IMPLMENTED, COUNTINHIBIT_EN, ARCH_ID_VALUE, IMP_ID_VALUE, MARCHID_IMPLEMENTED, MIMPID_IMPLEMENTED, VENDOR_ID_BANK, VENDOR_ID_OFFSET, CONFIG_PTR_ADDRESS, Sm Version 1.12, COUNTINHIBIT_EN, MUTABLE_MISA_*"
+,Exceptions,Exceptions,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,Done (Owais),Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,,Done,,Done,Done,,Done,Done,"MISALIGNED_LDST, MISALIGNED_LDST_EXCEPTION_PRIORITY, MTVAL_WIDTH, MTVEC_ACCESS, MTVEC_BASE_ALIGNMENT_DIRECT, MTVEC_ILLEGAL_WRITE_BEHAVIOR, MTVEC_MODES, REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTON, REPORT_VA_IN_MTVAL_ON_BREAKPOINT, REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_VAULT, REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED, REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT, REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED, REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT, REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED, TRAP_ON_EBREAK, TRAP_ON_ECALL_FROM_M"
+,Interrupts,Interrupts,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,Done (Owais),Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,https://gitlab.com/qemu-project/qemu/-/work_items/3969 seems to apply to mip.LCOFIP not writable either,Done,Done,Done,Done,,Done,,Done,,,Done,,Done,Done,"MTVEC_ACCESS, MTVEC_BASE_ALIGNMENT_DIRECT, MTVEC_BASE_ALIGNMENT_VECTORED, MTVEC_ILLEGAL_WRITE_BEHAVIOR, MTVEC_MODES"
+,PMP,Physical Memory Protection,10x,Hamza 4/1,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,,,Excluded: SimTop drops bus error at PA 0 (platform) - investigating whether a different RVMODEL_ACCESS_FAULT would solve this.,,,Done,,Done,Done,"NUM_PMP_ENTRIES, NUM_USABLE_PMP_ENTRIES, PMP_GRANULARITY, PMP_NA4_SUPPORTED, PMP_NAPOT_SUPPORTED, PMP_TOR_SUPPORTED"
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+1.5: RVA22 Req,Zba,Address Calculation,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Zbb,Bit Manipulation,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Zbs,Single-Bit Ops,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,None
+,Zfhmin,Half-Precision Convert,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,None
+,Zihintpause,Pause Hint,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Zicbom,Cache Ops,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,CACHE_BLOCK_SIZE
+,Zicboz,Cache Zero,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,CACHE_BLOCK_SIZE
+,Zicbop,Cache Prefetch,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,CACHE_BLOCK_SIZE
+,Zicclsm,Misaligned Loads/Stores,See CTP,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,n/a,,Done,Done,n/a,n/a,n/a,Done,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,n/a,Done,n/a,n/a,n/a,,n/a,,
+,Za64rs,64B Reservation Sets,DH tp + Ammarah 4/15,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,,Done,Done,***LRSC_FAIL_ON_NON_EXACT_LRSC***
+,Zic64b,64B Cache zeros,DH tp + Ammarah 4/15,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,,n/a,,CACHE_BLOCK_SIZE
+,Ziccif,Instruction Fetch PMA,trivial,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,,,,,,Done,,Done,Done,
+,Ziccrse,RsrvEventual PMA,trivial,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,,,,Done,,Done,,
+,Ziccamoa,Atomic PMA,trivial,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,,,,Done,,Done,Done,
+,Ziccamoc,AMOCASQ PMA,trivial,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,,,,n/a,,n/a,,
+,S,Supervisor CSRs & Inst,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,sie mismatches on bit 13 (LCOFIE) https://gitlab.com/qemu-project/qemu/-/work_items/3969; UXL https://gitlab.com/qemu-project/qemu/-/work_items/3367,Done,Done,Done,Done,,n/a,,Excluded: senvcfg.FIOM read-only 0,,,"Fail
+",Fail,Done,Done,"MSTATEEN_ENVCFG_TYPE, SCOUNTENABLE_EN, STVAL_WIDTH, SXLEN, S_MODE_ENDIANNESS"
+,U,User CSRs & Inst,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,"Fail
+",Fail,Done,Done,"MCONTENABLE_EN, TRAP_ON_ECALL_FROM_U, UXLEN, U_MODE_ENDIANNESS"
+,Sstc,Supervisor Timer Interrupts,HMC,Sadhvi 4/14,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Svbare,No VirtMem,UET,ZainPR open,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,"SATP_MODE_BARE, TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY"
+,Sv,VirtMem,UET,Zain,Done,Done,Done,Done,Done,revisit after params WG,Review VM Signals in light of Synopsys Feedback to Jordan Carlin,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,#2510,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,"Fail
+misaligned access to an invalid PTE: the U74 exception order cannot be modelled in Sail; M-mode misaligned fetch cases assume unmapped DRAM
+https://github.com/riscv/sail-riscv/issues/1904
+",Fail,Done,Fail,"ASID_WIDTH, MSTATUS_TVM_IMPLEMENTED, REPORT_VA_IN_{MTVAL,STVAL}_ON_{INSTRUCTION, LOAD, STORE_AMO}_PAGE_FAULT REPORT_VA_IN_{MTVAL/STVAL}ON_{INSTRUCTION/LOAD/STORE_AMO}PAGE_FAULT"
+,Svinval,VM Invalidation,TT or UET,Zain 4/22,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,,Done,None
+,Svade,VM A/D Exception,UET,ZainPR open,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,cvw #1909,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,,n/a,Done,None
+,Svpbmt,VM Page Memory Type,UET,ZainPR open,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,cvw #1909,Done,,Done,Done,Done,Done,Done,n/a,Done,,n/a,,Done,,Done,n/a,Fail,n/a,Fail (https://github.com/riscv/riscv-arch-test/issues/3103),None
+,Sscounterenw,Counter Enables,DH tp + Ayesha,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Sstvecd,Vectored Interrupts,DH tp + Ayesha,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,Done,Done,Done,None
+,Ssccptr,Hardware page table reads,DH tp + UET 4/15,Ayesha,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,Done,,Done,Done,
+,Sstvala,stval address,DH tp + UET 4/15,Ayesha,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,,n/a,Done,"REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION, REPORT_VA_IN_STVAL_ON_{INSTRUCTION/LOAD/STORE_AMO}_{ACCESS_FAULT/MISALIGNED/PAGE_FAULT}"
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+1.5: RVA22 Opt,Zfh,Half FP,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,None
+,Zbc,Carryless Mult,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,None
+,Zbkb,Crypto Bit Manipulation,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,N/A,n/a,,n/a,n/a,None
+,Zbkc,Crypto Carryless Mult,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,N/A,n/a,,n/a,Done,None
+,Zbkx,Permutations,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,N/A,n/a,,n/a,n/a,None
+,Zknd,AES Decrypt,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,N/A,n/a,,n/a,n/a,None
+,Zkne,AES Encrypt,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,N/A,n/a,,n/a,n/a,None
+,Zknh,SHA2 Hash,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,N/A,n/a,,n/a,n/a,None
+,Zksed,SM4 Cipher,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,N/A,n/a,,n/a,n/a,None
+,Zksh,SM3 Hash,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,N/A,n/a,,n/a,n/a,None
+,Ssstrict,Reserved Exceptions,Umer,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,n/a,many,Done,Done,Done,Done,,n/a,,Excluded: v0 as mask and source not trapped; vstimecmp with STCE=0; AIA CSRs Sail lacks,,N/A,n/a,,n/a,n/a,"Implies TRAP_ON_UNIMPLEMENTED_CSR, TRAP_ON_UNIMPLEMENTED_INSTRUCTION.  MUTABLE_MISA_{A, B, C, D, F, M, Q, S, U}"
+,Zkr,Entropy CSR,HMC / TT,Julia,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,,n/a,,n/a,n/a,None
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+1.8 RVB23 Req,Zcb,Additional Compressed,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,,n/a,Done,None
+,Zfa,Additional FP,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,,n/a,Done,None
+,Zicond,Conditional,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,Done,n/a,Done,None
+,Zihintntl,Locality Hints,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,Done,,Done,n/a,,n/a,Done,None
+,Zimop,Maybe-Ops,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,None
+,Zcmop,Compressed Maybe-Ops,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,None
+,Zawrs,Wait on Reservation Set,Part of multimaster,Ellen,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,https://gitlab.com/qemu-project/qemu/-/work_items/4080,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,None
+,Svnapot,NAPOT VM,UET,Zain,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,#2510,Done,,Done,Done,Done,Done,Done,n/a,Done,,n/a,,Done,,Done,n/a,Done,n/a,Fail,None
+,Sscofpmf,Counter Filtering,TT,Ayesha,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Unable to increment hpm counters,See CI,Done,n/a,n/a,n/a,,n/a,,Done,,Done,n/a,,Done,Fail,None
+,Ssnpm,User Pointer Masking,TT / UET,Ammarah,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,,Done,Done,n/a,n/a,,n/a,,Not run,,Done,n/a,,n/a,Fail,PMLEN
+,Ssu64xl,64b User Mode,DH tp + UET 4/22,UET (Ammarah),Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,Done,,n/a,,Done,,Done,Done,,Done,Done,None
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+RVB23 Opt,Svadu,Hardware A/D Update,UET,Zain,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,n/a,,n/a,,Done,n/a,,n/a,,None
+,Sspm (Smnpm*),Supervisor Pointer Masking,,Ammarah,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,fail,Done,Done,n/a,n/a,,n/a,,Not run,,Done,n/a,,n/a,Fail,
+,Svvptc,Valid PTEs Visible,DH,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,71%,Done,,Done,Done,Done,Done,Done,https://github.com/openhwfoundation/cvw/pull/1974,https://github.com/openhwfoundation/cvw/pull/1974,,n/a,,n/a,,Done,n/a,,n/a,,
+,"SdtrigS, SdtrigU, SdtrigH",Debug Triggers,TT,Pierce,Done,Done,Done,Done,,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,TOO MANY PROBLEMS; stop reporting,Done,Done,n/a,n/a,,n/a,,Excluded: no tdata3; Sail cannot model (UDB#2069),,,n/a,,n/a,Fail (https://github.com/riscv/riscv-arch-test/issues/3207),
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+2 RVA23 Req,Multimaster Fences / RVWMO / TSO,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,n/a,n/a,,n/a,,,,,n/a,,n/a,,
+,"Multimaster Atomics (Zaamo, Zalrsc, Zawrs, Zabha, Zacas)",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,n/a,n/a,,n/a,,,,,n/a,,n/a,,
+,Vx8,Vector Integer,HMC,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Done,n/a,Done,"ELEN, HW_MSTATUS_VS_DIRTY_UPDATE, RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX, VLEN, SEW_MIN, SUPPORTED_FRACTIONAL_LMUL_BEYOND_REQUIRED, VILL_SET_ON_RESERVED_TYPE, RESERVED_VSET_X0X0_VILL_SET, RESERVED_VSET_X0X0_VLMAX_CHANGE, VECTOR_LS_INDEX_MAX_EEW, more in https://github.com/riscv/riscv-unified-db/pull/1245/changes
+parameter that sail calls vl_use_ceil"
+,Vx16,Vector Integer,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Done,n/a,Done,same as Vx8
+,Vx32,Vector Integer,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Done,n/a,Done,same as Vx8
+,Vx64,Vector Integer,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Done,n/a,Done,same as Vx8
+,Vls8,Vector Load/Store,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Fail,n/a,Done,same as Vx8
+,Vls16,Vector Load/Store,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Fail,n/a,Done,same as Vx8
+,Vls32,Vector Load/Store,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Fail,n/a,Done,same as Vx8
+,Vls64,Vector Load/Store,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,Fail,n/a,Done,same as Vx8
+,Vf32,Vector Float,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,same as Vx8
+,Vf64,Vector Float,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,same as Vx8
+,Zvbb8,Vector Bit Manipulation,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvbb16,Vector Bit Manipulation,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvbb32,Vector Bit Manipulation,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvbb64,Vector Bit Manipulation,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,ExceptionsVx,Vector Int Exceptions,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,mhpmevents not supported,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Fail,
+,ExceptionsVf,Vector Float Exceptions,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,RW,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,,
+,ExceptionsVls,Vector LS Exceptions,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,RW,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,,
+,MisalignV,Vector Misaligned,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,RW,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,,
+,SsstrictV,Vector Strict Exceptions,HMC,,Done,Done,Waiting on ARC for Ssstrict definition,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,RW,needs normal generator,Done,Not Supported,Not Supported,Done,Done,n/a,n/a,,n/a,,Excluded: v0 as mask and source not trapped,,,n/a,,n/a,,MUTABLE_MISA_V
+,Ssstateen,Supervisor State Enable,Ayesha,5/6,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+2 RVA23 Opt,Vf16 (Zvfh),Vector Half Float (Zvfh),HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,same as Vx8
+,Zvkb8,Vector Crypto Bit,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvkb16,Vector Crypto Bit,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvkb32,Vector Crypto Bit,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvkb64,Vector Crypto Bit,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvbc64,Vector Carryless Mult,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zvkg,Vector GCM,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zvkned,Vector AES Crypto,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zvknh,Vector SHA2 Hash,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zvksed,Vector Shangmi Crypto,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zvksh,Vector SM4 Hash,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zvfhmin,Vector Half Convert,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,RW,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,Done,
+,Zvfbfmin,Vector BrainFloat Convert,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zvfbfwma,Vector Brainfloat FWMA,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,Done,
+,Zacas,Atomic CompareAndSwap,10x,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,https://gitlab.com/qemu-project/qemu/-/work_items/3526,Done,Done,n/a,n/a,,n/a,,Done,,Done,n/a,,n/a,,None
+,Zabha,Subword Atomics,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,,None
+,Zama16b,Misaligned Atomics,dh tp + UET (Ammarah ),,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,fail,Done,n/a,n/a,n/a,,n/a,,n/a,,Done,n/a,,n/a,,
+,Zicfilp,Landing Pad,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,fail,Done,Done,n/a,n/a,,n/a,,n/a,,,n/a,,n/a,,
+,Zicfiss,Shadow Stack,Eman,"coverpoints 5/6, tests 5/13",Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,99%,Done,,Done,Done,fail,Done,Done,n/a,n/a,,n/a,,n/a,,,n/a,,n/a,,
+,Zfbfmin,Brain Float Convert,HMC,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,,n/a,,,n/a,,n/a,Done,None
+,Hypervisor Branch,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,H,Hypervisor CSR/Instr,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,98%,Done,,Done,Done,broken,Done,Done,n/a,n/a,,n/a,n/a,,,,n/a,,n/a,Fail (https://github.com/riscv/riscv-arch-test/issues/3209),
+,Shcounterenw,Hypervisor counter enable,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,n/a,,,,n/a,,n/a,Done,
+,Shtvala,Hypervisor htval written,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,fail,Done,Done,n/a,n/a,,n/a,n/a,,,,n/a,,n/a,Done,
+,Shvstvala,Hypervisor vstval written,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,fail,Done,Done,n/a,n/a,,n/a,n/a,,,,n/a,,n/a,Done,
+,Shgatpa,Hypervisor hgatp modes,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,n/a,,,,n/a,,n/a,Done,
+,Shvsatpa,Hypervisor vsatp modes,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,n/a,,,,n/a,,n/a,Done,
+,Shvstvecd,Hypervisor vstvec modes,,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,n/a,n/a,,n/a,n/a,,,,n/a,,n/a,Done,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Svpbmt: henvcfg.PBMT is 0 if menvcfg.PBMT=0,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,"Svadu: henvcfg.ADUE = 0 if menvcfg..., henvcfg.ADUE writable, hw update of G-stage PTE",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Svnapot in G-stage,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Svrsw60t59b on G-stage,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,"Ssdbltrp: henvcfg.DTE, vssstatus.SDT",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Zicfiss: HLV/HSV*,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Zicbo: mtinst/htinst transformation,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Zawrs: VTW,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Zkr: test SSEED and VSSEED from VS/VU,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,SdtrigH,Move into merged Sdtrig,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,SmcntrpmfH,check if this is right,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Smcsrind/Sscsrind later,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Smcdeleg/Ssccfg later,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Smctr later,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Ssqosid later,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,otheres needing attention,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Alibaba,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+RVA23 Hypervisor,H,Hypervisor CSRs & Inst,TT,,Done,Done,Done,Done,Done,revisit after params WG,Need 2-level translation,Done,,Done,Done,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,Fail,MUTABLE_MISA_H
+,ExceptionsH,Hypervisor Exceptions,TT,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,
+,ExceptionsHV,Hyper-Vector Exceptions,TT,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,
+,InterruptsH,Hypervisor Interrupts,TT,,Done,Done,Done,Done,Done,revisit after params WG,,,,,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,ZicntrH,Hypervisor Counters,TT,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,PMPH,Hypervisor PMP,TT,out of scope,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,SvH,Hypervisor VirtMem,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,SvinvalH,Hypervisor Svinval,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,SvHCBO,Hypervisor VM CBO,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,Shcounterenw,Supervisor Counter En,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,None
+,Shvsatpa,vsatp address,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,None
+,Shgatpa,hgatp address,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,None
+,Shvstvecd,vstvec address,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,None
+,Shvstvala,vstval address,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,None
+,Shtvala,htval address,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,Done,None
+,Shlcofideleg,Hypervisor counter overflow,TT,,Done,Done,Done,Done,Done,revisit after params WG,,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,ZkrH,Hypervisor Entropy CSR,TT,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,SstcH,Hypervisor Timer,TT,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,SsnpmH,Hypervisor Pointer Masking,TT,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,PMLEN
+,SsstateenH,Hypervisor State Enable,TT,,Done,Done,Done,Done,Done,revisit after params WG,Done,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,ZicfilpH,Hypervisor Landing Pad,,,Done,Done,Done,Done,Done,revisit after params WG,Done,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,ZicfissH,Hypervisor Shadow Stack,,,Done,Done,Done,Done,Done,revisit after params WG,Done,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,SvaduH,Hypervisor A/D Update,TT,,Done,Done,Done,Done,Done,revisit after params WG,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+No Profile,Zcmp,Compressed Push/Pop,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Zcmt,Compressed Jump Table,,,Done,Done,Done,Done,,,Done,Done,Done,Done,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,
+,ExceptionsZicboSm,Machine CBO Exceptions,,,Done,Done,Done,Done,,,Done,Done,Done,Done,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,EndianSm,Machine Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,PR,,,,n/a,,,,,,,,,,N/A,,,,N/A,,,,,M_MODE_ENDIANNESS
+,EndianS,Supervisor Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,N/A,,,,,
+,EndianU,User Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,N/A,,,,,
+,EndianZaamo,AMO Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,N/A,,,,,
+,EndianZalrsc,LRSC Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,N/A,,,,,
+,EndianF,Float Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,N/A,,,,,
+,EndianZc,Compressed Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,N/A,,,,,
+,EndianH,Hypervisor Endian,HMC,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,,,,,,,,,,,,,,,,,,,,N/A,,,,N/A,,,,,
+,E,Embedded 16 Registers,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,Done,,Done,Done,Done,Done,Done,,,,,,,,,,N/A,,,,,,,,,None
+,DM,Debug Module,,,,,,,,,,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,
+,DTM,Debug Transfer Module,,,,,,,,,,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,
+,Sdext,External Debug,,,,,,,,,,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,
+,Smaia,Machine Advanced Interrupts,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,Ssaia,Supervisor Advanced Interrupts,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,IMSIC,MSI Controller,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,APLIC,Platform Interrupt Controller,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,IOMMU,I/O Memory Management,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,Q,Quad FP,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,Done,,,,,,,,,,N/A,,,,,,,,,None
+,ZfhQ,Half-Quad,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,Done,,,,,,,,,,N/A,,,,,,,,,None
+,ZfhminQ,Half-Quad Converts,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,Done,,,,,,,,,,N/A,,,,,,,,,None
+,ZfaQ,Additional Quads,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,Done,,,,,,,,,,N/A,,,,,,,,,None
+,ZfaZfhQ,Additional Converts,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,Done,,,,,,,,,,N/A,,,,,,,,,None
+,MisalignQ,Misaligned Quad Load/Store,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,Done,,,,,,,,,,N/A,,,,,,,,,MISALIGNED_LDST
+,Svrsw60t59b,Reserved Software Bits,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,***,"S/U pass, H fails",Done,n/a,n/a,n/a,,,,,,,,,,,
+,Zmmul,Multiply,HMC,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,Done,Done,,N/A,,,,,Done,Done,Done,Done,None
+,Smmpm,Pointer Masking,UET (Ammarah),,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,https://gitlab.com/qemu-project/qemu/-/work_items/3501,Done,Done,n/a,n/a,,N/A,,,,,,,,,PMLEN
+,Zfinx,Float in Int Registers,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,Done,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Zdinx,Double in Int Regs,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,Done,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Zhinx,Half in Int Regs,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,Done,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Zhinxmin,Half Cvt in Int Regs,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,Done,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Zilsd,Load/Store Double,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Zclsd,Compressed Load/Store Double,,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Zalasr,Atomic Load-Acquire/Store-Release,,,Done,Done,Done,Done,,,,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,
+,PMPV,PMP on Vector,,,Done,Done,Done,Done,,,,,,,,,,,,,,,,,,,,,,,,,n/a,n/a,,,,,,,,,,,
+,Smstateen,Machine State Enable,TT / UET,5/6,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,99% some features not in sail,Done,,Done,Done,#4495,Done,https://github.com/riscv/sail-riscv/issues/2054,n/a,n/a,,N/A,,,,,,,,Fail,
+,Smcsrind,Machine CSR Indirect,,,Done,Done,Done,Done,Done,,,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Sscsrind,Supervisor CSR Indirect,,,Done,Done,Done,Done,,,,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,
+,SscrindH,Hypervisor CSR Indirect,,,Done,Done,Done,Done,,,,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,
+,Smepmp,Enhanced PMP,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Smrnmi,Machine NMI,,,Done,Done,Done,Done,Done,,Done,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Ssrnmi,Supervisor NMI,,,Done,Done,Done,Done,Done,,Done,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Smcntrpmf,Counter Filtering,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,,,,,,,Done,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Smcdeleg,Counter Delegation,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Ssccfg,Supervisor Counter Delegation,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,SscfgH,Hypervisor Counter Delegation,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Smdbltrp,Machine Double Trap,,,Done,Done,Done,Done,Done,,Done,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Ssdbltrp,Supervisor Double Trap,,,Done,Done,Done,Done,Done,,Done,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,SsdbltrpH,Hypervisor Double Trap,,,Done,Done,Done,Done,Done,,Done,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Smctr,Control Transfer Records,,,Done,Done,Done,Done,Done,,Done,,,,,,,,,,,PR,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,SmctrH,Hypervisor CTR,,,Done,Done,Done,Done,Done,,Done,,,,,,,,,,,,,,,,,,,,,,,,,N/A,,,,,,,,,None
+,Shlcofideleg,Hypervisor LCOFI Delegation,,,*** in progress 10/24/26 dh,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Ssqosid,Quality of Service,,,Done,Done,Done,Done,,,Done,Done,,Done,,,,,,,,Done,,,,,,,,,,,,,,N/A,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Phase 0B,Multimaster Fences / RVWMO / TSO,,TT,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,"Multimaster Atomics (Zaamo, Zalrsc, Zawrs, Zabha, Zacas)",,TT,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,IBM FP Coverpoints,,HMC,,Done,Done,Done,Done,,,,,,,,,,,,,,Done,,,,RW,,,,,,,,,,N/A,,,,,,,,,
+,"Memory map: addresses above 32 bits, address 0 / illegal address, starting addresses other than 0x8000_0000, tiny memory microcontrollers",,,,Done,Done,Done,Done,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,PMAs (Phase 1B),,,,Done,Done,Done,Done,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Basic Pipeline Hazards,,,,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,Done,,Done,,,,,Done,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Zkt,Constant Time,Not Tested,,Done,Done,Done,Done,,,Done,Done,Done,Done,Done,,Done,Done,,Done,,Done,Done,Done,Done,Done,,Done,Done,Done,Done,Done,,,,,,,,,,,,Fail,
+,Zvkt,Constant Time Vector ,Not Tested,,Done,Done,Done,Done,,,,,,,,,,,,,,Done,,,,,,,,,,,,,,,,,,,,,,,
+,XlenS/U/VS/VU,Configurable XLEN,,,Done,Done,Done,Done,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,PMAs (?),,,,Done,Done,Done,Done,,,,,,,,,,,,,,Some support,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Notes,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+"All coverpoints and tests apply to RV32 and RV64 if applicable, even for RV64 phases",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Ownership,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+"Mike Thompson OpenHW Group: CV32E20, other RTL cores, FGPA, Silicon testing",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Requirements WG: CRDs,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+"FPGA: also consider Breker, TT",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Breker (Adnan Hamid) run suites on customer RTL,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Alibaba (James Shi) runs suites on Alibaba RTL,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Umer: Set up CI to run tests on Ref Models,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+TBD whether UET can work on Spike & QEMU,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Questions: should ref model columns exist?,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Parameters not considered yet:,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+MISALIGNED_AMO,,Not part of Misaligned,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+LRSC_FAIL_ON_NON_EXACT_LRSC,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+LRSC_FAIL_ON_VA_SYNONYM,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+LRSC_MISALIGNED_BEHAVIOR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+LRSC_RESERVATION_STRATEGY,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+HW_MSTATUS_FS_DIRTY_UPDATE,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+MSTATUS_FS_LEGAL_VALUES,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+MUTABLE_MISA_F,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Tenstorrent Hypervisor Suites,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,hypervisor,,,,,,,,,,,,,,missing,,,,,,,,Hypervisor,,,,,,,,Done,,,,,,,,Done,,,,,,
+,hypervisor_exceptions,,,,,,,,,,,,,,Hypervisor_Exceptions_TP.xlsx,,,,,,,,hypervisor_exceptions_scenarios.py,,,,,,,,Done,,,,,,,,Done,,,,,,
+,hypervisor_interrupts,,,,,,,,,,,,,,Hypervisor_Interrupts_TP.xlsx,,,,,,,,Hypervisor_interrupts_scenarios.py,,,,,,,,Done,,,,,,,,Done,,,,,,
+,hypervisor_paging,,,,,,,,,,,,,,Hypervisor_Paging_TP.xlsx,,,,,,,,Hypervisor Paging,,,,,,,,Done,,,,,,,,Done,,,,,,
+,hypervisor_tlb_fence,,,,,,,,,,,,,,Hypervisor_TLB_Fence_TP.xlsx,,,,,,,,hypervisor_tlb_fence_scenarios.py,,,,,,,,Done,,,,,,,,Done,,,,,,
+,sstc,includes vstimecmp,,,,,,,,,,,,,SSTC_TP.xlsx,,,,,,,,sstc_scenarios.py,,,,,,,,Done,,,,,,,,Done,,,,,,
+,smstateen_ssstaten,includes hstateen,,,,,,,,,,,,,Smstateen_TP.xlsx,,,,,,,,smstateen_ssstateen_scenarios.py,,,,,,,,Done,,,,,,,,Done,,,,,,
+,sscofpmf,enables for VS and VU mode overflow (missing),,,,,,,,,,,,,to be added,,,,,,,,to be added,,,,,,,,Done,,,,,,,,Done,,,,,,
+,zicbom,some cases provide virtualized=True,,,,,,,,,,,,,missing,,,,,,,,zicbom_zicboz_zicbop_zic64b_scenarios.py,,,,,,,,Done,,,,,,,,Done,,,,,,
+,ssu64xl,some cases provide virtualized=True,,,,,,,,,,,,,SSU64XL_TP.xlsx,,,,,,,,ssu64xl_scenarios.py#L23,,,,,,,,Done,,,,,,,,Done,,,,,,
+,zawrs,some cases provide virtualized=True,,,,,,,,,,,,,Zawrs_TP.xlsx,,,,,,,,zawrs_scenarios.py#L855,,,,,,,,Done,,,,,,,,Done,,,,,,
+,zicntr,some cases provide virtualized=True,,,,,,,,,,,,,Zicntr_Zihpm_Sscounterenw_TP.xlsx,,,,,,,,zicntr_zihpm_sscounterenw_scenarios.py#L128,,,,,,,,Done,,,,,,,,Done,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Alibaba Hypervisor Suites,"(Plan of Record, for complete integration into ACT suite October 2026)",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Hypervisor_CSR,H,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_CSR_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,FAIL,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Exceptions,Exceptions_Hypervisor,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Exceptions_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Interrupts,Interrupts_Hypervisor,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Interrupts_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Smnpm,Smnpm_Hypervisor,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zpm_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Ssccptr,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Ssnpm,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zpm_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Ssstateen,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Sstc,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Sstvala,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Sstvala_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Sscofpmf,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Svadu,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sv_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Svinval,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sv_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_Svnapot,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sv_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Svpbmt,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sv_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Zicbom,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_CMO_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_Zicbop,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_CMO_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Zicboz,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_CMO_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Zicfilp,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_CFI_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Zicfiss,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_CFI_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_Zkr,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zi_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Sha,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Sha_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Shcounterenw,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Shcounterenw_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Shgatpa,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Shgatpa_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,FAIL,,,,,,,,,,,,,,
+,Shlcofideleg,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Shlcofideleg_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Shtvala,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Shtvala_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Shvsatpa,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Shvsatpa_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Shvstvala,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Shvstvala_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Shvstvecd,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Shvstvecd_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Zaamo,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Za_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Zabha,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Za_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Zacas,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Za_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,FAIL,,,,,,,,,,,,,,
+,Hypervisor_Zalrsc,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Za_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_Zawrs,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zi_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Zicntr,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zi_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Zihintntl,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zi_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Zihpm,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zi_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Vector,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zi_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_Zca,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zc_test_plan_en.md,,,,,,,Done,Done,Done,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Sdtrig,,,,Done,Done,Done,Done,TDB,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Alibaba Hypervisor Suites,ACT but not part of RVA23,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Hypervisor_Smcntrpmf,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sm_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Sscsrind,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sm_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_Smmpm,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Zpm_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_Smstateen,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sm_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Ssccfg,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Sscsrind,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Ssdbltrp,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,Done,Done,,,,,,,,,,,,,,
+,Hypervisor_Ssqosid,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Ss_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,
+,Hypervisor_PMP,,,,Done,Done,Done,Done,TDB,,,Done,Done,,Hypervisor_Sm_test_plan_en.md,,,,,,,Done,Done,,TDB,Done,,,Done,FAIL,Done,,,,,,,,,,,,,,

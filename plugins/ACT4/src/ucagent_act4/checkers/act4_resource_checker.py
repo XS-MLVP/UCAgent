@@ -13,7 +13,7 @@ class ACT4ResourceChecker(ACT4EnvironmentChecker):
     """Reuse read-only sources while making a private checkout for the generation workflow."""
 
     def __init__(self, resource_dir: str, workflow: str, inputs: dict, cache_root: str = "",
-                 refs: dict | None = None, cfg=None, **kwargs):
+                 refs: dict | None = None, materialize: bool = True, cfg=None, **kwargs):
         """Store resolved input settings; defer discovery and downloading to Check."""
         super().__init__(resource_dir, cfg=cfg, **kwargs)
         if workflow not in {"generation", "review", "handoff"} or not isinstance(inputs, dict):
@@ -26,6 +26,9 @@ class ACT4ResourceChecker(ACT4EnvironmentChecker):
                 or any(not isinstance(value, str) or not value.strip() for value in refs.values()))):
             raise ValueError("Use a cache path string and a mapping of named repository refs")
         self.workflow, self.inputs, self.cache_root, self.refs = workflow, inputs, cache_root, refs or {}
+        if type(materialize) is not bool:
+            raise ValueError("materialize must be boolean")
+        self.materialize = materialize
 
     def do_check(self, is_complete=False, action="", timeout=1800, **kwargs):
         """Prepare on explicit request; Complete verifies pins and the recorded input locations only."""
@@ -47,7 +50,7 @@ class ACT4ResourceChecker(ACT4EnvironmentChecker):
             self._cancelled = False
             if action == "prepare" and not self.smanager_get_value(key, None):
                 prepare_sources(workspace, directory, cache, search, self.inputs, self.refs, self.workflow,
-                                timeout, self._track)
+                                timeout, self._track, materialize=self.materialize)
                 self.smanager_set_value(key, sha256(receipt))
             if not receipt.is_file() or self.smanager_get_value(key, None) != sha256(receipt):
                 raise ValueError('Prepare source inputs with Check(stage_args={"action":"prepare"}); do not edit receipt.json')

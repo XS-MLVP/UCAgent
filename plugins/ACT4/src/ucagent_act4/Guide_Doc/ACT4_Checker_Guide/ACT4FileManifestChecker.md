@@ -31,8 +31,9 @@
    stamp 等中间文件可保留，不逐个要求登记。work 树外的报告和独立辅助配置仍正常检查。
 4. baseline inventory 每个对象必须有唯一 path、`type: file|symlink`、引号包住的八进制
    mode 及 64 位小写十六进制 SHA-256。比较受保护对象的新增、删除、内容、链接目标和
-   权限变化。suite generator 仅在基线不存在时允许本轮新建；基线已有时选择新 suite，
-   不得覆盖或改写基线。work/cache 等运行产物不参与受保护扫描。
+   权限变化。生成阶段允许补齐已有 suite generator，并用 asset_contract_file 声明真实的
+   原生扩展源码；共享/子目录生成器无需复制同名文件。仅声明的扩展接口和独立新配置可修改，
+   不得修改基线掩盖其他关键代码写入。work/cache 等运行产物不参与受保护扫描。
 5. 若 baseline method 为 Git，同时运行 `git rev-parse HEAD`，确保当前 ACT4 HEAD 未漂移；
    manifest 中任何 policy_violation event 都直接失败。
 

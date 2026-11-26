@@ -52,7 +52,9 @@ validation state 的 contribution readiness 和 generation scope。
 以下为 H 的示例报告，假定所链接文件均真实存在，且权威状态为 true/partial。
 本例展示全部章节及索引；实际命令、版本、限制和文件必须替换为本轮证据。
 
-最终入口保存到 `{OUT}/final.md`。Check 根据 contribution_set 在 `{OUT}/changes.patch` 生成补丁；根目录报告中的证据链接需从根目录指向 intermediate 子目录。
+最终入口保存到 `{OUT}/final.md`。生成流程由最终来源检查发布经复验的 `{OUT}/changes.patch`，
+相对于导入基线而非假定干净的上游 HEAD；无需变更时补丁为空。纳入来源策略及九类结果表，
+应用补丁前按来源记录重建基线。根目录证据链接需指向 intermediate 子目录。
 
 ````markdown
 

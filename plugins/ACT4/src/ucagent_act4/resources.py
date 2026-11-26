@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -139,7 +140,7 @@ def clone_local(source: Path, target: Path, log_dir: Path, deadline: float, proc
 
 
 def prepare_sources(workspace: Path, directory: Path, cache: Path, search: Path, inputs: dict,
-                    refs: dict, workflow: str, timeout: int, process_started=None) -> dict:
+                    refs: dict, workflow: str, timeout: int, process_started=None, *, materialize: bool = True) -> dict:
     """Prepare missing inputs once, import clean historical checkouts, and record exact provenance."""
     directory.mkdir(parents=True, exist_ok=True)
     cache.mkdir(parents=True, exist_ok=True)
@@ -161,7 +162,19 @@ def prepare_sources(workspace: Path, directory: Path, cache: Path, search: Path,
             if original.is_dir():
                 records[identifier] = {"configured": configured, "path": str(original.resolve()), "origin": "provided"}
                 if (original / ".git").exists():
-                    records[identifier]["identity"] = repository_identity(original, clean=False, require_submodules=identifier == "act4")
+                    identity = repository_identity(original, clean=False, require_submodules=identifier == "act4")
+                    if identifier in REPOSITORIES:
+                        ref = refs.get(identifier, REPOSITORIES[identifier][2])
+                        if (not isinstance(ref, str) or not ref.strip() or ref.startswith("-")
+                                or any(char.isspace() for char in ref)):
+                            raise ValueError(f"Invalid resource revision for {identifier}")
+                        try:
+                            requested_head = git_text(original, "rev-parse", ref + "^{commit}")
+                        except (OSError, subprocess.SubprocessError) as error:
+                            raise ValueError(f"Cannot resolve requested {identifier} revision {ref!r} in {original}") from error
+                        if identity["head"] != requested_head:
+                            raise ValueError(f"Provided {identifier} checkout is at {identity['head']}, not requested {ref} ({requested_head})")
+                    records[identifier]["identity"] = identity
                     records[identifier]["require_submodules"] = identifier == "act4"
                 continue
             if identifier not in REPOSITORIES or configured != REPOSITORIES[identifier][0]:
@@ -204,8 +217,11 @@ def prepare_sources(workspace: Path, directory: Path, cache: Path, search: Path,
                             raise ValueError("Local source changed during import; retry with a stable checkout")
                         origin = "existing_output"
                     else:
-                        argv = ["git", "clone"] + (["--recurse-submodules"] if identifier == "act4" else [])
-                        if ref != "HEAD":
+                        pinned_commit = re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", ref) is not None
+                        argv = ["git", "clone"]
+                        if pinned_commit:
+                            argv += ["--no-checkout"]
+                        elif ref != "HEAD":
                             argv += ["--branch", ref]
                         remaining = int(deadline - time.monotonic())
                         if remaining < 1:
@@ -214,6 +230,24 @@ def prepare_sources(workspace: Path, directory: Path, cache: Path, search: Path,
                                          remaining, process_started)
                         if result["status"] != "passed":
                             raise ValueError(f"Cannot obtain {identifier}; inspect fetch-{identifier}.log or provide a pinned local input")
+                        commands = []
+                        if pinned_commit:
+                            available = subprocess.run(["git", "-C", str(staging), "cat-file", "-e", ref + "^{commit}"],
+                                                       capture_output=True, timeout=30)
+                            if available.returncode:
+                                commands.append(("pin-fetch", ["git", "fetch", "origin", ref]))
+                            commands.append(("pin-checkout", ["git", "checkout", "--detach", ref]))
+                        if identifier == "act4":
+                            commands.append(("submodules", ["git", "submodule", "update", "--init", "--recursive"]))
+                        for step, command in commands:
+                            remaining = int(deadline - time.monotonic())
+                            if remaining < 1:
+                                raise ValueError("Resource preparation timed out; retry preparation")
+                            result = execute(command, staging, directory / f"{step}-{identifier}.log", remaining, process_started)
+                            if result["status"] != "passed":
+                                raise ValueError(f"Cannot obtain {identifier}; inspect {step}-{identifier}.log or provide a pinned local input")
+                        if pinned_commit and git_text(staging, "rev-parse", "HEAD").lower() != ref.lower():
+                            raise ValueError(f"Downloaded {identifier} does not match the requested commit {ref}")
                         origin = "download"
                     saved = {"url": url, "ref": ref, "identity": repository_identity(staging, clean=True, require_submodules=identifier == "act4"),
                              "imported_from": str(selected) if selected else url, "rejected": rejected[:30]}
@@ -221,7 +255,7 @@ def prepare_sources(workspace: Path, directory: Path, cache: Path, search: Path,
                     Path(temporary).rename(entry)
             records[identifier] = {"configured": configured, "path": str(destination), "origin": origin,
                                    "identity": saved["identity"], "url": url, "ref": ref, "require_submodules": identifier == "act4"}
-            if workflow == "generation" and identifier == "act4":
+            if workflow == "generation" and identifier == "act4" and materialize:
                 with tempfile.TemporaryDirectory(prefix=".act4-copy-", dir=workspace) as temporary:
                     staging = Path(temporary) / name
                     clone_local(destination, staging, directory, deadline, process_started)

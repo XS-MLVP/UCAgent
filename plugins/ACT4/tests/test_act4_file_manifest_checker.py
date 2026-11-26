@@ -500,8 +500,8 @@ def test_modifying_protected_baseline_object_blocks(tmp_path: Path) -> None:
     )
 
 
-def test_existing_suite_generator_is_not_a_new_file_exception(tmp_path: Path) -> None:
-    """Block a new-suite workflow when its generator was already in the baseline."""
+def test_existing_suite_generator_can_be_completed(tmp_path: Path) -> None:
+    """An existing suite generator is an asset to improve, not a reason to reject generation."""
     generator = tmp_path / "riscv-arch-test/generators/testgen/src/testgen/priv/extensions/H.py"
     generator.parent.mkdir(parents=True)
     generator.write_text("def generate():\n    return []\n", encoding="utf-8")
@@ -509,8 +509,27 @@ def test_existing_suite_generator_is_not_a_new_file_exception(tmp_path: Path) ->
 
     passed, report = _checker(tmp_path, integrity_only=True).do_check()
 
-    assert not passed
-    assert any(item["check"] == "manifest_suite_generator_exists" for item in report["findings"])
+    assert passed, report
+
+
+def test_only_declared_native_extension_sources_are_writable(tmp_path: Path) -> None:
+    """A shared generator can be completed without authorizing arbitrary core changes."""
+    name = "generators/testgen/src/testgen/priv/extensions/memory/shared.py"
+    generator = tmp_path / "riscv-arch-test" / name
+    generator.parent.mkdir(parents=True)
+    generator.write_text("original\n")
+    _manifest(tmp_path, [_inventory_entry(generator, tmp_path)])
+    generator.write_text("completed\n")
+    path = tmp_path / "out/asset_contract.yaml"
+    path.write_text(yaml.safe_dump({"suite": "H", "extension_sources": [name]}))
+    checker = _checker(tmp_path, integrity_only=True, asset_contract_file="out/asset_contract.yaml")
+    passed, report = checker.do_check()
+    assert passed, report
+    path.write_text(yaml.safe_dump({"suite": "H", "extension_sources": []}))
+    assert not checker.do_check()[0]
+    path.write_text(yaml.safe_dump({"suite": "H", "extension_sources": ["Makefile"]}))
+    passed, report = checker.do_check()
+    assert not passed and any(item["check"] == "manifest_generation_sources" for item in report["findings"])
 
 
 @pytest.mark.parametrize("missing", ["type", "mode", "sha256"])

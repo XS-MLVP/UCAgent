@@ -4,12 +4,54 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 import pytest
 import yaml
 
 from ucagent_act4 import environment
 from ucagent_act4.plugin import get_plugin
+
+
+@pytest.mark.parametrize("scenario,model,coverage", [("ok", True, True), ("no_elf", False, True), ("empty_run", False, True),
+    ("no_database", True, False), ("unreadable", True, False), ("no_bins", True, False), ("timeout", False, False)])
+def test_native_smoke_separates_model_and_covergroup_readback(tmp_path, monkeypatch, scenario, model, coverage):
+    """Require a new database, actual bins and positive runner output; either lane can succeed alone."""
+    config = "config/sail/small/test_config.yaml"
+
+    def clone(source, checkout, logs, deadline, process_started):
+        """Supply the isolated baseline or simulate failure to clone before the deadline."""
+        if scenario == "timeout":
+            raise ValueError("Preparation deadline reached")
+        runner = checkout / "config/sail/small/run_cmd.txt"
+        runner.parent.mkdir(parents=True)
+        runner.write_text("sail_riscv_sim")
+
+    def execute(argv, cwd, log, timeout, process_started, env):
+        """Simulate native command artifacts and their independent output protocols."""
+        text, status = "", "passed"
+        if argv[:2] == ["make", "elfs"] and scenario != "no_elf":
+            elf = cwd / "work_smoke/small/elfs/test.elf"
+            elf.parent.mkdir(parents=True)
+            elf.write_bytes(b"fixture")
+        elif "run_tests.py" in argv:
+            text = f"RESULT: All {0 if scenario == 'empty_run' else 1} tests passed.\n"
+        elif argv[:2] == ["make", "coverage"] and scenario != "no_database":
+            database = cwd / "work_smoke_cov/small/coverage/small.dat"
+            database.parent.mkdir(parents=True)
+            database.write_bytes(b"fixture")
+        elif argv[0] == "verilator_coverage":
+            text = "  pkg::small_cg : 0.0% (0/0)" if scenario == "no_bins" else "  pkg::small_cg : 0.0% (0/2)"
+            status = "failed" if scenario == "unreadable" else "passed"
+        log.write_text(text)
+        return {"status": status}
+
+    monkeypatch.setattr(environment, "clone_source_snapshot", clone)
+    monkeypatch.setattr(environment, "execute", execute)
+    result = environment.native_smoke(tmp_path, tmp_path, {"suite": "Zifencei", "config": config}, {},
+                                    time.monotonic() + (0 if scenario == "timeout" else 30), None)
+    assert (result["model_passed"], result["coverage_readback_passed"]) == (model, coverage)
+    assert all(environment.sha256(tmp_path / entry["log"]) == entry["sha256"] for entry in result["commands"].values())
 
 
 def plan_for(tmp_path: Path, optional_failure: bool = False) -> dict:
@@ -79,14 +121,44 @@ def test_receipt_detects_plan_changes(tmp_path, monkeypatch) -> None:
         environment.prepared_environment(tmp_path)
 
 
-def test_missing_optional_tool_is_a_recorded_limitation(tmp_path) -> None:
+def test_missing_optional_tool_is_a_recorded_limitation(tmp_path, monkeypatch) -> None:
     """Preserve an unavailable reference model without misreporting it as installed."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     receipt = environment.prepare(tmp_path, plan_for(tmp_path, optional_failure=True), timeout=60)
 
     assert receipt["tools"]["reference"]["status"] == "unavailable"
     assert "intentionally unavailable" in receipt["tools"]["reference"]["reason"]
     assert environment.prepared_environment(tmp_path)
     assert "9/10 tools" in (tmp_path / "summary.md").read_text(encoding="utf-8")
+
+
+def test_mismatched_version_reports_probe_failure_not_absent_executable(tmp_path, monkeypatch):
+    """A successful executable with a bad literal version matcher must not be diagnosed as missing."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    plan = plan_for(tmp_path)
+    python = next(tool for tool in plan["tools"] if tool["id"] == "python")
+    python.update(version=">=3.11", install=[])
+    python.pop("unavailable_reason")
+    (tmp_path / "plan.yaml").write_text(yaml.safe_dump(plan))
+    receipt = environment.prepare(tmp_path, environment.read_plan(tmp_path), timeout=60)
+    tool = receipt["tools"]["python"]
+    assert tool["status"] == "needs_install"
+    assert "before reinstalling" in tool["reason"] and "literal substring" in tool["reason"]
+    assert all(attempt["executable_found"] and not attempt["version_match"] for attempt in tool["attempts"])
+
+
+@pytest.mark.parametrize("probe,valid", [(["udb", "version"], True), (["udb", "list"], False),
+                                        (["udb", "version", "extra"], False), (["other", "version"], False)])
+def test_native_udb_version_probe(tmp_path, probe, valid):
+    """Accept the native read-only subcommand without opening arbitrary probe recipes."""
+    plan = plan_for(tmp_path)
+    plan["tools"][-1]["probe"] = probe
+    (tmp_path / "plan.yaml").write_text(yaml.safe_dump(plan))
+    if valid:
+        assert environment.read_plan(tmp_path)["tools"][-1]["probe"] == probe
+    else:
+        with pytest.raises(ValueError, match="probe"):
+            environment.read_plan(tmp_path)
 
 
 def test_temporary_installation_stays_under_system_temp(tmp_path, monkeypatch) -> None:
@@ -156,7 +228,7 @@ def test_every_workflow_prepares_environment_before_asset_execution() -> None:
     """Allow read-only XiangShan scope discovery before tool setup; keep generation/review unchanged."""
     for workflow in get_plugin().workflows:
         config = yaml.safe_load(workflow.config_file.read_text(encoding="utf-8"))
-        first = config["stage"][2 if workflow.name == "xiangshan-v3-handoff" else 1]
+        first = config["stage"][2 if workflow.name == "xiangshan-v3-handoff" else 3]
         assert first["name"] == "prepare_environment"
         gate = first["checker"][0]
         assert gate["clss"] == "ACT4EnvironmentChecker"

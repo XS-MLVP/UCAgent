@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import re
 import shlex
+import subprocess
 from pathlib import Path
 from typing import Any
 
 from . import act4_testcase_reachability as reachability
+from ..build_matrix import SELECTION_FIELDS, assignments, required_builds
 from ..test_headers import inspect_test_header
+from ..xiangshan_bundle import safe_path
 
 try:
     import yaml
@@ -19,6 +23,7 @@ except ImportError:  # pragma: no cover - reported when header validation runs.
     yaml = None  # type: ignore[assignment]
 
 from ucagent.checkers.base import Checker
+from ucagent.util.functions import save_json_file
 
 
 class ACT4TestAssetChecker(Checker):
@@ -74,6 +79,9 @@ class ACT4TestAssetChecker(Checker):
         experimental_manifest: str | None = None,
         validate_experimental_assets: bool = False,
         act4_root: str | None = None,
+        matrix_review_dir: str | None = None,
+        suite: str | None = None,
+        selection_only: bool = False,
         output_dir: str | None = None,
         cfg: Any = None,
         **kwargs: Any,
@@ -141,6 +149,11 @@ class ACT4TestAssetChecker(Checker):
         self.experimental_manifest = experimental_manifest
         self.validate_experimental_assets = bool(validate_experimental_assets)
         self.act4_root = act4_root
+        if (matrix_review_dir and not suite) or (selection_only and not matrix_review_dir):
+            raise ValueError("A build matrix needs its reviewed scope and suite")
+        self.matrix_review_dir = matrix_review_dir
+        self.suite = suite
+        self.selection_only = selection_only
         self.output_dir = output_dir
 
     @staticmethod
@@ -210,8 +223,10 @@ class ACT4TestAssetChecker(Checker):
 
     @staticmethod
     def _elf_xlen(path: Path) -> int | None:
+        """Read only the ELF identification bytes to determine its class."""
         try:
-            elf_class = path.read_bytes()[4]
+            with path.open("rb") as stream:
+                elf_class = stream.read(5)[4]
         except (OSError, IndexError):
             return None
         return 32 if elf_class == 1 else 64 if elf_class == 2 else None
@@ -351,7 +366,7 @@ class ACT4TestAssetChecker(Checker):
         if (
             not isinstance(supported_xlens, list)
             or not supported_xlens
-            or any(value not in {32, 64} for value in supported_xlens)
+            or any(type(value) is not int or value not in (32, 64) for value in supported_xlens)
         ):
             self._add(
                 findings,
@@ -788,9 +803,13 @@ class ACT4TestAssetChecker(Checker):
                     file=str(state_path),
                 )
             return
-        config_path = Path(config_value).expanduser()
-        if not config_path.is_absolute():
-            config_path = self._artifact_root() / config_path
+        if declared_config_file and declared_config_file in config_value.split():
+            config_value = declared_config_file
+        try:
+            config_path = safe_path(self._artifact_root(), config_value)
+        except ValueError as exc:
+            self._add(findings, "error", "validation_self_check_config", str(exc), file=str(state_path))
+            return
         if not config_path.is_file() or yaml is None:
             self._add(
                 findings,
@@ -881,30 +900,60 @@ class ACT4TestAssetChecker(Checker):
                         command_config_file=str(config_path),
                     )
 
-    def _selected_build_root(self, state: Any) -> Path | None:
+    def _selected_build_root(self, values: dict) -> Path | None:
         """Keep complete evidence chains within the explicitly selected native build."""
-        if not isinstance(state, dict) or yaml is None:
-            return None
-        selection = state.get("self_checking")
-        if not isinstance(selection, dict):
-            return None
-        try:
-            tokens = shlex.split(str(selection.get("command", "")))
-        except ValueError:
-            return None  # Command validation reports malformed input separately.
-        values = dict(token.split("=", 1) for token in tokens if "=" in token)
         if not values.get("CONFIG_FILES") or not values.get("WORKDIR"):
             return None
         root = self._artifact_root()
-        config_path = root / values["CONFIG_FILES"]
         try:
+            config_path = safe_path(root, values["CONFIG_FILES"])
             config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        except (OSError, ValueError, yaml.YAMLError):
             return None
         name = config.get("name") if isinstance(config, dict) else None
         if not isinstance(name, str) or not name or Path(name).name != name or name in {".", ".."}:
             return None
-        return (root / values["WORKDIR"] / name).resolve()
+        try:
+            return safe_path(root, str(Path(values["WORKDIR"]) / name))
+        except ValueError:
+            return None
+
+    def _native_source_selection(
+        self, controls: dict, sources: list[Path], build_root: Path,
+        findings: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Resolve applicability without compiling or launching a reference model."""
+        root = self._artifact_root()
+        try:
+            config_file = safe_path(root, controls["CONFIG_FILES"])
+            safe_path(root, controls.get("TESTDIR", "tests"))
+            safe_path(build_root, "env/extensions.txt")
+            if any(not path.is_relative_to(root) for path in sources):
+                raise ValueError("Source files must belong to the selected native checkout")
+            request = {
+                "act4_root": str(root), "config_file": str(config_file),
+                "build_root": str(build_root), "sources": [str(path) for path in sources],
+                "controls": controls,
+            }
+            result = subprocess.run(
+                [str(root / ".venv/bin/python"), str(Path(__file__).with_name("act4_native_selection.py"))],
+                input=json.dumps(request), text=True, capture_output=True,
+                cwd=root, timeout=30, check=False,
+            )
+            selection = json.loads(result.stdout)
+            if result.returncode or "error" in selection:
+                raise ValueError(selection.get("error", "native selection failed"))
+            if not set(selection["selected_sources"]).issubset({str(path) for path in sources}):
+                raise ValueError("native selection returned an unknown candidate source")
+            return selection
+        except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+            self._add(
+                findings, "error", "native_source_selection",
+                "cannot establish source applicability for the selected config",
+                detail=str(error)[:1000],
+                next_action="Prepare the selected ACT native environment/derived config, then rerun validation.",
+            )
+            return None
 
     def _check_vm_contract(self, root: Path, findings: list[dict[str, Any]]) -> dict[str, Any]:
         summary = {
@@ -914,6 +963,7 @@ class ACT4TestAssetChecker(Checker):
             "experimental_targets": set(),
             "target_xlen": set(),
             "supported_xlens": set(),
+            "config_xlens": {},
         }
         if not self.validate_vm_contract or not self.vm_resource_contract:
             return summary
@@ -952,6 +1002,18 @@ class ACT4TestAssetChecker(Checker):
                 target_xlen = target.get("XLEN")
                 if target_xlen in {32, 64}:
                     summary["target_xlen"].add(int(target_xlen))
+            matrix = data.get("target_matrix", [])
+            targets = [target, *(matrix if isinstance(matrix, list) else [])]
+            for entry in targets:
+                if not isinstance(entry, dict) or entry.get("XLEN") not in {32, 64}:
+                    continue
+                config = entry.get("test_config")
+                if not isinstance(config, str) or not config:
+                    continue
+                config_path = Path(config).expanduser()
+                if not config_path.is_absolute():
+                    config_path = root / config_path if (root / config_path).exists() else self._artifact_root() / config_path
+                summary["config_xlens"].setdefault(str(config_path.resolve()), set()).add(entry["XLEN"])
             supported_xlens = data.get("supported_xlens")
             if supported_xlens is not None:
                 if not isinstance(supported_xlens, list) or any(
@@ -1386,7 +1448,8 @@ class ACT4TestAssetChecker(Checker):
         for path in paths:
             stems.add(path.stem)
             try:
-                data = path.read_bytes()
+                with path.open("rb") as stream:
+                    data = stream.read(64)
             except OSError as exc:
                 self._add(findings, "error", f"{prefix}_read", str(exc), file=str(path))
                 continue
@@ -1396,6 +1459,8 @@ class ACT4TestAssetChecker(Checker):
                 self._add(findings, "error", f"{prefix}_format", "artifact is not an ELF file", file=str(path))
             elif len(data) < 5 or data[4] not in (1, 2):
                 self._add(findings, "error", f"{prefix}_class", "ELF has an invalid or missing EI_CLASS (expected RV32 or RV64)", file=str(path))
+            elif self.matrix_review_dir and len(data) < (52 if data[4] == 1 else 64):
+                self._add(findings, "error", f"{prefix}_header", "Final ELF header is truncated", file=str(path))
         return stems
 
     def _check_data_files(
@@ -1875,27 +1940,13 @@ class ACT4TestAssetChecker(Checker):
         summary["compiled_counts_complete"] = bool(elfs) and len(summary["elfs"]) == len(elfs) and not unavailable
         return summary
 
-    def do_check(self, timeout=0, **kwargs: Any) -> tuple[bool, object]:
-        """Validate generated ACT4 source files, ELF files, and test headers."""
+    def _check_config(self, validation_state, sources, selection, selected_build_root, controls, inventory, vm_contract_summary):
+        """Check complete source structure and only this configuration's native evidence."""
         root = self._workspace_root()
         findings: list[dict[str, Any]] = []
-        sources = self._discover(self.source_files, self.source_patterns)
-        elfs = self._discover(self.elf_files, self.elf_patterns)
         artifact_root = self._artifact_root()
-        signatures = self._discover(self.signature_files, self.signature_patterns, artifact_root)
-        results = self._discover(self.result_files, self.result_patterns, artifact_root)
-        reference_logs = self._discover(
-            self.reference_model_log_files,
-            self.reference_model_log_patterns,
-            artifact_root,
-        )
-        if not signatures:
-            signatures = self._discover_sibling_assets(sources, ".sig")
-        if not results:
-            results = self._discover_sibling_assets(sources, ".results")
+        elfs, signatures, results, reference_logs = inventory
         reports = self._check_reports(findings)
-        validation_state = self._check_validation_state(root, findings)
-        selected_build_root = self._selected_build_root(validation_state)
         selection_unresolved = (
             self.validation_state is not None
             and (
@@ -1919,13 +1970,26 @@ class ACT4TestAssetChecker(Checker):
                 [path for path in paths if path.resolve().is_relative_to(selected_build_root)]
                 for paths in (elfs, signatures, results, reference_logs)
             ]
-        vm_contract_summary = self._check_vm_contract(root, findings)
+        source_selection = selection
+        applicable_sources = sources
+        if selected_build_root is not None and (selection is not None or self.validate_test_config):
+            if source_selection is None:
+                source_selection = self._native_source_selection(
+                    controls, sources, selected_build_root, findings,
+                )
+            if source_selection is None:
+                selection_unresolved = True
+                applicable_sources = []
+                elfs, signatures, results, reference_logs = [], [], [], []
+            else:
+                selected_paths = set(source_selection["selected_sources"])
+                applicable_sources = [path for path in sources if str(path) in selected_paths]
+                if not applicable_sources:
+                    self._add(findings, "error", "native_source_selection_empty",
+                              "the selected configuration consumes none of the candidate sources")
         if self.require_matching_xlen and isinstance(validation_state, dict):
-            state_xlens = {
-                int(value)
-                for value in validation_state.get("supported_xlens", [])
-                if value in {32, 64}
-            }
+            widths = validation_state.get("supported_xlens")
+            state_xlens = {value for value in widths if type(value) is int and value in (32, 64)} if isinstance(widths, list) else set()
             contract_xlens = set(vm_contract_summary.get("supported_xlens", set()))
             selected_xlens = set(vm_contract_summary.get("target_xlen", set()))
             expected_xlens = contract_xlens or selected_xlens
@@ -1938,6 +2002,17 @@ class ACT4TestAssetChecker(Checker):
                     missing=sorted(expected_xlens - state_xlens),
                     extra=sorted(state_xlens - expected_xlens),
                 )
+            if expected_xlens and source_selection is not None and source_selection["xlen"] not in expected_xlens:
+                self._add(findings, "error", "selected_config_xlen_contract",
+                          "selected config MXLEN is outside the VM contract supported XLENs",
+                          actual=source_selection["xlen"], expected=sorted(expected_xlens))
+            if source_selection is not None:
+                profile_xlens = vm_contract_summary.get("config_xlens", {}).get(source_selection["config_file"], set())
+                if profile_xlens and profile_xlens != {source_selection["xlen"]}:
+                    self._add(findings, "error", "selected_config_xlen_contract",
+                              "selected config MXLEN conflicts with the matching contract target",
+                              config_file=source_selection["config_file"],
+                              actual=source_selection["xlen"], expected=sorted(profile_xlens))
         self._check_generation_scope_consistency(validation_state, vm_contract_summary, findings)
         experimental_summary = self._check_experimental_manifest(root, findings)
         testcase_limit = self.max_testcases_per_source
@@ -1962,7 +2037,9 @@ class ACT4TestAssetChecker(Checker):
             if elf_xlen is not None:
                 elf_xlen_by_stem.setdefault(path.stem, set()).add(elf_xlen)
         for path in sources:
-            source_stems.add(path.stem)
+            applicable = path in applicable_sources
+            if applicable:
+                source_stems.add(path.stem)
             try:
                 text = path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:
@@ -1987,15 +2064,22 @@ class ACT4TestAssetChecker(Checker):
                         actual=testcase_count,
                         maximum=testcase_limit,
                     )
-            resolved_xlen, evidence = self._resolve_source_xlen(
-                path,
-                text,
-                set(vm_contract_summary.get("target_xlen", set())),
-                elf_xlen_by_stem.get(path.stem, set()),
-                findings,
-            )
-            if resolved_xlen:
-                source_xlen[path.stem] = resolved_xlen
+            evidence: dict[str, Any] = {"applicable": applicable}
+            if applicable:
+                contract_xlens = (
+                    {source_selection["xlen"]} if source_selection is not None
+                    else set(vm_contract_summary.get("target_xlen", set()))
+                )
+                resolved_xlen, evidence = self._resolve_source_xlen(
+                    path, text, contract_xlens, elf_xlen_by_stem.get(path.stem, set()), findings,
+                )
+                if resolved_xlen:
+                    source_xlen[path.stem] = resolved_xlen
+                if source_selection is not None:
+                    evidence["selected_config_xlen"] = [source_selection["xlen"]]
+                    evidence["contract_target_xlen"] = sorted(
+                        vm_contract_summary.get("config_xlens", {}).get(source_selection["config_file"], set())
+                    )
             xlen_evidence[str(path)] = evidence
             if self.validate_test_config:
                 self._check_test_config(text, path, findings)
@@ -2038,7 +2122,7 @@ class ACT4TestAssetChecker(Checker):
         self._check_data_files(signatures, findings, "signature")
         self._check_data_files(results, findings, "signature_results")
         reference_summary = self._check_reference_model_outputs(
-            sources if not selection_unresolved else [],
+            applicable_sources if not selection_unresolved else [],
             signatures,
             results,
             reference_logs,
@@ -2071,6 +2155,8 @@ class ACT4TestAssetChecker(Checker):
             "checks": {
                 "artifact_root": str(artifact_root),
                 "source_files": len(sources),
+                "applicable_source_files": len(applicable_sources),
+                "source_selection": source_selection,
                 "elf_files": len(elfs),
                 "signature_files": len(signatures),
                 "result_files": len(results),
@@ -2085,8 +2171,8 @@ class ACT4TestAssetChecker(Checker):
                 "source_stems": sorted(source_stems),
                 "elf_stems": sorted(elf_stems),
                 "validation_state": self.validation_state,
-                "self_check_model": (validation_state or {}).get("self_checking", {}).get("model"),
-                "sail_coverage_passed": (validation_state or {}).get("sail_coverage", {}).get("passed"),
+                "self_check_model": validation_state["self_checking"].get("model") if isinstance((validation_state or {}).get("self_checking"), dict) else None,
+                "sail_coverage_passed": validation_state["sail_coverage"].get("passed") if isinstance((validation_state or {}).get("sail_coverage"), dict) else None,
                 "contribution_ready": (validation_state or {}).get("contribution_ready"),
                 "generation_scope": (validation_state or {}).get("generation_scope"),
                 "vm_contract_targets": {
@@ -2101,16 +2187,146 @@ class ACT4TestAssetChecker(Checker):
             },
             "findings": findings,
         }
+        return report
+
+    def do_check(self, timeout=0, **kwargs: Any) -> tuple[bool, object]:
+        """Check native source applicability and every required configuration's evidence."""
+        root = self._workspace_root()
+        native = self._artifact_root()
+        findings = []
+        sources = self._discover(self.source_files, self.source_patterns)
+        state = self._check_validation_state(root, findings) if not self.selection_only else {}
+        contract = self._check_vm_contract(root, findings)
+        inventory = () if self.selection_only else (
+            self._discover(self.elf_files, self.elf_patterns),
+            self._discover(self.signature_files, self.signature_patterns, native) or self._discover_sibling_assets(sources, ".sig"),
+            self._discover(self.result_files, self.result_patterns, native) or self._discover_sibling_assets(sources, ".results"),
+            self._discover(self.reference_model_log_files, self.reference_model_log_patterns, native),
+        )
+        primary = (state or {}).get("self_checking")
+        primary = primary if isinstance(primary, dict) else {}
+        try:
+            primary_controls = assignments(shlex.split(str(primary.get("command", ""))))
+        except ValueError as exc:
+            primary_controls = {}
+            self._add(findings, "error", "validation_self_check_command", str(exc))
+        if not self.matrix_review_dir:
+            report = self._check_config(state, sources, None, self._selected_build_root(primary_controls), primary_controls, inventory, contract)
+            findings.extend(report["findings"])
+        else:
+            configs = {}
+            covered = set()
+            widths = set()
+            try:
+                receipt = self.smanager_get_value(f"act4_review:{self.matrix_review_dir}:{self.suite}", {})
+                builds = required_builds(root, native, self.matrix_review_dir, receipt)
+                required_configs = set(builds)
+                if primary.get("config_file") and primary["config_file"] not in builds:
+                    builds[primary["config_file"]] = {key: value for key, value in primary_controls.items() if key in SELECTION_FIELDS and value}
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+                builds = {}
+                self._add(findings, "error", "matrix_review", str(exc), file=self.matrix_review_dir)
+            seen_roots = set()
+            for config, controls in sorted(builds.items()):
+                config_findings = []
+                workdir = f"work_itgen_{self.suite}"
+                expected = dict(controls, CONFIG_FILES=config, WORKDIR=workdir)
+                build = self._selected_build_root(expected)
+                if build is None or build in seen_roots:
+                    self._add(config_findings, "error", "matrix_build_root", "Required native config has no unique build directory")
+                    selection = None
+                else:
+                    seen_roots.add(build)
+                    selection = self._native_source_selection(expected, sources, build, config_findings)
+                checks = {"source_selection": selection}
+                if selection:
+                    if config in required_configs:
+                        covered.update(selection["selected_sources"])
+                        widths.add(selection["xlen"])
+                    expected_width = contract["config_xlens"].get(selection["config_file"], set())
+                    if self.selection_only and ((expected_width and expected_width != {selection["xlen"]}) or
+                                                (contract["supported_xlens"] and selection["xlen"] not in contract["supported_xlens"])):
+                        self._add(config_findings, "error", "selected_config_xlen_contract", "Native config MXLEN conflicts with its contract target")
+                    if not selection["selected_sources"]:
+                        self._add(config_findings, "error", "native_source_selection_empty", "Required build selects no sources")
+                    if not self.selection_only:
+                        evaluation = (state or {}).get("reference_model_evaluation")
+                        attempts = evaluation.get("attempts", []) if isinstance(evaluation, dict) else []
+                        recorded = False
+                        for attempt in [primary, *(attempts if isinstance(attempts, list) else [])]:
+                            if not isinstance(attempt, dict) or attempt.get("config_file") != config:
+                                continue
+                            if not (attempt.get("passed") is True if attempt is primary else attempt.get("status") == "passed"):
+                                continue
+                            try:
+                                actual = assignments(shlex.split(str(attempt.get("command", ""))))
+                            except ValueError:
+                                continue
+                            if (config in actual.get("CONFIG_FILES", "").split() and actual.get("WORKDIR") == workdir
+                                    and all(actual.get(key, "") == controls.get(key, "") for key in SELECTION_FIELDS)):
+                                recorded = True
+                                self._check_reference_model_identity(str(attempt.get("model", "")).lower(), str(attempt.get("executable", "")),
+                                                                     config, attempt["command"], config_findings, root / self.validation_state)
+                                break
+                        if not recorded:
+                            self._add(config_findings, "error", "matrix_build_attempt", "Record the actual successful signature build with its config, workdir and selection controls")
+                        individual = self._check_config(state, sources, selection, build, expected, inventory, contract)
+                        checks = individual["checks"]
+                        checks["self_check_model"] = attempt.get("model") if recorded else None
+                        config_findings.extend(individual["findings"])
+                configs[config] = {"status": "failed" if any(item["severity"] == "error" for item in config_findings) else "complete", "checks": checks}
+                findings.extend(dict(item, config=config) for item in config_findings)
+            missing = sorted({str(path) for path in sources} - covered)
+            if not sources or (missing and configs and all(configs[config]["checks"]["source_selection"] for config in required_configs)):
+                self._add(findings, "error", "matrix_source_union", "Required builds do not select every generated suite source", missing=missing)
+            declared_widths = contract["supported_xlens"] or (state or {}).get("supported_xlens")
+            if isinstance(declared_widths, (set, list)) and all(type(width) is int for width in declared_widths) and not widths.issuperset(declared_widths):
+                self._add(findings, "error", "matrix_xlen_union", "Missing a required XLEN in the selected native configs", expected=sorted(declared_widths), observed=sorted(widths))
+            report = {"mode": "selection" if self.selection_only else "build", "configs": configs,
+                      "checks": {"source_files": len(sources), "selected_union": len(covered), "xlens": sorted(widths)}}
+
+        errors = [item for item in findings if item["severity"] == "error"]
+        report.update(status="failed" if errors else "complete", findings=findings,
+                      summary={"errors": len(errors), "warnings": len(findings) - len(errors)})
+        if errors:
+            first = errors[0]
+            code = first["check"]
+            if code in {"matrix_review", "matrix_build_root"}:
+                owner, action = "workflow", "Verify each required build target, its frozen CONFIG_FILES and unique native build name in the accepted review. Escalate conflicting scope; do not edit frozen evidence."
+            elif code in {"matrix_source_union", "matrix_xlen_union", "native_source_selection_empty"}:
+                owner, action = "workflow", "Compare the source headers and native filters with the required configs in the accepted scope. Correct the generator or escalate a scope conflict; do not copy evidence between builds."
+            elif code == "native_source_selection":
+                owner, action = "environment", "Prepare the selected native config and its derived extensions, then retry Check."
+            else:
+                owner, action = "assets", "Correct the indicated asset or build and record evidence for that config only; rerun Check."
+            identities = sorted({json.dumps(item, sort_keys=True) for item in errors})
+            report["diagnostic"] = {"error_code": code, "error": first["message"][:350], "owner": owner,
+                                    "next_action": first.get("next_action", action), "location": first.get("config", first.get("file", self.validation_state)),
+                                    "observed": {"count": len(errors), "examples": [str(value)[:180] for value in first["missing"][:4]] if isinstance(first.get("missing"), list) and first["missing"] else [str(item.get("stem") or item.get("detail") or item.get("file") or item["message"])[:180] for item in errors[:4]]},
+                                    "progress_requires_check": True, "failure_key": hashlib.sha256(json.dumps(identities).encode()).hexdigest()}
         if self.output_dir:
             output_dir = Path(self.output_dir).expanduser()
             if not output_dir.is_absolute():
                 output_dir = root / output_dir
             output_dir.mkdir(parents=True, exist_ok=True)
             report_path = output_dir / "test-assets.json"
-            report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            if errors:
+                diagnostic = report["diagnostic"]
+                diagnostic["artifact"] = str(report_path)
+            save_json_file(str(report_path), report)
             report["report_file"] = str(report_path)
+            if self.matrix_review_dir:
+                report = {key: report[key] for key in ("mode", "status", "summary", "checks", "report_file")}
+                report["configs"] = {
+                    name: {"status": row["status"],
+                           "selected": len(row["checks"]["source_selection"]["selected_sources"]) if row["checks"].get("source_selection") else None,
+                           "complete_signature_chains": row["checks"].get("complete_reference_runs")}
+                    for name, row in configs.items()
+                }
+                if errors:
+                    return False, {"diagnostic": diagnostic, "report": report}
         if errors:
-            return False, {"error": findings, "report": report}
+            return False, {"error": findings, "report": report, "diagnostic": report["diagnostic"]}
         return True, {"message": "ACT4 generated test asset check passed", "report": report}
 
 

@@ -8,7 +8,10 @@
 
 | 验收 | 检查内容 | 操作指南 |
 | --- | --- | --- |
-| 原生输入 | 固定计划、规范与正式规则快照 | [Generation inputs](ACT4GenerationInputsChecker.md) |
+| 来源策略 | 九类来源选择、独立设计前置、导入基线与最终策略表 | [Run inputs](ACT4GenerationRunChecker.md) |
+| 原生输入 | 固定计划、规范、公开规则与原文绑定 | [Generation inputs](ACT4GenerationInputsChecker.md) |
+| 缺项补全 | 从规范规划并实现缺失资产、免费模型/适配器及环境，验证真实结果 | [Generation completion](ACT4GenerationCompletionChecker.md) |
+| 九类资产 | 按范围复用、生成、修复或报告；变更归属、类别验证、依赖补丁和最终 checklist | [Asset checklist](ACT4AssetChecklistChecker.md) |
 | 原生资产 | 计划、规则/参数、CTP、coverage 与必要生成源码 | [Native assets](ACT4NativeAssetsChecker.md) |
 | 原生运行 | 贡献集隔离重生成、hooks、CTP、编译与运行 | [Native validation](ACT4NativeValidationChecker.md) |
 | 文件清单 | 贡献集合、基线、文件分类和保护边界 | [File manifest](ACT4FileManifestChecker.md) |

@@ -2,15 +2,46 @@
 
 from pathlib import Path
 from typing import Any, Mapping
+import json
+import os
+import sys
 
 from ucagent.plugins import PluginError
 from .resources import input_path
+from .suite_catalog import validate_suite_target
+from .run_config import run_settings, resolve_run_config
 
 
 def validate_input_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, Any]:
-    """Keep the manual separate from generated assets and the ACT4 checkout."""
+    """Validate the catalog target and isolate specification and generated paths."""
 
-    setting = cfg.get_value("template_overwrite.ACT4_MANUAL_ROOT")
+    suite_context = validate_suite_target(context.get("DUT"))
+    settings = run_settings(cfg)
+    if not settings:
+        raise PluginError("Generation requires one run YAML; start with act4-run <run.yaml>")
+    try:
+        raw = {**settings, "assets": {name: ({"mode": "regenerate"} if item["mode"] == "regenerate" else
+                                           {key: value for key, value in item.items() if value is not None})
+                                     for name, item in settings["assets"].items()}}
+        checked = resolve_run_config(raw, Path(settings["workspace"]).parent)
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise PluginError(f"Invalid ACT generation configuration: {error}") from error
+    if checked != settings or (settings["suite"], settings["workspace"], settings["output"]) != (context["DUT"], str(Path(context["WORKSPACE"]).resolve()), context["OUT"]):
+        raise PluginError("Run YAML must match the resolved workflow workspace, suite and output")
+    project = cfg.get_value("template_overwrite.PROJECT")
+    expected = {"privileged-suite-generation": "act4_priv_suite_generate", "unprivileged-suite-generation": "act4_unprivileged_generate"}
+    if project != expected[settings["workflow"]]:
+        raise PluginError("Selected workflow conflicts with run YAML workflow")
+    if os.environ.get("ACT4_ANNOUNCED_CONFIG") != str(Path(settings["workspace"]) / ".ucagent/act4-run.yaml"):
+        arguments = {"DUT": settings["suite"], "WORKSPACE": settings["workspace"], "OUT": settings["output"]}
+        for index, token in enumerate(sys.argv[1:], 1):
+            flag, separator, value = token.partition("=")
+            if flag in {"--loop", "--exit-on-completion", "--mcp-server-no-file-tools", "--no-history"}:
+                arguments[flag] = True
+            elif flag in {"--backend", "--plugin", "--plugin-workflow", "--config", "--mcp-server-port"} and (separator or index + 1 < len(sys.argv)):
+                arguments[flag] = value if separator else sys.argv[index + 1]
+        print(json.dumps({"configuration": settings, "arguments": arguments}, ensure_ascii=False, indent=2), flush=True)
+    setting = settings["upstream"]["manual_root"]
     if not isinstance(setting, str) or not setting.strip():
         raise PluginError("ACT4_MANUAL_ROOT must be a non-empty manual repository path")
     workspace = Path(context["WORKSPACE"]).resolve()
@@ -37,35 +68,10 @@ def validate_input_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, Any]
                 f"Read-only ACT4_MANUAL_ROOT {manual} overlaps writable directory {directory}; "
                 "use a separate manual checkout."
             )
-    return {}
-
-
-def validate_review_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, Any]:
-    """Keep a selected local or Git review input separate from writable output and ISA sources."""
-    workspace = Path(context["WORKSPACE"]).resolve()
-    directories = []
-    for label, value in (("input", cfg.get_value("template_overwrite.ACT4_REVIEW_ROOT")), ("output", context["OUT"])):
-        if not isinstance(value, str) or not value.strip() or (label == "output" and Path(value).is_absolute()) or ".." in Path(value).parts:
-            raise PluginError(f"ACT4 review {label} must be an explicit directory; output must be workspace-relative")
-        try:
-            path = input_path(workspace, value)
-        except ValueError as error:
-            raise PluginError(str(error)) from error
-        directory = path.resolve()
-        if path.is_symlink() or directory == workspace or (label == "output" and not directory.is_relative_to(workspace)):
-            raise PluginError(f"ACT4 review {label} must not be a symlink or the workspace root; output must stay inside it")
-        directories.append(directory)
-    source, output = directories
-    if source.is_relative_to(output) or output.is_relative_to(source):
-        raise PluginError("ACT4 review input and output must be separate directories")
-    setting = cfg.get_value("template_overwrite.ACT4_MANUAL_ROOT")
-    if not isinstance(setting, str) or not setting.strip():
-        raise PluginError("ACT4_MANUAL_ROOT must be a nonempty manual repository path")
-    manual = Path(setting).expanduser()
-    manual = (manual if manual.is_absolute() else workspace / manual).resolve()
-    if any(manual.is_relative_to(directory) or directory.is_relative_to(manual) for directory in directories):
-        raise PluginError("Read-only ACT4_MANUAL_ROOT must be separate from the review input and output")
-    return {}
+    return {**suite_context, "ACT4_MANUAL_ROOT": setting, "ACT4_ACT_ROOT": settings["upstream"]["act4_root"],
+            "ACT4_ACT_REF": settings["upstream"]["act4_ref"], "ACT4_MANUAL_REF": settings["upstream"]["manual_ref"],
+            "ACT4_RESOURCE_ROOT": settings["upstream"]["cache_root"], "ACT4_TARGET_CONTEXT": settings["target_context"],
+            "ACT4_EXPERIMENTS": settings["limits"]["experiments"], "ACT4_EXPERIMENT_SECONDS": settings["limits"]["experiment_seconds"]}
 
 
 def validate_xiangshan_paths(cfg: Any, context: Mapping[str, Any]) -> dict[str, Any]:

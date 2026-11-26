@@ -37,7 +37,7 @@ def test_all_workflows_expose_shared_guidance_without_skills() -> None:
         assert not any(stage.get("skill_list") for stage in config["stage"])
         assert not workflow.skill_paths
         assert (workflow.guide_doc_paths[0] / "act4_template/native_asset_design_template.md").is_file()
-        if workflow.name == "extension-review":
+        if workflow.name.endswith("suite-generation"):
             plan = next(stage for stage in config["stage"] if stage["name"] == "review_plan")
             assert shared not in plan["reference_files"]
 

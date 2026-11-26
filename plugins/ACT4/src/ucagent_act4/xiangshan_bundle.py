@@ -14,6 +14,7 @@ import struct
 import subprocess
 import time
 import uuid
+from contextlib import nullcontext
 
 
 SOURCE_IGNORE_DIRS = {".git", ".venv", ".bundle", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", "node_modules"}
@@ -203,17 +204,17 @@ def verify_files(root: Path, files: dict) -> None:
             raise ValueError(f"File changed or missing: {name}; restore the package or rebuild it")
 
 
-def execute(argv: list[str], cwd: Path, log: Path, timeout: int, process_started=None, env=None) -> dict:
-    """Capture a real command, terminating its entire process group on timeout."""
+def execute(argv: list[str], cwd: Path, log: Path, timeout: int, process_started=None, env=None, *, stderr_log: Path | None = None) -> dict:
+    """Capture a command with optional separate diagnostics, killing its process group on timeout."""
     if type(timeout) is not int or not 1 <= timeout <= 86400:
         raise ValueError("timeout must be an integer in 1..86400 seconds")
     log.parent.mkdir(parents=True, exist_ok=True)
     record = {"argv": argv, "started_at": datetime.now(timezone.utc).isoformat()}
-    with log.open("wb") as stream:
+    with log.open("wb") as stream, (stderr_log.open("wb") if stderr_log else nullcontext(subprocess.STDOUT)) as errors:
         try:
-            process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+            process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=stream, stderr=errors, start_new_session=True)
         except OSError as error:
-            stream.write(str(error).encode())
+            (errors if stderr_log else stream).write(str(error).encode())
             return {**record, "status": "unavailable", "reason": str(error)}
         try:
             if process_started is not None:

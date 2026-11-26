@@ -3,13 +3,10 @@
 import json
 from pathlib import Path
 import subprocess
-from types import SimpleNamespace
 
 import pytest
 
-from ucagent_act4.workspace import validate_review_paths
 from ucagent_act4.plugin import get_plugin
-from ucagent.plugins import PluginError
 from test_act4_review_checker import ReviewHarness
 from test_act4_review_checker import isolate_optional_simulators as isolate_optional_simulators
 
@@ -71,28 +68,6 @@ def test_local_directory_symlink_escape_rejected(local_review: ReviewHarness) ->
     (harness.source / "link.txt").symlink_to("../secret.txt")
     passed, result = harness.checker("audit").do_check()
     assert not passed and "escapes" in result["error"]
-
-
-@pytest.mark.parametrize("source,output,manual", [
-    ("local-module", "reports", "manual"),
-    ("../outside", "reports", "manual"),
-    ("/absolute", "reports", "manual"),
-    (".", "reports", "manual"),
-    ("local-module", "local-module/out", "manual"),
-    ("reports/input", "reports", "manual"),
-    ("local-module", "reports", "local-module/manual"),
-    ("local-module", "reports", "reports/manual"),
-    ("local-module", ".", "manual"),
-])
-def test_review_path_contract(tmp_path: Path, source: str, output: str, manual: str) -> None:
-    """Validate configurable input boundaries before any workflow initialization writes."""
-    values = {"template_overwrite.ACT4_REVIEW_ROOT": source, "template_overwrite.ACT4_MANUAL_ROOT": manual}
-    config = SimpleNamespace(get_value=values.__getitem__)
-    if (source, output, manual) in {("local-module", "reports", "manual"), ("/absolute", "reports", "manual")}:
-        assert validate_review_paths(config, {"WORKSPACE": str(tmp_path), "OUT": output}) == {}
-    else:
-        with pytest.raises(PluginError):
-            validate_review_paths(config, {"WORKSPACE": str(tmp_path), "OUT": output})
 
 
 def test_local_commands_do_not_depend_on_git(local_review: ReviewHarness, monkeypatch) -> None:

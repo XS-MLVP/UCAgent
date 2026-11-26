@@ -111,6 +111,20 @@ def test_native_validation_alignment(tmp_path: Path, case: str) -> None:
     assert plan["full_matrix"] is False
 
 
+def test_build_config_identity_does_not_require_a_ci_runner(tmp_path: Path) -> None:
+    """Retain the frozen build config without implying support for native CI execution."""
+    from hashlib import sha256
+
+    config = tmp_path / "config/local/rv32/test_config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("name: rv32\n")
+    plan = resolve_validation_plan(tmp_path, {"suite": "Example", "targets": ["rv32"], "jobs": []})
+    target = plan["targets"]["rv32"]
+    assert target["status"] == "unverified" and not plan["full_matrix"]
+    assert target["config"] == str(config.relative_to(tmp_path))
+    assert target["sources"][target["config"]] == sha256(config.read_bytes()).hexdigest()
+
+
 def test_local_lint_does_not_claim_full_ci(tmp_path: Path) -> None:
     """Keep make lint separate from the workflow's complete prek checks."""
     (tmp_path / "Makefile").write_text("lint:\n\truff check .\n")

@@ -227,7 +227,9 @@ G-stage：GPA --hgatp--> PA
 
 ## 4. 工作流总览
 
-工作流先准备资源、环境和原生输入，运行七个资产阶段，并在最终报告前执行原生贡献验证，共 11 阶段。环境准备契约见
+工作流先准备资源、环境和原生输入，再规划并验证缺项补全，运行七个资产阶段和原生贡献验证，
+共 17 阶段，包含独立 ISA 计划、来源导入、基线审查和生成后复验。补全工作遵循 `Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md`。
+环境准备契约见
 `Guide_Doc/ACT4_Environment_Guide.md`。每个资产阶段先阅读相关资料、在当前 stage journal 中制定工作计划，
 再按计划生产或更新资产并记录进度，由现有 checker 验证后进入下一阶段。
 
@@ -355,13 +357,15 @@ Git status 记录的是起点背景，不要求仓库绝对干净。已有非关
 
 ### 5.2 原生计划和规范输入
 
-输入阶段已捕获 `inputs/receipt.json`、原生 `source-plan.yaml`（若存在）、逐文件规范原文
-和正式 `norm-rules.json`。语义以选定原文为准，规则 ID 取 JSON 的 name；两者版本分别固定，
+输入阶段已捕获 `inputs/receipt.json`、`source_plans` 中的全部 `plans/` 快照（若存在）、逐文件规范原文
+和经核验的 `norm-rules.json`。语义以选定原文为准，规则 ID 取 JSON 的 name；待发布规则
+通过原文逐字绑定，并在原生映射中保留 untagged_upstream。两者版本分别固定，
 需核对文本。不得用进度表或模型记忆代替规范，也不得编辑收据。
 
 ### 5.3 原生计划是唯一权威
 
-创建或完善 `riscv-arch-test/testplans/priv/{DUT}.yaml`，遵循捕获的原生 schema。每个
+逐个创建或完善 `inputs/receipt.json` 的 native_plans 所列原生路径，保留组合目标的子计划结构，
+遵循捕获的原生 schema。每个
 coverpoint 行填写 name、goal、description、expectation、check、rules；保留来源请求。
 规范支持的新行为可以补充。Check 自动派生 `{DUT}.csv` 与 `{DUT}_testplan.md`，无需
 手工维护两份相同计划。完整原生示例见 `Guide_Doc/ACT4_Generation_Guide.md section 3`。
@@ -374,7 +378,7 @@ coverpoint 行填写 name、goal、description、expectation、check、rules；�
 
 ### 5.5 规则与设计追溯
 
-原生行的 rules 必须来自捕获的正式规则。`reports/plan_manual_sv_mapping.md` 解释
+原生行的 rules 必须来自公开规则或已核验的原文绑定。`reports/plan_manual_sv_mapping.md` 解释
 原文→原生计划→实际 coverage 观察模型，不能把字段名字相似当作行为一致的证明。
 完整输入和映射契约见 `Guide_Doc/ACT4_Generation_Guide.md section 2` 至
 `Guide_Doc/ACT4_Generation_Guide.md section 5`。
@@ -481,14 +485,17 @@ writer 和 Developer Guide。需要确认：
 - `group_test_chunks()` 和最终文件命名；
 - `testcases_per_file` 的当前限制。
 
-本流程仅新建并迭代本次创建的 suite generator：
+根据 asset_contract.yaml 的 extension_sources 新建或补齐实际原生生成器。以下是顶层
+入口的路径示例，不要求共享或子目录实现另建一个重复文件：
 
 ```text
 riscv-arch-test/generators/testgen/src/testgen/priv/extensions/{DUT}.py
 ```
 
-若该路径在本轮基线已存在，当前新 suite 工作流要求阻塞，不能覆盖。内部 coverage/init/
-mapping 也只在 04 阶段复制到基线不存在的 ACT4 同名路径，内容逐字节一致并登记 copied。
+既有生成器是可复用、可补全的资产，不构成阻塞。共享源码修改需验证其他消费者；
+coverage/init/mapping 按实际新增或修改登记，源文件和贡献集保持一致。
+缺失模型、工具、刺激/观察接口和通用增强按
+`Guide_Doc/ACT4_Checker_Guide/ACT4GenerationCompletionChecker.md` 实施并验证，不只列出待办。
 
 generator 必须用当前 registry 原生参数声明 required extensions、MARCH、params、
 extra defines 和分文件策略。需要改变启动特权级、trap 或结束流程时，先使用 switch
@@ -554,8 +561,9 @@ make
 接受带标签、空白、注释和逗号操作数的 `.word/.quad` 整数数据指令，不强制按 XLEN 选择
 指令，也不比较两个文件的数值。SUCCESS 后允许普通统计输出。
 
-05/06 checker 按 self_checking.command 中的 `CONFIG_FILES`、`WORKDIR` 和 test_config
-的 `name` 将 ELF/signature/results/log 限定在同一构建目录。选择信息无法解析时直接报错，
+04 先用原生选择清单核对基线审查的全部必验 build。05/06 对同一矩阵逐配置绑定
+源码、XLEN 和 ELF/signature/results/log。只对适用源码要求证据，但并集不得漏掉正式源文件；
+主配置写入 self_checking，其他配置的成功签名构建写入 attempts。选择信息无法解析时直接报错，
 不回退到其他配置的历史产物。`reference_runs_checked` 是进入日志检查的数量；
 `complete_reference_runs` 只统计日志、signature/results 格式和区间检查均无 error 的链路，
 不表示最终 ELF 已在 DUT 上执行。
@@ -790,7 +798,7 @@ file manifest 约束。原生贡献验证额外确认只应用交付文件后能
 
 | 现象 | 常见原因 | 正确处理 |
 | --- | --- | --- |
-| 原生输入不完整 | 版本不匹配或所选规范缺少正式规则 | 补齐可信来源，不伪造规则或收据 |
+| 规则索引不完整 | 标签未发布或独立规范尚未收录 | 绑定固定原文并追踪待补标签，不伪造正式 ID；继续生成 |
 | 原生请求丢失 | 修改计划时删除了原覆盖目标 | 恢复来源请求，保留测试范围 |
 | 人类 testplan 漂移 | 只改了机器 CSV | 同步 Markdown 的表、rule 和详细小节 |
 | rule 不存在 | 从 prose 猜了 ID | 从所选 规则 JSON 的 name 取值 |
@@ -815,10 +823,7 @@ file manifest 约束。原生贡献验证额外确认只应用交付文件后能
 典型入口是：
 
 ```bash
-ucagent /absolute/path/to/workspace H \
-  --plugin act4 \
-  --plugin-workflow act4:privileged-suite-generation \
-  --output act4_assets --mcp-server-no-file-tools --gen-instruct-file AGENTS.md --tui
+act4-run /absolute/path/run.yaml
 ```
 
 执行时按第 4.2 节在当前 stage journal 制定计划、逐项记录和恢复进度；使用 Check 获取

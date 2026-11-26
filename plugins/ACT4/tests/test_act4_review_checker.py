@@ -16,7 +16,7 @@ from ucagent_act4.checkers import act4_review_checker
 from ucagent_act4.checkers.act4_asset_checker import ACT4AssetChecker
 from ucagent_act4 import environment
 from ucagent_act4.plugin import get_plugin
-from ucagent.plugins import LoadedPlugin, create_plugin_checker_registry, load_plugin
+from ucagent.plugins import load_plugin
 from ucagent.verify_agent import VerifyAgent
 
 
@@ -49,7 +49,7 @@ def complete_environment_stage(manager, workspace: Path) -> None:
     passed, result = checker.do_check(action="probe")
     assert not passed and result["error_code"] == "act4_environment_plan_required"
     directory = workspace / "reports/intermediate/H/environment"
-    plan = {"schema_version": 1, "tools": []}
+    plan = {"schema_version": 1, "tools": [], "native_smoke": {"suite": "H", "config": "config/sail/fixture/test_config.yaml"}}
     for identifier in sorted(environment.TOOL_IDS):
         plan["tools"].append({
             "id": identifier, "version": "current host probe", "basis": "isolated workflow test",
@@ -72,7 +72,7 @@ class ReviewHarness:
         self.root = root
         self.source = root / "riscv-arch-test"
         self.source.mkdir()
-        subprocess.run(["git", "init", "-q", str(self.source)], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "act4", str(self.source)], check=True)
         (self.source / "README.md").write_text("Native CI: python3 check.py\n")
         (self.source / "generators").mkdir()
         (self.source / "generators/H.py").write_text('"""Native H generator fixture."""\nVALUE = 1\n')
@@ -917,52 +917,6 @@ def test_guide_complete_no_repair_examples(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("skill_enabled", [True, False])
-@pytest.mark.parametrize("input_root", ["riscv-arch-test", "local-module"])
-def test_review_workflow_initializes_without_skill_dependency(tmp_path: Path, monkeypatch, skill_enabled: bool, input_root: str) -> None:
-    """Initialize all three automatic stages for either input source in both skill modes."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("ACT4_REVIEW_ROOT", input_root)
-    loaded = load_plugin(str(Path(__file__).resolve().parents[1]))
-    workflow = next(item for item in loaded.plugin.workflows if item.name == "extension-review")
-    config = yaml.safe_load(workflow.config_file.read_text())
-    registry = create_plugin_checker_registry([LoadedPlugin(loaded.plugin, loaded.plugin.name, "test")])
-    for stage in config["stage"]:
-        for gate in stage["checker"]:
-            registry[gate["clss"]](**gate["args"])
-    agent = VerifyAgent(workspace=str(tmp_path), dut_name="H", output="reports",
-        workflow_config_file=str(workflow.config_file), plugins=[loaded],
-        plugin_workflow=f"{loaded.plugin.name}:{workflow.name}",
-        template_context_factory=workflow.template_context_factory,
-        plugin_guide_doc_paths=[str(path) for path in workflow.guide_doc_paths],
-        cfg_override=[{"backend.key_name": "blank"}, {"skill.use_skill": skill_enabled}, {"langfuse.enable": False}],
-        no_embed_tools=True, no_history=True)
-    try:
-        assert [stage.name for stage in agent.stage_manager.stages] == ["prepare_resources", "prepare_environment", "review_plan", "review_audit", "review_repair"]
-        assert all(gate.act4_root == input_root for stage in agent.stage_manager.stages[2:] for gate in stage.checker)
-        assert "isa-plan.yaml" in str(agent.stage_manager.stages[2].task())
-        assert all(not stage.is_hmcheck_needed() for stage in agent.stage_manager.stages)
-        assert all(not stage.skill_list for stage in agent.stage_manager.stages)
-        assert [tool.name for tool in agent.tool_list_plugin] == ["ACT4ReviewDocument", "ACT4Resources"]
-        assert agent.cfg.loop_settings.max_stalled_rounds == 8
-        assert "static_bug_analysis" not in str(agent.cfg.mission.prompt.tips)
-        audit = agent.stage_manager.stages[3]
-        final = agent.stage_manager.stages[-1]
-        assert "semantic_review" in str(audit.task()) and "review_tasks" in str(audit.task())
-        assert '"prepare_environment": true' in str(audit.task())
-        assert "prepare_environment" in audit.checker[0].accepted_stage_args
-        assert "finding:<ID>" in str(final.task())
-        if not skill_enabled:
-            assert not (tmp_path / ".ucagent/skills").exists()
-        assert agent.cfg.write_dirs == ["reports"]
-        assert agent.cfg.un_write_dirs == ["Guide_Doc"]
-        assert (tmp_path / "Guide_Doc/ACT4_Extension_Review_Guide.md").is_file()
-        from ucagent.tools.fileops import is_file_writeable
-        assert not is_file_writeable(f"{input_root}/generators/H.py", agent.cfg.un_write_dirs, agent.cfg.write_dirs)[0]
-    finally:
-        agent.exit()
-
-
-@pytest.mark.parametrize("skill_enabled", [True, False])
 @pytest.mark.parametrize("prepare_before_restart", [True, False])
 @pytest.mark.parametrize("repair_supported", [True, False])
 def test_real_complete_advances_automatically_and_resumes_repairs(tmp_path: Path, monkeypatch,
@@ -975,11 +929,24 @@ def test_real_complete_advances_automatically_and_resumes_repairs(tmp_path: Path
         review["changes"] = []
         harness.write("review.yaml", review)
     loaded = load_plugin(str(Path(__file__).resolve().parents[1]))
-    workflow = next(item for item in loaded.plugin.workflows if item.name == "extension-review")
+    workflow = next(item for item in loaded.plugin.workflows if item.name == "privileged-suite-generation")
+    definition = yaml.safe_load(workflow.config_file.read_text())
+    stages = {stage["name"]: stage for stage in definition["stage"]}
+    selected = [stages[name] for name in ("prepare_resources", "prepare_environment", "review_plan", "review_audit", "review_repair")]
+    for stage in selected:
+        for gate in stage["checker"]:
+            if gate["clss"] == "ACT4ReviewChecker":
+                gate["args"].pop("generation_root")
+                gate["args"].update(act4_root="riscv-arch-test", result_dir="{OUT}")
+    configuration = tmp_path / "review-stage-fixture.yaml"
+    configuration.write_text(yaml.safe_dump({"stage": selected, "template": "", "write_dirs": ["reports"],
+        "un_write_dirs": ["Guide_Doc"], "template_overwrite": {"PROJECT": "act4_priv_suite_generate", "ACT4_RESOURCE_ROOT": "",
+        "ACT4_ACT_ROOT": "riscv-arch-test", "ACT4_MANUAL_ROOT": "riscv-isa-manual", "ACT4_ACT_REF": "act4", "ACT4_MANUAL_REF": "HEAD", "ACT4_TARGET_CONTEXT": "Synthetic review fixture only"},
+        "guide_doc": definition["guide_doc"]}, allow_unicode=True))
     options = dict(workspace=str(tmp_path), dut_name="H", output="reports",
-        workflow_config_file=str(workflow.config_file), plugins=[loaded],
+        workflow_config_file=str(configuration), plugins=[loaded],
         plugin_workflow=f"{loaded.plugin.name}:{workflow.name}",
-        template_context_factory=workflow.template_context_factory,
+        template_context_factory=None,
         plugin_guide_doc_paths=[str(path) for path in workflow.guide_doc_paths],
         cfg_override=[{"backend.key_name": "blank"}, {"skill.use_skill": skill_enabled},
                       {"langfuse.enable": False}], no_embed_tools=True, no_history=False)

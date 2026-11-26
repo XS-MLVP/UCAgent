@@ -94,8 +94,9 @@ experimental manifest 和 AI review，self_checking 与 sail_coverage 分别报�
 区分链路 `test.S -> build/*.sig.elf -> *.sig -> *.results -> elfs/*.elf`：
 参考模型运行 signature ELF 并生成预期数据；最终 self-checking ELF 生成完成不证明其已
 在 DUT/testbench 上执行。日志格式/record 数检查也不证明每个 target 的语义正确或 bin 命中。
-05/06 checker 根据 self_checking.command 的 `CONFIG_FILES`、`WORKDIR` 和 test_config 的
-`name` 自动限定所选构建目录；选择信息无法解析时报错，不使用其他配置的旧产物。
+对基线每个必验 build 使用相同的原生选择参数、suite 工作目录和各自 config_file。
+主签名构建写入 self_checking，其他必验构建逐配置写入 attempts；只在该配置目录配对证据。
+04 预检清单中的代表用例先跑签名链和最终模型摘要，然后扩展到全配置；启动失败不等于 suite 功能失败。
 signature/results 检查十六进制/整数数据格式和区间记录数，允许标签、空白、注释、逗号
 操作数及 `.word/.quad` 混用，不比较数值；SUCCESS 后可以有普通统计输出。
 `reference_runs_checked` 是进入日志检查的数量；`complete_reference_runs` 仅计入日志、

@@ -516,10 +516,10 @@ def test_workflow_initializes_with_optional_skills_and_environment(tmp_path, mon
 def test_generation_and_review_registration_stay_separate():
     """Add one opt-in workflow without changing the existing entry point order or requirements."""
     plugin = get_plugin()
-    assert [item.name for item in plugin.workflows] == ["privileged-suite-generation", "extension-review", "xiangshan-v3-handoff", "unprivileged-suite-generation"]
+    assert [item.name for item in plugin.workflows] == ["privileged-suite-generation", "xiangshan-v3-handoff", "unprivileged-suite-generation"]
     assert not plugin.workflows[0].command_requirements
     assert not plugin.workflows[2].command_requirements
-    for workflow in plugin.workflows[:2]:
+    for workflow in (item for item in plugin.workflows if item.name.endswith("suite-generation")):
         assert "ACT4XiangShanChecker" not in workflow.config_file.read_text()
 
 

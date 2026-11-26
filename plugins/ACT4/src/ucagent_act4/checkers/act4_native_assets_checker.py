@@ -15,6 +15,8 @@ from ..xiangshan_bundle import safe_path, write_json
 class ACT4NativeAssetsChecker(Checker):
     """Check upstream-native plans and the source set required by their CTP consumers."""
 
+    accepted_stage_args = ("timeout",)
+
     def __init__(self, suite: str, kind: str, input_dir: str, contract_file: str, phase: str = "assets",
                  act4_root: str = "riscv-arch-test", normalized_csv: str | None = None,
                  human_plan: str | None = None, output_file: str | None = None, cfg=None):
@@ -27,14 +29,20 @@ class ACT4NativeAssetsChecker(Checker):
         self.phase, self.act4_root = phase, act4_root
         self.normalized_csv, self.human_plan, self.output_file = normalized_csv, human_plan, output_file
 
-    def do_check(self, is_complete=False, **kwargs):
+    def do_check(self, is_complete=False, timeout=300, **kwargs):
         """Validate live native sources, reject dropped requests, and refresh derived local views."""
+        artifacts = []
         try:
             if kwargs:
-                raise ValueError("Native asset validation takes no stage arguments")
+                return False, {"error_code": "act4_native_arguments", "error": "Unknown native asset check arguments",
+                               "observed": sorted(kwargs), "artifact": self.contract_file,
+                               "next_action": "Call Check() or Complete() without stage arguments; timeout is permitted."}
+            if type(timeout) is not int or timeout <= 0:
+                raise ValueError("timeout must be a positive integer in seconds")
             workspace = Path(self.workspace).resolve()
             directory = safe_path(workspace, self.input_dir)
             data = read_generation_inputs(directory, self.smanager_get_value)
+            artifacts = data["native_plans"]
             root = safe_path(workspace, self.act4_root)
             if (data["suite"], data["kind"], data["act4"]["path"]) != (self.suite, self.kind, str(root)):
                 raise ValueError("Native assets must use the prepared suite, style and ACT checkout")
@@ -48,5 +56,6 @@ class ACT4NativeAssetsChecker(Checker):
             return True, result
         except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError, SchemaError, ValidationError) as error:
             return False, {"error_code": "act4_native_assets", "error": str(error)[:2000],
-                           "artifact": self.contract_file if self.phase == "assets" else native_plan_path(self.suite, self.kind),
+                           "artifact": self.contract_file if self.phase == "assets" else self.input_dir + "/receipt.json",
+                           "native_plans": artifacts[:20],
                            "next_action": "Repair the native plan, rule/parameter mapping or CTP include at the indicated location, then Check. Do not edit derived CSV/Markdown views or source receipts."}

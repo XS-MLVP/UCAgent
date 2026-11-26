@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "source_url": "https://docs.google.com/spreadsheets/d/1EuG4LV1TQDx4wTzYDWEAvq0fwaWjNuxenwDARZmrN-E/edit?gid=0#gid=0",
+  "retrieved_on": "2026-11-19",
+  "sha256": "fdd026c1ca8759f0607e37a8aeef42f95eaa02eb96923109406f8baeff27cdb7",
+  "non_targets": {
+    "Hypervisor Branch": "Section heading; choose a specific suite listed beneath it",
+    "otheres needing attention": "Unspecified reminder, without an identifiable test scope",
+    "Alibaba": "Vendor label, without a specific test scope",
+    "Tenstorrent Hypervisor Suites": "Section heading; choose a specific suite listed beneath it",
+    "Alibaba Hypervisor Suites": "Section heading; choose a specific suite listed beneath it"
+  }
+}

@@ -67,20 +67,20 @@ upstream_status 是 complete/partial/absent；resolution 是 reuse/local/generat
 ```yaml
 generation_jobs:
   - id: G1
-    suite: MissingPrivSuite
+    suite: Sstc
     generation_style: scenario
     rationale: 上游缺少所需场景型实现，现有资产不能覆盖这一义务
     eligibility: 需要异常处理及状态恢复，已确认该 suite 满足原生行为计划和 ISA 输入要求
 ```
 
-MissingPrivSuite 只是字段示例，不能编造已有 CTP 或规范依据。新计划/章节由生成流程建立。
+该例仅说明在已确认缺失时如何声明 Sstc；suite 必须选择 Test Suite 目录的精确标识，不能编造私有名称、已有 CTP 或规范依据。新计划/章节由生成流程建立。
 无 trap 的指令矩阵任务使用 `generation_style: table`，eligibility 说明为何可用原生表驱动。
 scope 通过后，在 inputs 阶段调用
 `Check(stage_args={"action":"synthesize","generation_id":"G1","timeout":7200})`。
 它在输出内的独立 clone 运行所选工作流：scenario 对应 `privileged-suite-generation`，
 table 对应 `unprivileged-suite-generation`。保留执行日志、完成记录、原生验证收据和文件指纹。
 只有所选工作流全部阶段正常完成且未跳过、相应原生资产和报告齐全，才允许 generated:G1 导入；
-实际只导入本轮缺项涉及文件。已有实现不得覆盖，需增量修改时使用 review 后重新交付。
+实际只导入本轮缺项涉及文件。已有实现不得覆盖，需增量修改时使用对应生成入口的 improve 策略后重新交付。
 原生接口不支持或微架构测试写 unavailable，说明后续需求，不降低生成门槛。
 无模型后端、缺规范或生成失败需保留真实原因。
 
@@ -95,7 +95,7 @@ ACT4_INPUT_ROOT=local-assets/Sstc \
 ucagent "$ACT4_WORKSPACE" Timer \
   --plugin act4 \
   --plugin-workflow act4:xiangshan-v3-handoff \
-  --output act4_xiangshan --backend langchain --tui
+  --output act4_xiangshan --backend codex --mcp-server-no-file-tools --loop --exit-on-completion
 ```
 
 以下所有文档写在 `{OUT}/intermediate/{DUT}/handoff/`。创建完整的 `input.yaml`：

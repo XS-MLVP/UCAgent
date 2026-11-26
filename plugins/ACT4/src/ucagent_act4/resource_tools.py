@@ -30,7 +30,7 @@ class ACT4Resources(UCTool):
     """Read registered inputs and retain selected references without arbitrary external file access."""
 
     name: str = "ACT4Resources"
-    description: str = "Read prepared ACT4/ISA/XiangShan inputs without copying whole repositories. Use list/read for exploration, snapshot only for an ISA file cited by a workspace-relative reference_files entry. Never modify shared inputs. Before independent ISA planning completes, read manual and dependency installation files only."
+    description: str = "Read prepared inputs without copying whole repositories. Use list/read for exploration and snapshot for ISA citations. Never modify shared inputs. During generation this tool exposes ISA sources only; after independent planning and source import, read selected assets from riscv-arch-test with file tools."
     args_schema: type[BaseModel] = ResourceArgs
     workspace: str
     resource_dir: str
@@ -39,6 +39,7 @@ class ACT4Resources(UCTool):
     refs: dict[str, str] = Field(default_factory=dict)
     write_dirs: list[str] = Field(default_factory=list)
     un_write_dirs: list[str] = Field(default_factory=list)
+    generation: bool = False
 
     def _run(self, action: str, resource: str = "manual", path: str = "", start_line: int = 1, limit: int = 100) -> dict:
         """Restrict all reads to configured sources and all snapshots to this run's reference area."""
@@ -50,6 +51,8 @@ class ACT4Resources(UCTool):
                 return {"ok": True, "resources": data["resources"]}
             if action not in {"list", "read", "snapshot"} or resource not in self.inputs:
                 raise ValueError("Select a prepared resource and list/read/snapshot")
+            if self.generation and resource != "manual":
+                raise ValueError("During generation use this tool for ISA sources only. Complete independent ISA planning and source import, then read selected assets in riscv-arch-test; never read excluded regenerated designs")
             if type(limit) is not int or not 1 <= limit <= 200 or type(start_line) is not int or start_line < 1:
                 raise ValueError("Use start_line >= 1 and limit in 1..200")
             record = data["resources"][resource]
@@ -107,5 +110,5 @@ def create_resource_tools(context: PluginContext) -> list[UCTool]:
                 return [ACT4Resources(workspace=str(context.workspace), resource_dir=args["resource_dir"],
                                       inputs=dict(args["inputs"]), cache_root=args.get("cache_root", ""),
                                       refs=dict(args.get("refs", {})), write_dirs=list(context.write_dirs),
-                                      un_write_dirs=list(context.un_write_dirs))]
+                                      un_write_dirs=list(context.un_write_dirs), generation=args.get("materialize") is False)]
     return []

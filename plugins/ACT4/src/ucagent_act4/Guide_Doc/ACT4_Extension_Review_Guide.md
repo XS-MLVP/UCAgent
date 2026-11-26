@@ -3,13 +3,16 @@
 
 目标是增量审查和优化已有测试资产，而不是为新 suite 生成一套替代资产。输入为用户提供或共享缓存中的
 独立 Git clone 或用户指定的本地模块资产目录，以及只读 ISA 规范；支持 privileged/unprivileged 资产。
-`ACT4_REVIEW_ROOT` 默认为 `riscv-arch-test`，也可指定本地目录的相对或绝对路径，不要求它有 Git 历史。
+两个生成入口共同使用本审查契约；来源和写入边界见 `Guide_Doc/ACT4_Run_Guide.md`。
 最终报告 `{OUT}/final.md` 和补丁 `{OUT}/changes.patch` 放在输出根目录；其余审查资料位于
 `{OUT}/intermediate/{DUT}/review/`，原始资产始终不修改。
 不要求在线 CTP 必须有 Google Sheet；现有计划、CTP、规范和当前版本的源码共同确定边界。
 Skill 不参与必需流程。
 
 ## 1. 范围与证据
+
+任务中的 `ACT4_SUITE_SCOPE` 提供原始 Test Suite 名称、说明和来源行，用于确定 ISA 范围，
+不直接决定输入资产路径。保留同名条目的全部来源范围；独立计划不参考进度状态推断已有测试或覆盖。
 
 先运行 `prepare_resources`，通过 `ACT4Resources` 浏览共享输入并保留选定 ISA 引用，详见
 `Guide_Doc/ACT4_Resources_Guide.md`；再运行 `prepare_environment`，详见 `Guide_Doc/ACT4_Environment_Guide.md`；工具摘要位于
@@ -348,8 +351,8 @@ confirmed_defect 在尚未 fixed 时，其 finding 判断仍应为 issues/confir
 新增或删除的集合成员必须在 changes 声明的路径内；不能从集合中隐藏仍然存在的原始资产。
 新增 coverage 定义也必须列入，最终 traceability 才能按真实修复后的定义复验。
 
-审查 Complete 后直接进入 `review_repair`。先 Check 准备 `candidate/`，此时缺少
-修复后证据或 final.yaml 的提示表示下一步尚待完成；在 candidate 中实施已声明的修复，再运行
+基线审查 Complete 后进入生成阶段；生成完成后进入 `review_repair`。先 Check 同步 `candidate/`，此时缺少
+修复后证据或 final.yaml 的提示表示下一步尚待完成；在 riscv-arch-test 中实施已声明的修复，再运行
 `Check(stage_args={"run_commands": true})`；命令生成物保留到 evidence 所指位置，不能把
 日志/缓存误当贡献源码。generated `.S` 应由 generator 重生成，不手工弱化断言。
 发现额外问题时，先更新 review.yaml 的 findings、changes、post_assets 和相应判断，Check
@@ -387,11 +390,16 @@ detail 写确切缺项或未完成的工作，impact 写影响，why_not_resolve
 `alternatives` 为列表；每项包含唯一 `route`（suite_local/positive_subset/native_entrypoint/validation_only）、
 `status`（tried/ruled_out/pending）、`result` 和精确 `basis`。外部阻塞必须覆盖全部四条路径且无 pending，
 owner 为 user/upstream；明确不可执行时可用来源排除，不要求无意义运行。其它停止允许空列表。
-例外：已确认缺陷若以 unfinished_work 停止，至少有一条 tried 或有来源的 ruled_out，不能只写计划就结束。
+在两条生成路线，`unfinished_work` 默认返回定向修复队列；排除一条替代路线不是停工许可。只有操作方在启动配置 `accepted_partial_findings` 点名接受的项目才可这样部分交付，且已确认缺陷至少有一条 tried 或有来源的 ruled_out。
 tried 必须填写本问题已完成的 `experiment_id` 并引用对应实验日志/产物或 evidence-experiment-ID.json；
 源码调查能明确排除的路径用 ruled_out，不伪造执行记录。
 预算停止另写 `budget: {resource: seconds|tokens|experiments, limit: 正整数, consumed: 不小于limit的整数, basis: 引用列表}`。
 限额和用量必须有实际记录；不能编造数字来跳过调查。每类未完成工作仍需保留真实限制。
+生成流程只接受 `experiments.json` 可核对的实际次数或耗时；没有 token 用量凭证不能据此停止。
+如果缺项是漏审已冻结资料，不要伪造源码修改或改写初审范围。在 `review.yaml` 中可增加例如
+`scope_repairs: {F2: {manual.adoc: [[81, 96]]}}`：F2 必须是已验收的 `validation_gap`，只追加原 `reference_files` 中确实遗漏、未重叠的物理行段。
+重新收集 after 证据、评估新增块和义务，在 `finding:F2` 的复核中逐段引用新增原文；已关联的遗漏资料不能只补一个文件，新增块仍是 unverified 时也不能报 fixed。已读原文不等于已实现其要求。
+对于返回的本地待办，修改生成器或映射等来源、重新生成，回到最早受影响的生成/验证阶段重取证据，再运行审查阶段的 `Check(stage_args={"run_commands":true})`；不要只改最终报告或重复相同的 Check。
 dismissed 用于经过调查排除的疑点，必须 classification 为 not_a_defect 且语义复核 confirmed，
 它不计为修复，也不需要制造源码改动。CI 总状态仍反映全部声明 lane，可选 lane 缺失时 ci_passed
 仍为 false；报告另列必要验证是否通过，流程可以完整交付。
@@ -548,7 +556,7 @@ changes:
     validation_jobs: [gen, build, model, cov, lint]
 ```
 
-调查后仍缺必要信息，`final.yaml` 完整内容：
+下面是部分交付的 `final.yaml` 完整示例；在生成流程中该 `unfinished_work` 示例的前提是启动配置已明确 `accepted_partial_findings: [F1]`：
 
 ```yaml
 schema_version: 1
@@ -790,7 +798,7 @@ action=status 查看当前状态。实验可在 audit 或 repair 的普通 Check
 ELF/签名等声明产物。实验引用可通过 ACT4ReviewDocument quote/update 提取；修改已完成的实验
 或证据将使引用失效。失败保留为失败，不自动判定资产缺陷，也不自动将 finding 标为 fixed。
 按 success_criterion 阅读产物、解释结果，然后更新 repair_plan、investigation；正式修复仍须
-更新 changes/post_assets、修改正式 candidate 并取得独立 after 证据。
+更新 changes/post_assets、修改 riscv-arch-test、Check 同步 candidate 并取得独立 after 证据。
 
 默认本轮最多执行 6 次实验，累计实验时间上限 1800 秒；需要调整时交由操作员修改工作流额度。
 每个 ID 只能执行一次，完成或中断后用新 ID
@@ -805,9 +813,8 @@ ELF/签名等声明产物。实验引用可通过 ACT4ReviewDocument quote/updat
 将可复用任务引用写入 `semantic_review.reused_tasks`；不复制或重新编造判断。新写判断优先，
 文档工具更新某任务时移除它对应的复用引用。完整 final 示例中不使用复用时可省略此列表。
 
-只有执行输入、参考资料、目标/任务配置、验证状态和产物指纹都不变，且任务定义和引文仍对应当前
-来源时才可复用。结论保持原值，unverified 不会因此变成 passed。finding、change 和义务最终状态
-仍须重新判断。源码或未明确依赖发生变化时采用全量重审，不声称能自动推断最小语义影响范围。
+执行输入和结果都不变时，只复用任务定义和引文仍匹配的判断。生成源码或执行结果变化时，只有只引用单个冻结规范块、未关联缺陷、覆盖或实现、且义务映射未变的单任务判断仍可复用。其余依赖不明者重审。
+结论保持原值，unverified 不会因此变成 passed；finding、change 和义务最终状态始终重新判断。
 普通 Check 会重新核验所有复用身份、当前引文和关联关系；伪造、重复、过期或缺少快照的复用失败。
 这减少无变更审查的重复撰写，不跳过最终任务或执行验证。详情记录 reused_from，便于追溯。
 
@@ -884,18 +891,6 @@ ISA 独立设计或证明覆盖完整。上面无修复的完整 review/final �
 
 ## 11. 本地模块入口
 
-输入可以是工作区内 `my-assets/`，也可由 ACT4_REVIEW_ROOT 指定既有资产的绝对路径，
-无需复制到当前运行目录；输入与输出、ISA 来源必须分离。外部输入通过 ACT4Resources 只读浏览，
-不要用父目录逃逸路径或符号链接访问未配置来源。
-
-```bash
-ACT4_REVIEW_ROOT=my-assets ucagent /path/to/workspace Sstc \
-  --plugin act4 \
-  --plugin-workflow act4:extension-review \
-  --output act4_review --backend langchain --tui
-```
-
-配置覆盖也可设置 `template_overwrite.ACT4_REVIEW_ROOT`。本地输入使用相同的独立计划、审查、
-实验、候选修复和复验流程，不自动创建 Git 历史，不将资产导入或覆盖 riscv-arch-test。
-现有 ACT4/SV/mapping 静态规则仍适用；非标准布局需说明扫描限制，不能靠改标签伪装合规。
-最终 changes.patch 应相对于该输入根目录检查和应用，不自动写回用户资产。
+输入通过运行配置逐类选择 upstream/local；本地原输出只读，导入及隔离步骤见
+`Guide_Doc/ACT4_Run_Guide.md section 2`。scope 相对 act4-inputs；修改写入 riscv-arch-test，
+复验 Check 自动同步 candidate，不直接编辑 candidate。独立计划先于已有资产审查。

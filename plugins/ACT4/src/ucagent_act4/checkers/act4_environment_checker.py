@@ -18,12 +18,14 @@ class ACT4EnvironmentChecker(Checker):
 
     accepted_stage_args = ("action", "timeout")
 
-    def __init__(self, environment_dir: str, cfg=None, **kwargs):
+    def __init__(self, environment_dir: str, cfg=None, smoke_root=None, **kwargs):
         """Store the output location; defer all probes and installation to explicit Check actions."""
         super().__init__()
         if kwargs:
             raise ValueError(f"Unknown environment arguments: {sorted(kwargs)}")
         self.environment_dir = environment_dir
+        self.cfg = cfg
+        self.smoke_root = smoke_root
         self._active_log = None
         self._cancelled = False
 
@@ -78,13 +80,14 @@ class ACT4EnvironmentChecker(Checker):
             if action == "prepare":
                 if sha256(directory / "host.json") != self.smanager_get_value(state_key(directory) + ":host", None):
                     raise ValueError('Host probes changed; Check(stage_args={"action":"probe"}) before preparation')
-                plan = read_plan(directory)
+                plan = read_plan(directory, require_smoke=self.smoke_root is not None)
                 host = json.loads((directory / "host.json").read_text(encoding="utf-8"))
                 for result in host.values():
                     if sha256(safe_path(directory, result["log"])) != result["sha256"]:
                         raise ValueError(f"Host probe log changed: {result['log']}; probe again before installation")
                 self.smanager_set_value(state_key(directory), None)
-                receipt = prepare(directory, plan, timeout, self._track)
+                baseline = safe_path(Path(self.workspace), self.smoke_root) if self.smoke_root else None
+                receipt = prepare(directory, plan, timeout, self._track, smoke_root=baseline)
                 self.smanager_set_value(state_key(directory), sha256(directory / "receipt.json"))
             else:
                 if not self.smanager_get_value(state_key(directory), None):
@@ -93,8 +96,16 @@ class ACT4EnvironmentChecker(Checker):
             prepared_environment(directory, self.smanager_get_value)
             pending = [name for name, tool in receipt["tools"].items() if tool["status"] == "needs_install"]
             if pending:
-                raise ValueError(f"Missing tools need installation recipes: {pending}; supply install argv and prepare again")
+                return False, {"error_code": "act4_environment_tools", "error": "Required tool probes have not passed",
+                               "artifact": str(directory / "plan.yaml"),
+                               "observed": {name: receipt["tools"][name].get("reason", "Inspect probe logs") for name in pending[:12]},
+                               "remaining": max(0, len(pending) - 12),
+                               "next_action": 'Read the named probe logs and compare the documented version with the literal version field and expected_output regex. Fix a mismatched probe instead of reinstalling a working tool; otherwise provide a scoped install recipe. Then Check(stage_args={"action":"prepare"}).'}
             limitations = {name: tool["reason"] for name, tool in receipt["tools"].items() if tool["status"] == "unavailable"}
+            if self.smoke_root:
+                for lane in ("model_passed", "coverage_readback_passed"):
+                    if receipt.get("native_smoke", {}).get(lane) is not True:
+                        limitations[lane] = "Baseline smoke did not establish this capability; inspect smoke logs and retain the limitation until suite validation"
             return True, {"status": "prepared_with_limitations" if limitations else "prepared", "limitations": limitations,
                           "summary": str(directory / "summary.md"), "activation": str(directory / "activate.sh"),
                           "next_action": "Call Complete without action. Use activate.sh for shell commands; retain unavailable capabilities in the final report. Preparation does not prove tests passed."}

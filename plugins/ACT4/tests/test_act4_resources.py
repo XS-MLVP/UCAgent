@@ -37,6 +37,63 @@ def checker_for(workspace: Path, *, workflow: str = "review", inputs: dict | Non
     return checker.set_workspace(str(workspace)).set_stage_manager(manager)
 
 
+def test_generation_defers_checkout_until_policy_import(tmp_path):
+    """Keep initial preparation read-only and avoid exposing existing designs through resource reads."""
+    upstream = tmp_path / "upstream"
+    act = repository(upstream, "act4")
+    manual = repository(upstream, "manual", "main")
+    workspace = tmp_path / "run"
+    inputs = {"act4": str(act), "manual": str(manual)}
+    checker = checker_for(workspace, workflow="generation", inputs=inputs)
+    checker.materialize = False
+    passed, result = checker.do_check(action="prepare")
+    assert passed, result
+    assert not (workspace / "riscv-arch-test").exists()
+    reader = ACT4Resources(workspace=str(workspace), resource_dir="out/intermediate/Sstc/resources", inputs=inputs, generation=True)
+    assert not reader._run("read", resource="act4", path="README.md")["ok"]
+    assert reader._run("read", resource="manual", path="README.md")["ok"]
+
+
+@pytest.mark.parametrize("selection", ["commit", "branch", "tag", "head", "unknown_commit"])
+def test_download_revision_selection_checks_out_before_submodules(tmp_path, monkeypatch, selection):
+    """Cold caches support exact commits as well as named refs without cloning a SHA as a branch."""
+    upstream = repository(tmp_path / "upstream", "act4")
+    pinned = resources.git_text(upstream, "rev-parse", "HEAD")
+    subprocess.run(["git", "-C", str(upstream), "tag", "release"], check=True)
+    (upstream / "README.md").write_text("New head\n")
+    subprocess.run(["git", "-C", str(upstream), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(upstream), "-c", "user.name=Fixture", "-c", "user.email=test@example.org",
+                    "commit", "-qm", "next"], check=True)
+    latest = resources.git_text(upstream, "rev-parse", "HEAD")
+    ref = {"commit": pinned, "branch": "act4", "tag": "release", "head": "HEAD", "unknown_commit": "f" * 40}[selection]
+    monkeypatch.setitem(resources.REPOSITORIES, "act4", ("riscv-arch-test", str(upstream), "act4"))
+    workspace = tmp_path / "output/run"
+    workspace.mkdir(parents=True)
+    commands = []
+    original = resources.execute
+
+    def observe(argv, *args, **kwargs):
+        """Retain exact subprocess ordering while executing against a local repository."""
+        commands.append(argv)
+        return original(argv, *args, **kwargs)
+
+    monkeypatch.setattr(resources, "execute", observe)
+    directory = workspace / "resources"
+    args = (workspace, directory, tmp_path / "output/.cache", tmp_path / "output",
+            {"act4": "riscv-arch-test"}, {"act4": ref}, "review", 30)
+    if selection == "unknown_commit":
+        with pytest.raises(ValueError, match="pin-fetch"):
+            resources.prepare_sources(*args)
+        assert not (directory / "receipt.json").exists()
+        return
+    result = resources.prepare_sources(*args)
+    assert result["resources"]["act4"]["identity"]["head"] == (pinned if selection in {"commit", "tag"} else latest)
+    assert commands[-1] == ["git", "submodule", "update", "--init", "--recursive"]
+    if selection == "commit":
+        assert "--branch" not in commands[0]
+        assert commands[-2] == ["git", "checkout", "--detach", pinned]
+
+
 def test_two_runs_import_existing_output_once_without_network(tmp_path, monkeypatch):
     """A clean old checkout seeds one pinned cache; later runs read exactly that same checkout."""
     output = tmp_path / "output"
@@ -69,6 +126,24 @@ def test_two_runs_import_existing_output_once_without_network(tmp_path, monkeypa
     assert reused["resources"]["act4"]["origin"] == "shared_cache"
     assert len(commands) == count
     assert (act / "README.md").read_text() == "Pinned source\nsecond line\n"
+
+
+def test_explicit_git_source_must_match_requested_revision(tmp_path):
+    """Reject an explicitly configured checkout whose HEAD differs from its selected ref."""
+    upstream = tmp_path / "upstream"
+    act = repository(upstream, "act4")
+    manual = repository(upstream, "manual", "main")
+    requested = resources.git_text(act, "rev-parse", "HEAD")
+    (act / "README.md").write_text("Different checkout\n")
+    subprocess.run(["git", "-C", str(act), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(act), "-c", "user.name=Fixture", "-c", "user.email=test@example.org",
+                    "commit", "-qm", "later revision"], check=True)
+    workspace = tmp_path / "run"
+    workspace.mkdir()
+    with pytest.raises(ValueError, match="not requested"):
+        resources.prepare_sources(workspace, workspace / "resources", tmp_path / "cache", tmp_path,
+                                  {"act4": str(act), "manual": str(manual)},
+                                  {"act4": requested, "manual": "HEAD"}, "review", 30)
 
 
 def test_generation_gets_private_writable_checkout(tmp_path):
