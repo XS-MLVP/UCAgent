@@ -476,6 +476,7 @@ class RunUnityChipTest(RunPyTest):
              **kw) -> dict:
         """Run the Unity chip tests."""
         return_test_details = kw.get("return_test_details", False)
+        self.result_dir = self._resolve_result_dir()
         shutil.rmtree(self.result_dir, ignore_errors=True)
         all_pass, pyt_out, pyt_err = RunPyTest.do(self,
                                           os.path.join(self.workspace, test_dir_or_file),
@@ -599,15 +600,49 @@ class RunUnityChipTest(RunPyTest):
             "report-name": "index.html",
             "report-custom": ["coverage-gui-xpra"],
         })
-        self.result_dir = report_dir
+        self._result_dir_name = self._normalize_report_dir(report_dir)
+        self.result_dir = self._result_dir_name
         if workspace is None:
             return
         self.set_workspace(workspace)
 
+    @staticmethod
+    def _normalize_report_dir(report_dir: str) -> str:
+        """Return a workspace-relative result directory or reject it."""
+        if not isinstance(report_dir, str) or not report_dir.strip():
+            raise ValueError(
+                "report_dir must be a non-empty directory relative to the workspace"
+            )
+        normalized = os.path.normpath(report_dir.strip())
+        if os.path.isabs(normalized):
+            raise ValueError(
+                f"report_dir must be relative to the workspace: {report_dir!r}"
+            )
+        if normalized == os.curdir or normalized.split(os.sep)[0] == os.pardir:
+            raise ValueError(
+                f"report_dir must name a directory inside the workspace: {report_dir!r}"
+            )
+        return normalized
+
+    def _resolve_result_dir(self) -> str:
+        """Resolve the result directory and require it to stay in the workspace."""
+        workspace = os.path.realpath(os.path.abspath(self.workspace))
+        result_dir = os.path.realpath(os.path.join(workspace, self._result_dir_name))
+        try:
+            inside = os.path.commonpath([workspace, result_dir]) == workspace
+        except ValueError:
+            inside = False
+        if not inside or result_dir == workspace:
+            raise ValueError(
+                f"report_dir {self._result_dir_name!r} escapes the workspace "
+                f"{workspace!r}"
+            )
+        return result_dir
+
     def set_workspace(self, workspace: str):
-        """Set the workspace directory."""
+        """Set the workspace directory that contains the result directory."""
         self.workspace = os.path.abspath(workspace)
-        self.result_dir = os.path.join(self.workspace, self.result_dir)
+        self.result_dir = self._resolve_result_dir()
         self.set_pytest_args({
             "report-dir": self.result_dir
         })

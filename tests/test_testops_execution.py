@@ -372,3 +372,64 @@ def test_run_pytest_decodes_native_output_independently_of_parent_locale(tmp_pat
     assert stderr == stdout
     assert tool.last_execution["pytest_returncode"] == exit_code
     assert tool.last_execution["diagnostic_code"] == ("OK" if exit_code == 0 else "PYTEST_ASSERTION_FAILURE")
+
+
+@pytest.mark.parametrize(
+    ("report_dir", "message"),
+    [
+        ("/absolute/report", "relative to the workspace"),
+        ("", "non-empty"),
+        (".", "inside the workspace"),
+        ("../escape", "inside the workspace"),
+    ],
+)
+def test_unity_test_rejects_report_dir_outside_workspace(
+    tmp_path, report_dir, message
+):
+    """A result directory outside the workspace must be refused, not deleted."""
+
+    with pytest.raises(ValueError, match=message):
+        RunUnityChipTest(workspace=str(tmp_path), report_dir=report_dir)
+
+
+def test_unity_test_workspace_reset_keeps_report_dir_inside_workspace(tmp_path):
+    """Repeated workspace binding must not re-append the result directory."""
+
+    tool = RunUnityChipTest(workspace=str(tmp_path), report_dir="report")
+    nested = tmp_path / "nested"
+
+    tool.set_workspace(str(nested))
+
+    assert Path(tool.result_dir).parent == nested.resolve()
+    assert Path(tool.result_dir).name == "report"
+
+
+def test_unity_test_removes_only_its_result_dir_before_running(tmp_path, monkeypatch):
+    """Clearing stale results must not touch files next to the result directory."""
+
+    workspace = tmp_path / "workspace"
+    result_dir = workspace / "uc_test_report"
+    result_dir.mkdir(parents=True)
+    (result_dir / "stale.json").write_text("{}", encoding="utf-8")
+    protected = workspace / "keep.txt"
+    protected.write_text("keep", encoding="utf-8")
+    tool = RunUnityChipTest(workspace=str(workspace))
+
+    def fake_run_pytest(self, *_args, **_kwargs):
+        self.last_execution = {
+            "pytest_returncode": 0,
+            "invocation_success": True,
+            "diagnostic_code": "OK",
+            "report_exists": False,
+            "report_has_tests": False,
+        }
+        self._last_process_stdout = "1 passed"
+        self._last_process_stderr = ""
+        return True, "1 passed", ""
+
+    monkeypatch.setattr(RunPyTest, "do", fake_run_pytest)
+
+    tool.do("tests")
+
+    assert not result_dir.exists()
+    assert protected.read_text(encoding="utf-8") == "keep"
