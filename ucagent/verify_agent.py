@@ -1331,6 +1331,8 @@ class VerifyAgent:
         if any(summary.get(key) in (None, "", [], {}) for key in required):
             return None
         diagnostic = {key: summary[key] for key in required}
+        if summary.get("failure_key"):
+            diagnostic["error"] = summary["failure_key"]
         serialized = json.dumps(
             diagnostic,
             ensure_ascii=True,
@@ -1390,6 +1392,7 @@ class VerifyAgent:
         if current_revision == previous_revision:
             if (
                 previous_artifacts is not None
+                and not (check_result.get("failure_summary") or {}).get("progress_requires_check")
                 and self._loop_artifact_state() != previous_artifacts
             ):
                 self._reset_stalled_rounds()

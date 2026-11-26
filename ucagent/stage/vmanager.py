@@ -1277,6 +1277,16 @@ class StageManager(object):
         else:
             count = 1
         state[stage_index] = (signature, count)
+        agent = getattr(self, "agent", None)
+        budget = getattr(agent, "_max_stalled_rounds", 0)
+        if (failure_summary.get("progress_requires_check") is True and failure_summary.get("failure_key")
+                and isinstance(budget, int) and 0 < budget <= count):
+            result = copy.deepcopy(failure_summary)
+            result.update(repeat_failure_count=count, paused=True)
+            result["next_action"] = f"Pause automatic retries. {result['next_action']} Resume after the blocking evidence changes."
+            agent._need_human = True
+            agent.set_break(True)
+            return result
         if count < self.REPEAT_FAILURE_ESCALATION_THRESHOLD:
             return failure_summary
         escalation = (
@@ -1328,6 +1338,20 @@ class StageManager(object):
         if "action" in ret_data and isinstance(ret_data["action"], str):
             ret_data["action"] = f"{ret_data['action']} {warning}"
 
+    def _record_validation(self, operation, passed, result):
+        """Publish only the latest formal decision, never raw checker output or stage arguments."""
+        workspace = getattr(self, "workspace", None)
+        if not workspace or not os.path.isdir(os.path.join(workspace, ".ucagent")):
+            return
+        summary = result.get("failure_summary") or {}
+        diagnostic = {key: summary[key][:500] for key in ("error_code", "owner", "next_action", "failure_key", "location", "artifact") if isinstance(summary.get(key), str)}
+        diagnostic.update({key: summary[key] for key in ("failed_validation_gate_index", "repeat_failure_count", "paused") if type(summary.get(key)) in (bool, int)})
+        event = {"operation": operation, "stage_index": self.stage_index, "passed": passed, "time": time.time(), "diagnostic": diagnostic}
+        try:
+            fc.save_json_file(os.path.join(workspace, ".ucagent", "last_validation.json"), event)
+        except (OSError, RuntimeError, ValueError) as error:
+            warning(f"Could not update the validation status snapshot: {error}")
+
     def check(self, timeout, stage_args=None):
         """Validate the current stage and identify the next action before completion."""
         if not self.stage_index < len(self.stages):
@@ -1371,6 +1395,7 @@ class StageManager(object):
             ret_data["action"] = action
         ret_data["check_info"] = ck_info
         self.last_check_info = copy.deepcopy(ret_data)
+        self._record_validation("Check", ck_pass, ret_data)
         ret_data = self._public_check_result(ret_data)
         self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass or batch_advanced:
@@ -1672,6 +1697,7 @@ class StageManager(object):
         stage = self.stages[self.stage_index]
         # A missing journal is repairable without running or advancing checkers.
         if stage.meta_get_journal() is None:
+            self._record_validation("Complete", False, {})
             return {"complete": False,
                     "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
         ignored_stage_args = self._ignored_stage_args_keys(stage, stage_args)
@@ -1684,18 +1710,21 @@ class StageManager(object):
             llm_msg = self.gen_pass_suggestion(self._public_check_info(ck_info))
             ck_pass = stage.get_approved()
             if not ck_pass:
+                self._record_validation("Complete", False, {})
                 if isinstance(llm_msg, str):
                     return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
                 return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
         if ck_pass and stage.is_hmcheck_needed():
             hm_passed, ck_msg = stage.get_hmcheck_state()
             if hm_passed is None:
+                self._record_validation("Complete", False, {})
                 self.agent._need_human = True
                 return {"error": ("Now you have passed the self check of this stage, but human check is needed before completing this stage. "
                                   "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
                                   "Then wait for human review and approval."),
                         "complete": False}
             elif hm_passed is False:
+                self._record_validation("Complete", False, {})
                 self.agent._need_human = True
                 return {"error": ("Human check did not approve your work for this stage. "
                                   "Please address the issues raised by the human reviewer and then use the `Complete` tool again to complete this stage."),
@@ -1732,6 +1761,7 @@ class StageManager(object):
         if not ck_pass:
             self.last_check_info["action"] = action
         self.last_check_info["check_info"] = ck_info
+        self._record_validation("Complete", ck_pass, self.last_check_info)
         self.validation_revision = getattr(self, "validation_revision", 0) + 1
         if ck_pass:
             self._reset_repeat_failure_state(self.stage_index)

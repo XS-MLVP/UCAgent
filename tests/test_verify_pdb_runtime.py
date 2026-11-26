@@ -3,6 +3,7 @@
 """Regression coverage for PDB commands, console output, and runtime controls."""
 
 import os
+import json
 import readline
 import signal
 import shlex
@@ -1495,6 +1496,47 @@ def test_internal_state_and_transient_files_do_not_reset_idle_rounds(tmp_path):
 
     assert agent._loop_artifact_state() == previous
     assert agent._need_human is True
+
+
+def test_keyed_validation_stall_requires_verified_progress(tmp_path):
+    """Report rewrites cannot reset the same blocker, but a changed affected set can."""
+    agent = _stall_probe(max_stalled_rounds=2)
+    agent.output_dir = str(tmp_path)
+    failure = _failure_result()
+    failure["failure_summary"].update(failure_key="set-A", progress_requires_check=True)
+    _record_validation_round(agent, failure)
+    previous = agent._loop_artifact_state()
+    (tmp_path / "report.md").write_text("more diagnosis")
+    agent._update_stalled_rounds(agent.stage_manager.validation_revision, 19, previous)
+    assert agent._need_human
+    agent._need_human = False
+    failure["failure_summary"]["failure_key"] = "set-B"
+    _record_validation_round(agent, failure)
+    assert not agent._need_human and agent._stalled_rounds == 1
+
+
+def test_same_turn_stall_and_formal_validation_snapshot(tmp_path):
+    """Stop repeated formal checks even in one model turn; do not persist raw output."""
+    from ucagent.stage.vmanager import StageManager
+
+    manager = StageManager.__new__(StageManager)
+    manager.agent = _FakeAgent()
+    manager.agent._max_stalled_rounds = 2
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 2
+    (tmp_path / ".ucagent").mkdir()
+    diagnostic = _failure_result()["failure_summary"]
+    diagnostic.update(failure_key="same", progress_requires_check=True, location="a" * 600, artifact="reports/evidence.json")
+    assert "paused" not in manager._escalate_repeated_failure(2, diagnostic)
+    blocked = manager._escalate_repeated_failure(2, diagnostic)
+    assert blocked["paused"] and manager.agent.is_break()
+    manager._record_validation("Check", False, {"failure_summary": blocked, "STDOUT": "private log"})
+    event = (tmp_path / ".ucagent/last_validation.json").read_text()
+    assert "private log" not in event and json.loads(event)["diagnostic"]["paused"]
+    assert json.loads(event)["diagnostic"]["location"] == "a" * 500
+    assert json.loads(event)["diagnostic"]["artifact"] == "reports/evidence.json"
+    manager._record_validation("Complete", True, {})
+    assert json.loads((tmp_path / ".ucagent/last_validation.json").read_text())["passed"]
 
 
 def test_stage_change_without_validation_resets_stall_budget():
